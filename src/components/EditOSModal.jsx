@@ -360,7 +360,7 @@ const EditOSModal = ({
     if (currentMethod === 'carne' && String(clientData?.['Status de Pagamento'] || '').toLowerCase() === 'inadimplente') {
       const clientName = clientData?.['Nome Completo'] || clientData?.['NOME'] || 'o cliente';
       const allow = window.confirm(
-        `⚠️ ALERTA DE RISCO DE CRÉDITO:\n\n${clientName} possui pendências financeiras registradas no cadastro.\n\nDeseja autorizar o parcelamento em CARNÊ / BOLETO para este cliente?`
+        `⚠️ ALERTA DE RISCO DE CRÉDITO:\n\n${clientName} possui pendências financeiras registradas no cadastro.\n\nDeseja autorizar o parcelamento em BOLETO para este cliente?`
       );
       if (!allow) return;
     }
@@ -391,6 +391,66 @@ const EditOSModal = ({
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    const isSecondary = Boolean(
+      osData?.isSecondaryOS || 
+      (osData?.FINANCEIRO_UNIFICADO && (cleanVal(osData?.['VALOR TOTAL']) === 0 || osData?.['VALOR TOTAL'] === '0,00'))
+    );
+
+    if (isSecondary) {
+      const updatedRow = {
+        ...osData,
+        'OS DA VENDA': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
+        'OS': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
+        'VENDA_OS': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
+        'STATUS_OS': 'Aguardando Confirmação',
+        'SITUAÇÃO': 'Aguardando Confirmação',
+        'PAGAMENTO_CONFERIDO': 'Sim',
+        'DUPLICATAS_GERADAS': true,
+        'isSecondaryOS': true,
+        'isMultiOS': true,
+        'saleId': osData.saleId || osData.parentSaleId || '',
+        'parentSaleId': osData.parentSaleId || osData.saleId || '',
+        'FINANCEIRO_UNIFICADO': true,
+        'COBRANCA_UNICA': true,
+        'ARMAÇÃO': formData.armacao,
+        'LENTE': formData.lente,
+        'PRODUTO': [formData.armacao, formData.lente].filter(Boolean).join(' + ') || osData['PRODUTO'] || 'Óculos Completo',
+        'LABORATORIO': formData.laboratorio,
+        'MEDICO': formData.medico,
+        'DATA  DA VENDA': formData.dataVenda,
+        'DATA': formData.dataVenda,
+        'DATA ENTREGA ÓCULOS': formData.dataEntrega,
+        'DATA_ENTREGA': formData.dataEntrega,
+        'VALOR TOTAL': '0,00',
+        'VALOR': '0,00',
+        'VALOR DA VENDA': '0,00',
+        'VALOR ENTRADA': '0,00',
+        'SINAL': '0,00',
+        'RESTANTE': '0,00',
+        'FORMAS_PAGAMENTO': osData['FORMAS_PAGAMENTO'] || `Cobrança Unificada (Venda #${osData.saleId || ''})`,
+        'FORMA_PAGTO': osData['FORMA_PAGTO'] || `Cobrança Unificada (Venda #${osData.saleId || ''})`,
+        'OD_ESF': formData.odEsf,
+        'OD_CIL': formData.odCil,
+        'OD_EIXO': formData.odEixo,
+        'OD_DNP': formData.odDnp,
+        'OD_ALT': formData.odAlt,
+        'OE_ESF': formData.oeEsf,
+        'OE_CIL': formData.oeCil,
+        'OE_EIXO': formData.oeEixo,
+        'OE_DNP': formData.oeDnp,
+        'OE_ALT': formData.oeAlt,
+        'ADICAO': formData.adicao,
+        'OBSERVACOES': formData.observacoes,
+        'DATA_EDICAO': new Date().toISOString(),
+        'EDITADO_POR': currentUser?.username || 'Usuário'
+      };
+
+      if (onSave) {
+        onSave(updatedRow);
+      }
+      return;
+    }
 
     const totalVal = cleanVal(formData.valorTotal);
     if (totalVal <= 0) {
@@ -441,7 +501,13 @@ const EditOSModal = ({
       'STATUS_OS': 'Aguardando Confirmação',
       'SITUAÇÃO': 'Aguardando Confirmação',
       'PAGAMENTO_CONFERIDO': 'Não',
-      'DUPLICATAS_GERADAS': false,
+      'DUPLICATAS_GERADAS': osData.isSecondaryOS ? true : false,
+      'isSecondaryOS': Boolean(osData.isSecondaryOS),
+      'isMultiOS': Boolean(osData.isMultiOS),
+      'saleId': osData.saleId || osData.parentSaleId || '',
+      'parentSaleId': osData.parentSaleId || osData.saleId || '',
+      'FINANCEIRO_UNIFICADO': Boolean(osData.FINANCEIRO_UNIFICADO || osData.isSecondaryOS),
+      'COBRANCA_UNICA': Boolean(osData.COBRANCA_UNICA || osData.isSecondaryOS),
       'ARMAÇÃO': formData.armacao,
       'LENTE': formData.lente,
       'PRODUTO': formData.lente ? `${formData.armacao || 'Armação'} + ${formData.lente}` : (formData.armacao || osData['PRODUTO'] || 'Óculos Completo'),
@@ -860,6 +926,17 @@ const EditOSModal = ({
             {/* ─── ABA 3: FINANCEIRO & FORMAS DE PAGAMENTO DO PDV ─── */}
             {activeTab === 'financeiro' && (
               <div className="space-y-6">
+                {(osData?.isSecondaryOS || (osData?.FINANCEIRO_UNIFICADO && (cleanVal(osData?.['VALOR TOTAL']) === 0 || osData?.['VALOR TOTAL'] === '0,00'))) && (
+                  <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-bold flex items-start gap-3">
+                    <span className="text-base">🔗</span>
+                    <div>
+                      <p className="font-black text-white text-sm">Ordem de Serviço com Cobrança Unificada</p>
+                      <p className="text-[11px] opacity-90 mt-0.5">
+                        Esta OS pertence a um atendimento com múltiplos óculos. O faturamento, contas a receber e parcelas de boleto foram gerados exclusivamente na OS Principal para não duplicar dívidas no cliente.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Bloco 1: Valor Total e Resumo de Entrada / Restante */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
@@ -893,7 +970,7 @@ const EditOSModal = ({
 
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5">
-                      <DollarSign size={13} className="text-amber-400" /> A Prazo / Boleto (Carnê)
+                      <DollarSign size={13} className="text-amber-400" /> A Prazo / Boleto
                     </label>
                     <div className="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-amber-300 font-bold">
                       {fmtMoeda(totalBoletoCarne)}
@@ -1022,7 +1099,7 @@ const EditOSModal = ({
                       </div>
                     )}
 
-                    {/* Crédito ou Boleto/Carnê */}
+                    {/* Crédito ou Boleto */}
                     {['carne', 'credito'].includes(currentMethod) && (
                       <div className="space-y-3 pt-2 border-t border-slate-800">
                         <div className="flex items-center justify-between text-xs">
@@ -1044,7 +1121,7 @@ const EditOSModal = ({
                           </select>
                         </div>
 
-                        {/* Vencimentos exclusivamente para Boleto/Carnê */}
+                        {/* Vencimentos exclusivamente para Boleto */}
                         {currentMethod === 'carne' && (
                           <div className="space-y-2.5">
                             <div className="flex items-center justify-between text-xs">
@@ -1174,7 +1251,7 @@ const EditOSModal = ({
                       Reconfirmação Financeira Obrigatória (Semáforo Azul)
                     </p>
                     <p className="text-slate-300 leading-relaxed text-[11px]">
-                      Ao salvar as alterações, a OS voltará para <strong>"Aguardando Confirmação"</strong>. O financeiro revalidará os lançamentos e gerará as duplicatas limpas e atualizadas no sistema, evitando qualquer cobrança duplicada no carnê do cliente.
+                      Ao salvar as alterações, a OS voltará para <strong>"Aguardando Confirmação"</strong>. O financeiro revalidará os lançamentos e gerará as duplicatas limpas e atualizadas no sistema, evitando qualquer cobrança duplicada no boleto do cliente.
                     </p>
                   </div>
                 </div>

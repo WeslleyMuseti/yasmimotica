@@ -90,7 +90,7 @@ const RowEditModal = ({
     // 1. Prioridade estrita pelo nome da tabela/planilha
     if (sheetName) {
       if (sheetName === 'CONTAS_RECEBER') {
-        return { label: 'Conta a Receber (Mensalidade / Carnê)', icon: <DollarSign className="text-emerald-400" size={24} />, color: 'from-emerald-500/20 to-teal-500/20', border: 'border-emerald-500/30' };
+        return { label: 'Conta a Receber (Mensalidade / Boleto)', icon: <DollarSign className="text-emerald-400" size={24} />, color: 'from-emerald-500/20 to-teal-500/20', border: 'border-emerald-500/30' };
       }
       if (sheetName === 'CONTAS_PAGAR') {
         return { label: 'Conta a Pagar (Despesa)', icon: <DollarSign className="text-rose-400" size={24} />, color: 'from-rose-500/20 to-red-500/20', border: 'border-rose-500/30' };
@@ -128,7 +128,7 @@ const RowEditModal = ({
     }
     // Verificações financeiras antes de CPF genérico (evita confundir Contas a Receber com Cadastro de Cliente)
     if (colsStr.includes('receber') || colsStr.includes('venda_os') || colsStr.includes('documento') || colsStr.includes('meio_pagamento') || (colsStr.includes('vencimento') && colsStr.includes('valor'))) {
-      return { label: 'Conta a Receber (Receita / Carnê)', icon: <DollarSign className="text-emerald-400" size={24} />, color: 'from-emerald-500/20 to-teal-500/20', border: 'border-emerald-500/30' };
+      return { label: 'Conta a Receber (Receita / Boleto)', icon: <DollarSign className="text-emerald-400" size={24} />, color: 'from-emerald-500/20 to-teal-500/20', border: 'border-emerald-500/30' };
     }
     if (colsStr.includes('whatsapp') || colsStr.includes('nascimento') || (colsStr.includes('cpf') && !colsStr.includes('vencimento'))) {
       return { label: 'Cadastro de Cliente', icon: <User className="text-indigo-400" size={24} />, color: 'from-indigo-500/20 to-purple-500/20', border: 'border-indigo-500/30' };

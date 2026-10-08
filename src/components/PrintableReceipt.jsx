@@ -3,7 +3,15 @@ import React from 'react';
 const PrintableReceipt = ({ saleData, clientData }) => {
   if (!saleData || !clientData) return null;
 
-  const fmtMoeda = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const cleanBoletoText = (text) => {
+    if (!text) return '';
+    return String(text)
+      .replace(/(?<!\p{L})Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, 'Boleto')
+      .replace(/(?<!\p{L})Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, 'Boleto')
+      .replace(/(?<!\p{L})Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, 'Boleto')
+      .replace(/(?<!\p{L})Boleto\s+da\s+Loja(?!\p{L})/gui, 'Boleto')
+      .replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto');
+  };
 
   return (
     <div id="print-receipt-section" className="hidden print:block p-8 bg-white text-black max-w-sm mx-auto font-mono text-xs">
@@ -96,11 +104,11 @@ const PrintableReceipt = ({ saleData, clientData }) => {
           {saleData.pagamentosLista && saleData.pagamentosLista.length > 0 ? (
             saleData.pagamentosLista.map((p, idx) => (
               <div key={idx} className="flex justify-between text-gray-800">
-                <span>• {p.texto}</span>
+                <span>• {cleanBoletoText(p.texto)}</span>
               </div>
             ))
           ) : (
-            <p>{saleData.formaPagamento || 'Não informado'}</p>
+            <p>{cleanBoletoText(saleData.formaPagamento) || 'Não informado'}</p>
           )}
 
           {saleData.trocoTotal > 0 && (
@@ -112,10 +120,10 @@ const PrintableReceipt = ({ saleData, clientData }) => {
         </div>
       </div>
 
-      {/* Parcelamento Boleto / Crediário se houver */}
+      {/* Parcelamento Boleto se houver */}
       {saleData.parcelas && saleData.parcelas.length > 0 && (
         <div className="border-b border-black pb-3 mb-3 text-[10px]">
-          <p className="font-bold uppercase mb-1">Parcelamento / Boleto:</p>
+          <p className="font-bold uppercase mb-1">Parcelamento no Boleto:</p>
           <div className="grid grid-cols-2 gap-1">
             {saleData.parcelas.map((parc, idx) => (
               <div key={idx} className="flex justify-between pr-2">

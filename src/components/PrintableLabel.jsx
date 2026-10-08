@@ -295,18 +295,23 @@ export const SingleLabel50x30 = ({ item = {}, type = 'armacao', storeName = 'YAS
  */
 export const PrintableLabelSection = ({ labelData, labelType = 'haste_oculos', copies = 1 }) => {
   if (!labelData) return null;
+  const itemsList = Array.isArray(labelData)
+    ? labelData
+    : (labelData.multiItems || labelData.items || [labelData]);
 
   return (
     <div id="print-label-section" className="hidden print:block">
-      {Array.from({ length: copies }).map((_, idx) => (
-        <div key={idx} className="print-label-item mb-2">
-          {labelType === 'haste_oculos' || labelType === 'haste_joia' ? (
-            <SingleLabelGlassesJewelry item={labelData} />
-          ) : (
-            <SingleLabel50x30 item={labelData} type={labelType} />
-          )}
-        </div>
-      ))}
+      {itemsList.flatMap((singleItem, sIdx) =>
+        Array.from({ length: copies }).map((_, idx) => (
+          <div key={`${sIdx}-${idx}`} className="print-label-item mb-2">
+            {labelType === 'haste_oculos' || labelType === 'haste_joia' ? (
+              <SingleLabelGlassesJewelry item={singleItem} />
+            ) : (
+              <SingleLabel50x30 item={singleItem} type={labelType} />
+            )}
+          </div>
+        ))
+      )}
     </div>
   );
 };
@@ -315,7 +320,13 @@ export const PrintableLabelSection = ({ labelData, labelType = 'haste_oculos', c
  * Modal Interativo de Impressão de Etiquetas para Óculos, Joias e Envelopes
  */
 export const PrintableLabelModal = ({ isOpen, onClose, data, defaultType = 'haste_oculos' }) => {
-  const isOSData = Boolean(data?.numeroOS || data?.osNumber || data?.OS || data?.['OS DA VENDA'] || data?.['OS da COMPRA'] || data?.['VENDA_OS']);
+  const itemsList = Array.isArray(data) ? data : (data?.multiItems || data?.items || [data]);
+  const previewItem = itemsList[0] || data;
+  const isMulti = itemsList.length > 1;
+
+  const isOSData = Boolean(
+    previewItem?.numeroOS || previewItem?.osNumber || previewItem?.OS || previewItem?.['OS DA VENDA'] || previewItem?.['OS da COMPRA'] || previewItem?.['VENDA_OS']
+  );
   const initialType = isOSData ? (defaultType === 'envelope_lab' ? 'envelope_lab' : 'haste_oculos') : 'haste_oculos';
   
   const [labelType, setLabelType] = useState(initialType);
@@ -439,14 +450,21 @@ export const PrintableLabelModal = ({ isOpen, onClose, data, defaultType = 'hast
               </span>
             </div>
 
+            {isMulti && (
+              <div className="w-full mb-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold flex items-center justify-between">
+                <span>🏷️ Impressão Conjunta: {itemsList.length} etiquetas vinculadas</span>
+                <span className="font-mono text-[10px]">({itemsList.map(i => i.numeroOS || i.osNumber || i.OS).filter(Boolean).join(', ')})</span>
+              </div>
+            )}
+
             <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 shadow-inner flex items-center justify-center w-full min-h-[140px] overflow-x-auto">
               {labelType === 'haste_oculos' || labelType === 'haste_joia' ? (
                 <div className="w-full max-w-[430px] flex items-center justify-center">
-                  <SingleLabelGlassesJewelry item={data} />
+                  <SingleLabelGlassesJewelry item={previewItem} />
                 </div>
               ) : (
                 <div className="w-[220px] h-[130px] bg-white text-black rounded-lg p-2 shadow-2xl border border-slate-400 overflow-hidden flex flex-col justify-between">
-                  <SingleLabel50x30 item={data} type={labelType} />
+                  <SingleLabel50x30 item={previewItem} type={labelType} />
                 </div>
               )}
             </div>

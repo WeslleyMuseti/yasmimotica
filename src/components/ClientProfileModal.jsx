@@ -1493,12 +1493,12 @@ const ClientProfileModal = ({
                     </div>
                   )}
 
-                  {/* Boletos e Carnês do Cliente (Contas a Receber) */}
+                  {/* Boletos do Cliente (Contas a Receber) */}
                   {clientErpInvoices && clientErpInvoices.length > 0 && (
                     <div className="mb-6">
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-black flex items-center gap-2 text-emerald-400">
-                          <DollarSign size={18} /> Mensalidades, Boletos e Carnês (Financeiro)
+                          <DollarSign size={18} /> Mensalidades e Boletos (Financeiro)
                         </h3>
                         <span className="text-xs text-slate-400 font-medium">
                           {clientErpInvoices.length} {clientErpInvoices.length === 1 ? 'duplicata vinculada' : 'duplicatas vinculadas'}

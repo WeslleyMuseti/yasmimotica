@@ -212,30 +212,41 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
                 <p><strong>Fechamento:</strong> {data.dataFechamento || nowFormatted}</p>
               </div>
               
-              {/* Vendas por Meio de Pagamento */}
+              {/* 1. Valores Realmente Recebidos em Caixa */}
               <div className="border-b border-black my-1 py-1 space-y-0.5">
-                <p className="font-black text-[9px] uppercase tracking-wider text-gray-700">Faturamento por Método:</p>
-                <div className="flex justify-between"><span>💵 Dinheiro:</span> <span>R$ {formatCurrency(data.vendasDinheiro)}</span></div>
-                <div className="flex justify-between"><span>⚡ PIX:</span> <span>R$ {formatCurrency(data.vendasPix)}</span></div>
-                <div className="flex justify-between"><span>💳 Débito:</span> <span>R$ {formatCurrency(data.vendasDebito)}</span></div>
-                <div className="flex justify-between"><span>💳 Crédito:</span> <span>R$ {formatCurrency(data.vendasCredito)}</span></div>
-                <div className="flex justify-between"><span>📄 Boleto / Carnê:</span> <span>R$ {formatCurrency(data.vendasBoleto)}</span></div>
-                <div className="flex justify-between font-black text-[11px] border-t border-gray-400 pt-0.5 mt-0.5">
-                  <span>TOTAL FATURADO:</span>
-                  <span>R$ {formatCurrency(data.totalVendas)}</span>
+                <p className="font-black text-[9px] uppercase tracking-wider text-gray-800">1. Realmente Recebido em Caixa:</p>
+                <div className="flex justify-between"><span>💵 Dinheiro (Vendas Espécie):</span> <span>R$ {formatCurrency(data.vendasDinheiro)}</span></div>
+                {(parseCurrency(data.totalRecebimentosDinheiro) > 0) && (
+                  <div className="flex justify-between"><span>🎟️ Boleto em Dinheiro:</span> <span>R$ {formatCurrency(data.totalRecebimentosDinheiro)}</span></div>
+                )}
+                <div className="flex justify-between"><span>⚡ PIX (Transferência):</span> <span>R$ {formatCurrency(data.vendasPix)}</span></div>
+                <div className="flex justify-between"><span>💳 Cartão de Débito:</span> <span>R$ {formatCurrency(data.vendasDebito)}</span></div>
+                <div className="flex justify-between"><span>💳 Cartão de Crédito:</span> <span>R$ {formatCurrency(data.vendasCredito)}</span></div>
+                <div className="flex justify-between font-black text-[10.5px] border-t border-gray-400 pt-0.5 mt-0.5">
+                  <span>SUBTOTAL RECEBIDO:</span>
+                  <span>R$ {formatCurrency(data.totalRecebidosCaixa || (parseCurrency(data.vendasDinheiro) + parseCurrency(data.totalRecebimentosDinheiro) + parseCurrency(data.vendasPix) + parseCurrency(data.vendasDebito) + parseCurrency(data.vendasCredito)))}</span>
                 </div>
               </div>
 
-              {/* Movimentações da Gaveta Física */}
+              {/* 2. Valores Faturados a Prazo em Boleto (Recebível Futuro) */}
+              <div className="border-b border-black my-1 py-1 space-y-0.5 bg-gray-50 p-1 rounded">
+                <p className="font-black text-[9px] uppercase tracking-wider text-gray-800">2. A Prazo no Boleto (Recebível Futuro):</p>
+                <div className="flex justify-between"><span>Quantidade de Vendas:</span> <span>{data.vendasBoletoQtd || (parseCurrency(data.vendasBoletoTotal || data.vendasBoleto) > 0 ? 1 : 0)} venda(s)</span></div>
+                <div className="flex justify-between font-bold"><span>Total Faturado no Boleto:</span> <span>R$ {formatCurrency(data.vendasBoletoTotal || data.vendasBoleto)}</span></div>
+                <p className="text-[8px] text-gray-600 italic mt-0.5">
+                  * Recebível futuro em Contas a Receber. Não entra na gaveta física.
+                </p>
+              </div>
+
+              {/* 3. Movimentações da Gaveta Física (Espécie) */}
               <div className="border-b border-black pb-1 mb-1 space-y-0.5">
-                <p className="font-black text-[9px] uppercase tracking-wider text-gray-700">Movimentação da Gaveta (Espécie):</p>
+                <p className="font-black text-[9px] uppercase tracking-wider text-gray-800">3. Conferência da Gaveta Física (Espécie):</p>
                 <div className="flex justify-between"><span>(+) Fundo Inicial:</span> <span>R$ {formatCurrency(data.fundoInicial)}</span></div>
-                <div className="flex justify-between"><span>(+) Vendas em Espécie:</span> <span>R$ {formatCurrency(data.vendasDinheiro)}</span></div>
-                <div className="flex justify-between"><span>(+) Suprimentos:</span> <span>R$ {formatCurrency(data.totalSuprimentos)}</span></div>
-                <div className="flex justify-between"><span>(-) Sangrias:</span> <span>-R$ {formatCurrency(data.totalSangrias)}</span></div>
+                <div className="flex justify-between"><span>(+) Entradas em Espécie:</span> <span>R$ {formatCurrency(data.totalEntradasEspecie || (parseCurrency(data.vendasDinheiro) + parseCurrency(data.totalRecebimentosDinheiro) + parseCurrency(data.totalSuprimentos)))}</span></div>
+                <div className="flex justify-between"><span>(-) Sangrias / Despesas:</span> <span>-R$ {formatCurrency(data.totalSangrias)}</span></div>
                 
                 <div className="flex justify-between font-bold border-t border-gray-400 pt-0.5 mt-0.5">
-                  <span>DINHEIRO ESPERADO:</span>
+                  <span>SALDO FÍSICO ESPERADO:</span>
                   <span>R$ {formatCurrency(data.dinheiroEsperado)}</span>
                 </div>
                 <div className="flex justify-between font-black">
@@ -287,23 +298,38 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
                 <p className="col-span-2"><strong>Início:</strong> {data.dataAbertura || '---'}</p>
               </div>
               
+              {/* 1. Valores Realmente Recebidos em Caixa */}
               <div className="border-b border-black my-1 py-1 space-y-0.5">
-                <div className="flex justify-between"><span>💵 Dinheiro:</span> <span>R$ {formatCurrency(data.vendasDinheiro)}</span></div>
-                <div className="flex justify-between"><span>⚡ PIX:</span> <span>R$ {formatCurrency(data.vendasPix)}</span></div>
-                <div className="flex justify-between"><span>💳 Débito:</span> <span>R$ {formatCurrency(data.vendasDebito)}</span></div>
-                <div className="flex justify-between"><span>💳 Crédito:</span> <span>R$ {formatCurrency(data.vendasCredito)}</span></div>
-                <div className="flex justify-between"><span>📄 Boleto:</span> <span>R$ {formatCurrency(data.vendasBoleto)}</span></div>
-                <div className="flex justify-between font-black text-[11px] border-t border-gray-400 pt-0.5 mt-0.5">
-                  <span>TOTAL VENDAS:</span>
-                  <span>R$ {formatCurrency(data.totalVendas)}</span>
+                <p className="font-black text-[9px] uppercase tracking-wider text-gray-800">1. Realmente Recebido em Caixa:</p>
+                <div className="flex justify-between"><span>💵 Dinheiro (Espécie):</span> <span>R$ {formatCurrency(data.vendasDinheiro)}</span></div>
+                {(parseCurrency(data.totalRecebimentosDinheiro) > 0) && (
+                  <div className="flex justify-between"><span>🎟️ Boleto em Dinheiro:</span> <span>R$ {formatCurrency(data.totalRecebimentosDinheiro)}</span></div>
+                )}
+                <div className="flex justify-between"><span>⚡ PIX (Transferência):</span> <span>R$ {formatCurrency(data.vendasPix)}</span></div>
+                <div className="flex justify-between"><span>💳 Cartão de Débito:</span> <span>R$ {formatCurrency(data.vendasDebito)}</span></div>
+                <div className="flex justify-between"><span>💳 Cartão de Crédito:</span> <span>R$ {formatCurrency(data.vendasCredito)}</span></div>
+                <div className="flex justify-between font-black text-[10.5px] border-t border-gray-400 pt-0.5 mt-0.5">
+                  <span>SUBTOTAL RECEBIDO:</span>
+                  <span>R$ {formatCurrency(data.totalRecebidosCaixa || (parseCurrency(data.vendasDinheiro) + parseCurrency(data.totalRecebimentosDinheiro) + parseCurrency(data.vendasPix) + parseCurrency(data.vendasDebito) + parseCurrency(data.vendasCredito)))}</span>
                 </div>
               </div>
 
+              {/* 2. Valores Faturados a Prazo em Boleto (Recebível Futuro) */}
+              <div className="border-b border-black my-1 py-1 space-y-0.5 bg-gray-50 p-1 rounded">
+                <p className="font-black text-[9px] uppercase tracking-wider text-gray-800">2. A Prazo no Boleto (Recebível Futuro):</p>
+                <div className="flex justify-between"><span>Quantidade de Vendas:</span> <span>{data.vendasBoletoQtd || (parseCurrency(data.vendasBoletoTotal || data.vendasBoleto) > 0 ? 1 : 0)} venda(s)</span></div>
+                <div className="flex justify-between font-bold"><span>Total Faturado no Boleto:</span> <span>R$ {formatCurrency(data.vendasBoletoTotal || data.vendasBoleto)}</span></div>
+                <p className="text-[8px] text-gray-600 italic mt-0.5">
+                  * Recebível futuro em Contas a Receber. Não entra na gaveta física.
+                </p>
+              </div>
+
+              {/* 3. Conferência da Gaveta Física (Espécie) */}
               <div className="border-b border-black pb-1 mb-1 space-y-0.5">
+                <p className="font-black text-[9px] uppercase tracking-wider text-gray-800">3. Conferência da Gaveta Física (Espécie):</p>
                 <div className="flex justify-between"><span>(+) Fundo Inicial:</span> <span>R$ {formatCurrency(data.fundoInicial)}</span></div>
-                <div className="flex justify-between"><span>(+) Vendas Espécie:</span> <span>R$ {formatCurrency(data.vendasDinheiro)}</span></div>
-                <div className="flex justify-between"><span>(+) Suprimentos:</span> <span>R$ {formatCurrency(data.totalSuprimentos)}</span></div>
-                <div className="flex justify-between"><span>(-) Sangrias:</span> <span>-R$ {formatCurrency(data.totalSangrias)}</span></div>
+                <div className="flex justify-between"><span>(+) Entradas em Espécie:</span> <span>R$ {formatCurrency(data.totalEntradasEspecie || (parseCurrency(data.vendasDinheiro) + parseCurrency(data.totalRecebimentosDinheiro) + parseCurrency(data.totalSuprimentos)))}</span></div>
+                <div className="flex justify-between"><span>(-) Sangrias / Despesas:</span> <span>-R$ {formatCurrency(data.totalSangrias)}</span></div>
                 <div className="flex justify-between font-black text-[11px] border-t border-gray-400 pt-0.5 mt-0.5">
                   <span>GAVETA ATUAL:</span>
                   <span>R$ {formatCurrency(data.dinheiroEsperado)}</span>
@@ -450,7 +476,7 @@ const CashManagementModal = ({
 
     // Movimentações deste turno
     const sessionMovements = cashMovements.filter(m => {
-      if (m.unidade !== unit) return false;
+      if (m.unidade !== unit && unit !== 'ALL') return false;
       const mDate = new Date(m.dataHora || m.timestamp || 0);
       return mDate >= sessionStart;
     });
@@ -460,8 +486,64 @@ const CashManagementModal = ({
       const sUnit = s["UNIDADE"] || s["CIDADE"] || s["LOJA"] || "Central";
       if (sUnit !== unit && unit !== "ALL") return false;
       const sDate = parseItemDate(s);
-      if (sDate && sDate < sessionStart) return false;
+      if (!sDate) return false;
+      const rawStr = String(s.dataHora || s.timestamp || s.DATA_HORA || s.data || s.DATA || s['DATA  DA VENDA'] || s['DATA DA VENDA'] || '');
+      const hasTime = rawStr.includes(':') || (typeof s.timestamp === 'number');
+      if (hasTime) {
+        if (sDate < sessionStart) return false;
+      } else {
+        const startOfDay = new Date(sessionStart.getFullYear(), sessionStart.getMonth(), sessionStart.getDate());
+        if (sDate < startOfDay) return false;
+      }
       return true;
+    });
+
+    // 1. Extração analítica de faturamento a prazo em Boleto a partir de sessionSales
+    let vendasBoletoQtd = 0;
+    let vendasBoletoTotal = 0;
+
+    sessionSales.forEach(s => {
+      let bVal = 0;
+      let hasBoleto = false;
+
+      // a) Lista estruturada de pagamentos da venda
+      if (Array.isArray(s.pagamentosLista) && s.pagamentosLista.length > 0) {
+        s.pagamentosLista.forEach(p => {
+          const m = String(p.metodo || '').toLowerCase();
+          if (m === 'boleto' || m === 'carne' || m === 'carnê') {
+            hasBoleto = true;
+            bVal += parseCurrency(p.valor);
+          }
+        });
+      }
+
+      // b) Parcelas estruturadas
+      if (!hasBoleto && (s.PARCELAS_JSON || s.parcelas)) {
+        try {
+          const parcs = typeof s.PARCELAS_JSON === 'string' ? JSON.parse(s.PARCELAS_JSON) : (Array.isArray(s.PARCELAS_JSON) ? s.PARCELAS_JSON : (Array.isArray(s.parcelas) ? s.parcelas : []));
+          if (Array.isArray(parcs) && parcs.length > 0) {
+            hasBoleto = true;
+            bVal = parcs.reduce((acc, p) => acc + parseCurrency(p.valor), 0);
+          }
+        } catch (e) {}
+      }
+
+      // c) Texto descritivo da forma de pagamento
+      const fp = String(s['FORMA_PAGTO'] || s['FORMAS_PAGAMENTO'] || s.formaPagamento || '').toUpperCase();
+      if (!hasBoleto && (fp.includes('BOLETO') || fp.includes('CARNE') || fp.includes('CARNÊ'))) {
+        hasBoleto = true;
+        const rest = parseCurrency(s['RESTANTE'] || s.restante);
+        if (rest > 0) {
+          bVal = rest;
+        } else {
+          bVal = parseCurrency(s['VALOR TOTAL'] || s['VALOR DA VENDA'] || s.valorTotal);
+        }
+      }
+
+      if (hasBoleto && bVal > 0) {
+        vendasBoletoQtd++;
+        vendasBoletoTotal += bVal;
+      }
     });
 
     let fundoInicial = activeSession.fundoInicial || 0;
@@ -473,7 +555,7 @@ const CashManagementModal = ({
     let vendasPix = 0;
     let vendasDebito = 0;
     let vendasCredito = 0;
-    let vendasBoleto = 0;
+    let vendasBoletoFromMov = 0;
 
     sessionMovements.forEach(m => {
       const v = parseCurrency(m.valor);
@@ -492,12 +574,22 @@ const CashManagementModal = ({
         else if (fp.includes('PIX')) vendasPix += v;
         else if (fp.includes('DEBITO') || fp.includes('DÉBITO')) vendasDebito += v;
         else if (fp.includes('CREDITO') || fp.includes('CRÉDITO')) vendasCredito += v;
-        else if (fp.includes('BOLETO') || fp.includes('CARNE') || fp.includes('CARNÊ')) vendasBoleto += v;
+        else if (fp.includes('BOLETO') || fp.includes('CARNE') || fp.includes('CARNÊ')) vendasBoletoFromMov += v;
       }
     });
 
-    const totalVendas = vendasDinheiro + vendasPix + vendasDebito + vendasCredito + vendasBoleto;
-    const dinheiroEsperado = Math.max(0, fundoInicial + vendasDinheiro + totalSuprimentos + totalRecebimentosDinheiro - totalSangrias - totalSaidas);
+    const finalVendasBoleto = vendasBoletoTotal > 0 ? vendasBoletoTotal : vendasBoletoFromMov;
+    const finalVendasBoletoQtd = vendasBoletoQtd > 0 ? vendasBoletoQtd : (finalVendasBoleto > 0 ? 1 : 0);
+
+    // Valores realmente recebidos em caixa (dinheiro, boleto em dinheiro, pix, débito e crédito)
+    const totalRecebidosCaixa = vendasDinheiro + totalRecebimentosDinheiro + vendasPix + vendasDebito + vendasCredito;
+
+    // Conferência física da gaveta: Fundo Inicial + Entradas em espécie - Sangrias
+    const totalEntradasEspecie = vendasDinheiro + totalRecebimentosDinheiro + totalSuprimentos;
+    const dinheiroEsperado = Math.max(0, fundoInicial + totalEntradasEspecie - totalSangrias - totalSaidas);
+
+    // Faturamento geral do turno (recebimentos imediatos + faturado a prazo no boleto)
+    const totalFaturadoGeral = totalRecebidosCaixa + finalVendasBoleto;
 
     return {
       fundoInicial,
@@ -505,11 +597,16 @@ const CashManagementModal = ({
       vendasPix,
       vendasDebito,
       vendasCredito,
-      vendasBoleto,
-      totalVendas,
+      vendasBoleto: finalVendasBoleto,
+      vendasBoletoTotal: finalVendasBoleto,
+      vendasBoletoQtd: finalVendasBoletoQtd,
+      totalRecebidosCaixa,
+      totalVendas: totalFaturadoGeral,
+      totalFaturadoGeral,
       totalSangrias,
       totalSuprimentos,
       totalRecebimentosDinheiro,
+      totalEntradasEspecie,
       totalSaidas,
       dinheiroEsperado,
       listaMovimentos: sessionMovements,
@@ -622,6 +719,11 @@ const CashManagementModal = ({
       vendasDebito: sessionStats.vendasDebito,
       vendasCredito: sessionStats.vendasCredito,
       vendasBoleto: sessionStats.vendasBoleto,
+      vendasBoletoTotal: sessionStats.vendasBoletoTotal,
+      vendasBoletoQtd: sessionStats.vendasBoletoQtd,
+      totalRecebidosCaixa: sessionStats.totalRecebidosCaixa,
+      totalRecebimentosDinheiro: sessionStats.totalRecebimentosDinheiro,
+      totalEntradasEspecie: sessionStats.totalEntradasEspecie,
       totalVendas: sessionStats.totalVendas,
       totalSangrias: sessionStats.totalSangrias,
       totalSuprimentos: sessionStats.totalSuprimentos,
@@ -650,6 +752,8 @@ const CashManagementModal = ({
   // 5. Imprimir Extrato Parcial
   const handlePrintExtratoParcial = () => {
     const extratoData = {
+      unidade: selectedCity,
+      operador: currentUser?.username || 'Caixa',
       dataAbertura: activeSession?.dataHoraAbertura ? new Date(activeSession.dataHoraAbertura).toLocaleString('pt-BR') : '---',
       fundoInicial: sessionStats.fundoInicial,
       vendasDinheiro: sessionStats.vendasDinheiro,
@@ -657,6 +761,11 @@ const CashManagementModal = ({
       vendasDebito: sessionStats.vendasDebito,
       vendasCredito: sessionStats.vendasCredito,
       vendasBoleto: sessionStats.vendasBoleto,
+      vendasBoletoTotal: sessionStats.vendasBoletoTotal,
+      vendasBoletoQtd: sessionStats.vendasBoletoQtd,
+      totalRecebidosCaixa: sessionStats.totalRecebidosCaixa,
+      totalRecebimentosDinheiro: sessionStats.totalRecebimentosDinheiro,
+      totalEntradasEspecie: sessionStats.totalEntradasEspecie,
       totalVendas: sessionStats.totalVendas,
       totalSangrias: sessionStats.totalSangrias,
       totalSuprimentos: sessionStats.totalSuprimentos,
@@ -896,30 +1005,46 @@ const CashManagementModal = ({
           {modalType === 'FECHAMENTO' && (
             <form onSubmit={handleFechamentoSubmit} className="space-y-5">
               
-              {/* Resumo Consolidado do Turno */}
+              {/* 1. Valores Realmente Recebidos em Caixa */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <span className="text-xs font-black text-slate-300 uppercase tracking-wider">Faturamento Total do Turno:</span>
-                  <span className="text-base font-black text-emerald-400">R$ {formatCurrency(sessionStats.totalVendas)}</span>
+                  <span className="text-xs font-black text-slate-300 uppercase tracking-wider">1. Valores Realmente Recebidos em Caixa:</span>
+                  <span className="text-base font-black text-emerald-400">R$ {formatCurrency(sessionStats.totalRecebidosCaixa)}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
-                  <p>💵 Dinheiro: <strong className="text-white">R$ {formatCurrency(sessionStats.vendasDinheiro)}</strong></p>
+                  <p>💵 Dinheiro (Espécie): <strong className="text-white">R$ {formatCurrency(sessionStats.vendasDinheiro)}</strong></p>
+                  {(parseCurrency(sessionStats.totalRecebimentosDinheiro) > 0) && (
+                    <p>🎟️ Boleto em Dinheiro: <strong className="text-emerald-300">R$ {formatCurrency(sessionStats.totalRecebimentosDinheiro)}</strong></p>
+                  )}
                   <p>⚡ PIX: <strong className="text-white">R$ {formatCurrency(sessionStats.vendasPix)}</strong></p>
                   <p>💳 Débito: <strong className="text-white">R$ {formatCurrency(sessionStats.vendasDebito)}</strong></p>
                   <p>💳 Crédito: <strong className="text-white">R$ {formatCurrency(sessionStats.vendasCredito)}</strong></p>
-                  <p>📄 Boleto: <strong className="text-white">R$ {formatCurrency(sessionStats.vendasBoleto)}</strong></p>
                   <p>💸 Sangrias: <strong className="text-rose-400">-R$ {formatCurrency(sessionStats.totalSangrias)}</strong></p>
                 </div>
               </div>
 
-              {/* Dinheiro Esperado vs Contado */}
+              {/* 2. Valores Faturados a Prazo em Boleto (Recebível Futuro) */}
+              <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center justify-between border-b border-indigo-500/20 pb-2">
+                  <div>
+                    <span className="text-xs font-black text-indigo-300 uppercase tracking-wider">2. Faturado a Prazo no Boleto:</span>
+                    <span className="text-[10px] text-indigo-400 block font-medium">({sessionStats.vendasBoletoQtd || 0} venda(s) a prazo neste turno)</span>
+                  </div>
+                  <span className="text-base font-black text-indigo-300">R$ {formatCurrency(sessionStats.vendasBoletoTotal)}</span>
+                </div>
+                <p className="text-[10px] text-indigo-200/80 bg-indigo-500/10 p-2 rounded-xl border border-indigo-500/20">
+                  ℹ️ <strong>Recebível futuro em Contas a Receber:</strong> Este valor representa vendas parceladas para recebimento futuro na loja. Não ingressa na gaveta física e não infla o saldo de dinheiro em espécie.
+                </p>
+              </div>
+
+              {/* 3. Conferência da Gaveta Física (Dinheiro em Espécie) */}
               <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-300">Dinheiro Físico Esperado na Gaveta:</span>
+                  <span className="text-xs font-bold text-slate-300">3. Saldo Físico Esperado na Gaveta (Espécie):</span>
                   <span className="text-lg font-black text-emerald-300">R$ {formatCurrency(sessionStats.dinheiroEsperado)}</span>
                 </div>
-                <p className="text-[10px] text-slate-400">
-                  Fundo Inicial (R$ {formatCurrency(sessionStats.fundoInicial)}) + Vendas Dinheiro (R$ {formatCurrency(sessionStats.vendasDinheiro)}) + Suprimentos (R$ {formatCurrency(sessionStats.totalSuprimentos)}) - Sangrias (R$ {formatCurrency(sessionStats.totalSangrias)})
+                <p className="text-[10px] text-slate-400 font-mono">
+                  Fundo Inicial (R$ {formatCurrency(sessionStats.fundoInicial)}) + Entradas em Espécie (R$ {formatCurrency(sessionStats.totalEntradasEspecie)}) - Sangrias (R$ {formatCurrency(sessionStats.totalSangrias)}) = R$ {formatCurrency(sessionStats.dinheiroEsperado)}
                 </p>
               </div>
 

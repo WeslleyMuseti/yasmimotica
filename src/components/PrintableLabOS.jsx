@@ -14,7 +14,7 @@ const formatCurrencyPrint = (val) => {
   return isNaN(num) ? '' : num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-const PrintableLabOS = ({ osData, clientData = {} }) => {
+const SingleLabSheet = ({ osData, clientData = {}, isMulti = false, index = 1, total = 1 }) => {
   if (!osData) return null;
 
   const dataAtual = new Date().toLocaleDateString('pt-BR');
@@ -27,64 +27,29 @@ const PrintableLabOS = ({ osData, clientData = {} }) => {
   const tipoArmacao = osData.armacao || clientData['Modelo de Armação'] || '';
 
   return (
-    <>
-      <style dangerouslySetInnerHTML={{ __html: `
-        @media print {
-          @page {
-            size: A4 portrait;
-            margin: 8mm 10mm !important;
-          }
-          html, body {
-            margin: 0 !important;
-            padding: 0 !important;
-            height: auto !important;
-            background: #ffffff !important;
-            color: #000 !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          #print-section {
-            display: block !important;
-            width: 100% !important;
-            max-width: 196mm !important;
-            margin: 0 auto !important;
-            padding: 0 !important;
-            page-break-before: avoid !important;
-            page-break-after: avoid !important;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            box-sizing: border-box !important;
-          }
-          .hide-on-lab-print {
-            display: none !important;
-          }
-        }
-      `}} />
-
-      <div id="print-section" className="hidden print:block bg-white text-slate-900 font-sans text-xs leading-tight select-none w-full max-w-[196mm] mx-auto pb-4">
-        
-        {/* HEADER COMPACTO */}
-        <div className="border-b-2 border-slate-900 pb-3 mb-6 flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <img 
-              src="/logo-yasmin.png" 
-              alt="Yasmin Ótica" 
-              className="h-14 max-w-[150px] object-contain" 
-              onError={(e) => {
-                e.target.onerror = null;
-                e.target.src = "/logo-yasmin-transparent.png";
-              }}
-            />
-            <div className="border-l-2 border-slate-900 pl-3">
-              <h1 className="text-xl font-black uppercase tracking-wider text-slate-900 leading-none">Laboratório</h1>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600 mt-1">Ordem de Serviço Óptica</p>
-            </div>
+    <div className="single-lab-sheet-wrapper bg-white text-slate-900 font-sans text-xs leading-tight select-none w-full max-w-[196mm] mx-auto pb-4">
+      {/* HEADER COMPACTO */}
+      <div className="border-b-2 border-slate-900 pb-3 mb-6 flex justify-between items-center">
+        <div className="flex items-center gap-4">
+          <img 
+            src="/logo-yasmin.png" 
+            alt="Yasmin Ótica" 
+            className="h-14 max-w-[150px] object-contain" 
+            onError={(e) => {
+              e.target.onerror = null;
+              e.target.src = "/logo-yasmin-transparent.png";
+            }}
+          />
+          <div className="border-l-2 border-slate-900 pl-3">
+            <h1 className="text-xl font-black uppercase tracking-wider text-slate-900 leading-none">Laboratório</h1>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600 mt-1">Ordem de Serviço Óptica</p>
           </div>
-          
-          <div className="text-right">
-            <div className="inline-block bg-slate-950 text-white px-3 py-1 rounded font-black text-sm uppercase tracking-wide">
-              OS Nº {osData.numeroOS || '---'}
-            </div>
+        </div>
+        
+        <div className="text-right">
+          <div className="inline-block bg-slate-950 text-white px-3 py-1 rounded font-black text-sm uppercase tracking-wide">
+            OS Nº {osData.numeroOS || '---'}{isMulti ? ` (${index}/${total})` : ''}
+          </div>
             <p className="text-xs font-bold mt-1 text-slate-700">
               Data: {dataAtual}
             </p>
@@ -262,8 +227,70 @@ const PrintableLabOS = ({ osData, clientData = {} }) => {
         </div>
         
       </div>
+  );
+};
+
+const PrintableLabOS = ({ osData, clientData = {} }) => {
+  if (!osData) return null;
+  const list = (osData.multiOrders && Array.isArray(osData.multiOrders))
+    ? osData.multiOrders
+    : (Array.isArray(osData) ? osData : [osData]);
+
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 8mm 10mm !important;
+          }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            background: #ffffff !important;
+            color: #000 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          #print-section {
+            display: block !important;
+            width: 100% !important;
+            max-width: 196mm !important;
+            margin: 0 auto !important;
+            padding: 0 !important;
+          }
+          .lab-sheet-page {
+            page-break-after: always !important;
+            break-after: page !important;
+            padding-bottom: 4mm;
+          }
+          .lab-sheet-page:last-child {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+          }
+          .hide-on-lab-print {
+            display: none !important;
+          }
+        }
+      `}} />
+
+      <div id="print-section" className="hidden print:block bg-white text-slate-900 font-sans text-xs leading-tight select-none w-full max-w-[196mm] mx-auto pb-4">
+        {list.map((item, idx) => (
+          <div key={idx} className={list.length > 1 ? "lab-sheet-page" : ""}>
+            <SingleLabSheet
+              osData={item}
+              clientData={item.clientData || clientData}
+              isMulti={list.length > 1}
+              index={item.osIndex || (idx + 1)}
+              total={item.totalOS || list.length}
+            />
+          </div>
+        ))}
+      </div>
     </>
   );
 };
 
 export default PrintableLabOS;
+

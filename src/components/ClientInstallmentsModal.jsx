@@ -28,7 +28,7 @@ const ClientInstallmentsModal = ({ isOpen, onClose, clientName, rows, onRowUpdat
               </div>
               <div>
                 <h2 className="text-lg font-black text-white uppercase tracking-tight">
-                  Mensalidades & Carnê
+                  Mensalidades & Boletos
                 </h2>
                 <p className="text-sm font-bold text-slate-400">
                   Cliente: <span className="text-sky-400">{clientName}</span>

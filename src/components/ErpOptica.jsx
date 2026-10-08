@@ -206,6 +206,11 @@ const ErpOptica = ({
     OBSERVACOES: ''
   });
 
+  const [voucherUsageModalItem, setVoucherUsageModalItem] = useState(null);
+  const handleViewVoucherUsage = (voucherRow) => {
+    setVoucherUsageModalItem(voucherRow);
+  };
+
   // Dados das abas (seguro contra nulos - estoque de todas as lojas visível para vendedores e administradores)
   const lentesData = useMemo(() => data?.['CAD_LENTES'] || [], [data]);
   const armacoesData = useMemo(() => data?.['CAD_ARMACOES'] || [], [data]);
@@ -2496,7 +2501,7 @@ const ErpOptica = ({
                       <option className="bg-slate-900" value="Cartão de Crédito">Cartão de Crédito</option>
                       <option className="bg-slate-900" value="Cartão de Débito">Cartão de Débito</option>
                       <option className="bg-slate-900" value="Pix / Transferência">Pix / Transferência</option>
-                      <option className="bg-slate-900" value="Boleto Bancário">Boleto Bancário</option>
+                      <option className="bg-slate-900" value="Boleto">Boleto</option>
                       <option className="bg-slate-900" value="Dinheiro">Dinheiro (Espécie)</option>
                       <option className="bg-slate-900" value="OS / A Definir">OS / A Definir</option>
                     </select>
@@ -2674,6 +2679,7 @@ const ErpOptica = ({
               onRowUpdate={handleRowUpdateWithSync}
               onDeleteRow={onDeleteRow}
               onViewInstallments={activeTab === 'receber' ? handleViewInstallments : undefined}
+              onViewVoucherUsage={activeTab === 'vouchers' ? handleViewVoucherUsage : undefined}
               currentUser={currentUser}
               showPrintLabel={activeTab === 'armacoes' || activeTab === 'lentes' || activeTab === 'brindes'}
             />
@@ -2737,6 +2743,173 @@ const ErpOptica = ({
         onDeleteRow={onDeleteRow}
         currentUser={currentUser}
       />
+
+      {/* Modal Quem Usou / Histórico de Uso do Voucher */}
+      {voucherUsageModalItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="glass-card bg-slate-900/95 border border-amber-500/30 rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            {/* Cabeçalho */}
+            <div className="p-5 border-b border-white/10 flex items-center justify-between bg-black/40">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-amber-500/20 text-amber-400 rounded-2xl border border-amber-500/30">
+                  <Ticket size={24} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-black text-white uppercase tracking-tight">
+                      Histórico de Uso — Quem Usou
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-black bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                      {voucherUsageModalItem.CODIGO || voucherUsageModalItem.codigo}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    {voucherUsageModalItem.NOME || voucherUsageModalItem.nome || 'Campanha Promocional'} • Unidade: {voucherUsageModalItem.UNIDADE || 'Todas'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVoucherUsageModalItem(null)}
+                className="p-2 text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer"
+                title="Fechar"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Corpo / Conteúdo */}
+            <div className="p-5 overflow-y-auto space-y-4 erp-scroll">
+              {/* Cards de Resumo */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">Tipo Desconto</span>
+                  <p className="text-sm font-black text-amber-400">
+                    {voucherUsageModalItem.TIPO_DESCONTO === 'PORCENTAGEM' ? `${voucherUsageModalItem.VALOR_DESCONTO}% OFF` : `R$ ${voucherUsageModalItem.VALOR_DESCONTO} OFF`}
+                  </p>
+                </div>
+                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">Limite de Usos</span>
+                  <p className="text-sm font-black text-white">
+                    {voucherUsageModalItem.QUANTIDADE_TOTAL || 'Ilimitado'}
+                  </p>
+                </div>
+                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">Total Utilizado</span>
+                  <p className="text-sm font-black text-sky-400">
+                    {voucherUsageModalItem.QUANTIDADE_USADA || voucherUsageModalItem.quantidade_usada || 0} resgates
+                  </p>
+                </div>
+                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">Status</span>
+                  <p className={`text-sm font-black ${(voucherUsageModalItem.STATUS || '').toLowerCase() === 'ativo' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {voucherUsageModalItem.STATUS || 'Ativo'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Tabela de Clientes que Usaram */}
+              {(() => {
+                const rawH = voucherUsageModalItem.HISTORICO_USO || voucherUsageModalItem.usos_json || voucherUsageModalItem.historico_uso;
+                let parsed = [];
+                try {
+                  if (typeof rawH === 'string') parsed = JSON.parse(rawH);
+                  else if (Array.isArray(rawH)) parsed = rawH;
+                } catch(e) {}
+                if (!Array.isArray(parsed)) parsed = [];
+
+                // Reconciliação com salesData para vouchers utilizados em vendas prévias
+                const codeUpper = String(voucherUsageModalItem.CODIGO || voucherUsageModalItem.codigo || '').trim().toUpperCase();
+                if (codeUpper && Array.isArray(salesData)) {
+                  salesData.forEach(sale => {
+                    const saleVoucher = String(sale['VOUCHER'] || sale.voucher || '').toUpperCase();
+                    if (saleVoucher && saleVoucher.includes(codeUpper)) {
+                      const saleClient = sale['NOME CLIENTE'] || sale['CLIENTE'] || sale['NOME'] || 'Cliente';
+                      const alreadyIn = parsed.some(p => p.cliente === saleClient || (sale['OS DA VENDA'] && p.os === sale['OS DA VENDA']));
+                      if (!alreadyIn) {
+                        parsed.push({
+                          cliente: saleClient,
+                          cpf: sale['CPF'] || sale['CLIENTE_CPF'] || '',
+                          dataHora: sale['DATA'] || sale['DATA  DA VENDA'] || '---',
+                          os: sale['OS DA VENDA'] || sale['OS'] || 'Balcão',
+                          valorDesconto: parseCurrency(sale['DESCONTO_VOUCHER'] || sale.descontoVoucher || voucherUsageModalItem.VALOR_DESCONTO)
+                        });
+                      }
+                    }
+                  });
+                }
+
+                if (parsed.length === 0) {
+                  return (
+                    <div className="p-8 text-center bg-white/[0.02] border border-white/5 rounded-2xl space-y-2">
+                      <Sparkles size={32} className="mx-auto text-slate-500" />
+                      <p className="text-sm font-bold text-slate-300">Nenhum resgate registrado ainda</p>
+                      <p className="text-xs text-slate-500">Este voucher ainda não foi utilizado em nenhuma venda finalizada no PDV.</p>
+                    </div>
+                  );
+                }
+
+                const totalDesconto = parsed.reduce((acc, u) => acc + (parseCurrency(u.valorDesconto) || 0), 0);
+
+                return (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-400 px-1">
+                      <span>{parsed.length} resgate(s) registrado(s):</span>
+                      <span className="text-emerald-400 font-black">
+                        Total de Descontos Concedidos: R$ {parseCurrency(totalDesconto).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-2xl border border-white/10 bg-black/40">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-white/10 text-[10px] uppercase tracking-wider text-slate-400 bg-white/5 font-black">
+                            <th className="py-3 px-4">#</th>
+                            <th className="py-3 px-4">Cliente</th>
+                            <th className="py-3 px-4">CPF</th>
+                            <th className="py-3 px-4">Data / Horário</th>
+                            <th className="py-3 px-4">OS / Venda</th>
+                            <th className="py-3 px-4 text-right">Desconto Aplicado</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5 font-medium">
+                          {parsed.map((uso, idx) => (
+                            <tr key={idx} className="hover:bg-white/5 transition-colors">
+                              <td className="py-3 px-4 text-slate-500 font-mono">{idx + 1}</td>
+                              <td className="py-3 px-4 text-white font-bold">{uso.cliente || 'Cliente'}</td>
+                              <td className="py-3 px-4 text-slate-400 font-mono text-[11px]">{uso.cpf || '—'}</td>
+                              <td className="py-3 px-4 text-slate-300 font-mono text-[11px]">{uso.dataHora || '—'}</td>
+                              <td className="py-3 px-4">
+                                <span className="font-mono text-[11px] bg-sky-500/10 text-sky-300 border border-sky-500/20 px-2 py-0.5 rounded">
+                                  {uso.os || 'PDV'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right font-black text-emerald-400">
+                                R$ {parseCurrency(uso.valorDesconto).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Rodapé */}
+            <div className="p-4 border-t border-white/10 bg-black/40 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setVoucherUsageModalItem(null)}
+                className="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs transition-all cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 };

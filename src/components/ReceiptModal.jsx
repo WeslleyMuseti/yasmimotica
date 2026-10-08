@@ -404,7 +404,7 @@ const ReceiptModal = ({ isOpen, onClose, row, onSave, onDelete }) => {
                       {isProcessing ? 'Processando arquivo...' : 'Anexar Comprovante de Pagamento'}
                     </h4>
                     <p className="text-xs text-slate-400">
-                      Arraste e solte o comprovante (PIX, recibo de máquina de cartão, boleto autenticado ou foto do carnê assinado) aqui.
+                      Arraste e solte o comprovante (PIX, recibo de máquina de cartão, boleto autenticado ou comprovante assinado) aqui.
                     </p>
                     <p className="text-[11px] text-slate-500 font-mono">
                       Formatos aceitos: JPG, PNG, WEBP ou PDF (até 4MB)

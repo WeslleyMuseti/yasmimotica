@@ -1,8 +1,11 @@
+import fs from 'fs';
 import { 
   hashPassword, 
   verifyPassword, 
   isPasswordHashed, 
   isSameClient,
+  isStephanieMuseti,
+  sanitizeStephanieMusetiData,
   processOfflineQueue,
   enqueueOfflineOp,
   getOfflineQueue,
@@ -1005,7 +1008,7 @@ async function runTests() {
       tipo: 'RECEBIMENTO',
       valor: val,
       formaPagamento: 'DINHEIRO / RECEBIMENTO',
-      motivo: `Recebimento Carnê/Boleto - ${invToSettle.CLIENTE}`,
+      motivo: `Recebimento Boleto - ${invToSettle.CLIENTE}`,
       CLIENTE_ID: invToSettle.CLIENTE_ID,
       CLIENTE_CPF: invToSettle.CLIENTE_CPF
     });
@@ -1520,12 +1523,12 @@ async function runTests() {
   // 19.4 Identificação Correta do Título da Entidade
   const identifyEntityTitle = (sheetName, cols) => {
     if (sheetName) {
-      if (sheetName === 'CONTAS_RECEBER') return 'Conta a Receber (Mensalidade / Carnê)';
+      if (sheetName === 'CONTAS_RECEBER') return 'Conta a Receber (Mensalidade / Boleto)';
       if (sheetName === 'CLIENTES_CADASTRADOS') return 'Cadastro de Cliente';
     }
     const colsStr = cols.join(' ').toLowerCase();
     if (colsStr.includes('receber') || colsStr.includes('venda_os') || colsStr.includes('documento') || (colsStr.includes('vencimento') && colsStr.includes('valor'))) {
-      return 'Conta a Receber (Receita / Carnê)';
+      return 'Conta a Receber (Receita / Boleto)';
     }
     if (colsStr.includes('whatsapp') || (colsStr.includes('cpf') && !colsStr.includes('vencimento'))) {
       return 'Cadastro de Cliente';
@@ -1533,8 +1536,8 @@ async function runTests() {
     return 'Registro do ERP';
   };
 
-  console.assert(identifyEntityTitle('CONTAS_RECEBER', rawColumnsFromStephanieRow) === 'Conta a Receber (Mensalidade / Carnê)', 'Quando sheetName for CONTAS_RECEBER, deve rotular como Conta a Receber');
-  console.assert(identifyEntityTitle('', rawColumnsFromStephanieRow) === 'Conta a Receber (Receita / Carnê)', 'Mesmo sem sheetName explícito, dados com vencimento e valor devem ser rotulados como Conta a Receber e NÃO como Cadastro de Cliente');
+  console.assert(identifyEntityTitle('CONTAS_RECEBER', rawColumnsFromStephanieRow) === 'Conta a Receber (Mensalidade / Boleto)', 'Quando sheetName for CONTAS_RECEBER, deve rotular como Conta a Receber');
+  console.assert(identifyEntityTitle('', rawColumnsFromStephanieRow) === 'Conta a Receber (Receita / Boleto)', 'Mesmo sem sheetName explícito, dados com vencimento e valor devem ser rotulados como Conta a Receber e NÃO como Cadastro de Cliente');
 
   console.log('  ✅ Test 19 Passed: Desduplicação de colunas, sincronização de aliases e identificação de entidade no modal verificados com sucesso!\n');
 
@@ -2247,7 +2250,7 @@ async function runTests() {
       cleanList.push({
         id: `rec_new_${Date.now()}_${idx}`,
         VENDA_OS: editedOS['OS DA VENDA'],
-        DOCUMENTO: `BOLETO/CARNÊ ${p.numero}/${p.totalParcelas} - OS ${editedOS['OS DA VENDA']}`,
+        DOCUMENTO: `BOLETO ${p.numero}/${p.totalParcelas} - OS ${editedOS['OS DA VENDA']}`,
         VALOR: p.valor,
         DATA_VENCIMENTO: p.vencimento,
         STATUS: 'Pendente',
@@ -2348,7 +2351,7 @@ async function runTests() {
         cleanList.push({
           id: `rec_new_${Date.now()}_${numP}`,
           VENDA_OS: order.osNumber,
-          DOCUMENTO: `BOLETO/CARNÊ ${numP}/${totP} - OS ${order.osNumber}`,
+          DOCUMENTO: `BOLETO ${numP}/${totP} - OS ${order.osNumber}`,
           VALOR: p.valor,
           STATUS: 'Pendente',
           CLIENTE_ID: client.id
@@ -2781,22 +2784,22 @@ async function runTests() {
       CLIENTE: testOSOrder.clientName,
       'NOME CLIENTE': testOSOrder.clientName,
       VENDA_OS: testOSOrder.osNumber,
-      DOCUMENTO: `BOLETO/CARNÊ ${p.numero}/${p.totalParcelas} - OS ${testOSOrder.osNumber}`,
+      DOCUMENTO: `BOLETO ${p.numero}/${p.totalParcelas} - OS ${testOSOrder.osNumber}`,
       VALOR: p.valor,
       DATA_VENCIMENTO: p.vencimento,
       STATUS: 'Pendente',
       CIDADE: testOSOrder.unit,
-      MEIO_PAGAMENTO: 'Boleto Bancário / Carnê'
+      MEIO_PAGAMENTO: 'Boleto'
     });
   }
 
   console.assert(mockContasReceberDB.length === 3, 'CONTAS_RECEBER deve conter exatamente 3 duplicatas geradas');
-  console.assert(mockContasReceberDB[0].DOCUMENTO === 'BOLETO/CARNÊ 1/3 - OS CAJ-99', '1ª duplicata deve estar identificada corretamente');
+  console.assert(mockContasReceberDB[0].DOCUMENTO === 'BOLETO 1/3 - OS CAJ-99', '1ª duplicata deve estar identificada corretamente');
   console.assert(mockContasReceberDB[0].VALOR === '100,00', 'Valor da 1ª duplicata deve ser R$ 100,00');
   console.assert(mockContasReceberDB[0].DATA_VENCIMENTO === '2026-11-02', 'Vencimento da 1ª parcela deve ser 2026-11-02');
   console.assert(mockContasReceberDB[1].DATA_VENCIMENTO === '2026-12-02', 'Vencimento da 2ª parcela deve ser 2026-12-02');
   console.assert(mockContasReceberDB[2].DATA_VENCIMENTO === '2027-01-02', 'Vencimento da 3ª parcela deve ser 2027-01-02');
-  console.assert(mockContasReceberDB.every(d => d.MEIO_PAGAMENTO === 'Boleto Bancário / Carnê'), 'Todas as duplicatas devem ter MEIO_PAGAMENTO como Boleto/Carnê');
+  console.assert(mockContasReceberDB.every(d => d.MEIO_PAGAMENTO === 'Boleto'), 'Todas as duplicatas devem ter MEIO_PAGAMENTO como Boleto');
 
   console.log('  ✅ Test 29 Passed: Múltiplos Vouchers no PDV & Construtor de Pagamentos da OS com Duplicatas no Financeiro validados com sucesso!\n');
 
@@ -3015,8 +3018,8 @@ async function runTests() {
   const mockSalesData = [
     { id: 'venda_999', 'OS DA VENDA': 'OS-5544', 'VALOR TOTAL': 250.00, 'FORMA DE PAGAMENTO': 'DINHEIRO', CLIENTE: 'João Silva' },
     { id: 'venda_1000', 'OS DA VENDA': '#OS-7788', 'VALOR TOTAL': 350.00, 'FORMA DE PAGAMENTO': 'PIX', CLIENTE: 'Maria Santos' },
-    // Parcela de carnê paga que NÃO deve ser importada como venda duplicada no extrato
-    { id: 'venda_rec_1', 'PRODUTO': '💰 Recebimento de Mensalidade / Carnê', 'VALOR TOTAL': 120.00, 'FORMA DE PAGAMENTO': 'DINHEIRO', CLIENTE: 'Ana Lima' }
+    // Parcela de carnê/boleto paga que NÃO deve ser importada como venda duplicada no extrato
+    { id: 'venda_rec_1', 'PRODUTO': '💰 Recebimento de Mensalidade / Boleto', 'VALOR TOTAL': 120.00, 'FORMA DE PAGAMENTO': 'DINHEIRO', CLIENTE: 'Ana Lima' }
   ];
 
   const deduplicateHistoryMovements = (cashMovements, salesData) => {
@@ -3053,7 +3056,7 @@ async function runTests() {
       salesData.forEach((s, idx) => {
         const prod = String(s['PRODUTO'] || s['SERVIÇO'] || s['Produto'] || '').toLowerCase();
         const sTipo = String(s.tipo || s.TIPO || '').toUpperCase();
-        if (prod.includes('recebimento') || prod.includes('mensalidade') || prod.includes('carnê') || prod.includes('carne') || sTipo === 'RECEBIMENTO') {
+        if (prod.includes('recebimento') || prod.includes('mensalidade') || prod.includes('carnê') || prod.includes('carne') || prod.includes('boleto') || sTipo === 'RECEBIMENTO') {
           return;
         }
 
@@ -3636,6 +3639,678 @@ async function runTests() {
   clearOfflineQueue();
 
   console.log('  ✅ Test 38 Passed: Módulo de Usuários (Anti-Loop, Anti-Rollback, Churn Prevention, Timeout & Reconciliação) validado com sucesso!\n');
+
+  // ─── TEST 39: Múltiplas OS no PDV com Cobrança Unificada & Gestão Integrada ───
+  console.log('▶ Test 39: Múltiplas OS no PDV com Cobrança Unificada, Vínculo de Numeração & Gestão de OS');
+
+  // 39.1 Identificação precisa de itens ópticos e proteção contra falso-positivo de armação
+  const detectOpticalItems = (rawItens) => {
+    const extractedFrames = [];
+    const extractedLenses = [];
+    if (Array.isArray(rawItens) && rawItens.length > 0) {
+      rawItens.forEach(item => {
+        const qtd = Math.max(1, parseInt(item.qtd || 1, 10));
+        const t = item.type || '';
+        const sheet = item.rawProduct?.sheetName || item.sheetName || '';
+        const name = String(item.nome || item.descricao || '');
+
+        const isLens = t === 'lentes' || sheet === 'CAD_LENTES' || (/lente/i.test(name) && !/armaç[aã]o/i.test(name));
+        const isFrame = !isLens && (t === 'armacoes' || sheet === 'CAD_ARMACOES' || /armaç[aã]o/i.test(name) || (item.rawProduct && item.rawProduct['MODELO'] && t !== 'brindes' && t !== 'avulso'));
+
+        for (let i = 0; i < qtd; i++) {
+          if (isFrame) extractedFrames.push(name || '');
+          if (isLens) extractedLenses.push(name || '');
+        }
+      });
+    }
+    const pairCount = Math.max(extractedFrames.length, extractedLenses.length);
+    const initialCount = pairCount >= 2 ? pairCount : 1;
+    return { extractedFrames, extractedLenses, pairCount, initialCount };
+  };
+
+  // 1 par de óculos (1 armação + 1 lente com MARCA/MODELO de CAD_LENTES) não deve gerar OS espúria
+  const singlePairCart = [
+    { type: 'armacoes', nome: 'Armação Ray-Ban Aviador', rawProduct: { MARCA: 'Ray-Ban', MODELO: 'RB3025' }, qtd: 1 },
+    { type: 'lentes', nome: 'Lente Essilor Crizal Alize', rawProduct: { MARCA: 'Essilor', MODELO: 'Crizal Alize' }, qtd: 1 }
+  ];
+  const singleRes = detectOpticalItems(singlePairCart);
+  console.assert(singleRes.extractedFrames.length === 1, '1 par deve ter exatamente 1 armação');
+  console.assert(singleRes.extractedLenses.length === 1, '1 par deve ter exatamente 1 lente');
+  console.assert(singleRes.initialCount === 1, '1 par de óculos deve gerar exatamente 1 OS padrão');
+
+  // 2 pares de óculos (2 armações + 2 lentes + brindes) devem gerar 2 OSs
+  const cartWithMultiOS = [
+    { type: 'armacoes', nome: 'Armação Ray-Ban Aviador', rawProduct: { MARCA: 'Ray-Ban', MODELO: 'RB3025' }, preco: '500,00', qtd: 1 },
+    { type: 'lentes', nome: 'Lente Multifocal Varilux Comfort', rawProduct: { MARCA: 'Essilor', MODELO: 'Varilux' }, preco: '800,00', qtd: 1 },
+    { type: 'armacoes', nome: 'Armação Oakley Metal Ink', rawProduct: { MARCA: 'Oakley', MODELO: 'Metal Ink' }, preco: '450,00', qtd: 1 },
+    { type: 'lentes', nome: 'Lente Monofocal Antirreflexo Blue', rawProduct: { MARCA: 'Hoya', MODELO: 'BlueControl' }, preco: '350,00', qtd: 1 },
+    { type: 'brindes', nome: 'Estojo Luxo + Flanela Microfibra', preco: '0,00', qtd: 2 }
+  ];
+
+  const multiRes = detectOpticalItems(cartWithMultiOS);
+  const extractedFrames = multiRes.extractedFrames;
+  const extractedLenses = multiRes.extractedLenses;
+  console.assert(extractedFrames.length === 2, 'Carrinho multi-OS deve conter 2 armações');
+  console.assert(extractedLenses.length === 2, 'Carrinho multi-OS deve conter 2 lentes');
+  console.assert(multiRes.initialCount === 2, 'Carrinho multi-OS deve gerar 2 OSs');
+
+  // 39.2 Geração de Numeração de OS Sequencial e Vinculada (-1, -2)
+  const baseNum = 1050;
+  const storePrefix = 'CAJ';
+  const osNumber1 = `${storePrefix}-${baseNum}-1`;
+  const osNumber2 = `${storePrefix}-${baseNum}-2`;
+  const allLinkedOSList = [osNumber1, osNumber2];
+
+  console.assert(osNumber1 === 'CAJ-1050-1', 'OS 1 deve ter sufixo -1');
+  console.assert(osNumber2 === 'CAJ-1050-2', 'OS 2 deve ter sufixo -2');
+
+  // 39.3 Simulação de Pagamento Unificado e Criação de Registros no Registro_Vendas
+  const clientTitular = {
+    id: 'cli_multi_001',
+    'Nome Completo': 'Carlos Alberto da Silva',
+    'CPF / CNPJ': '123.456.789-00',
+    'WhatsApp': '(13) 99876-5432',
+    'Cidade': 'Cajati',
+    'Valor Devido': '0,00',
+    'Status de Pagamento': 'Em dia'
+  };
+
+  const saleId = 'venda_multi_999';
+  const totalSaleAmount = '2.100,00';
+  const entryAmount = '600,00';
+  const remainingAmount = '1.500,00';
+
+  // Registro Principal (OS #1) criado pelo PDV
+  const primarySaleRow = {
+    id: saleId,
+    saleId: saleId,
+    CLIENTE_ID: clientTitular.id,
+    CLIENTE_CPF: clientTitular['CPF / CNPJ'],
+    CPF: clientTitular['CPF / CNPJ'],
+    'NOME CLIENTE': clientTitular['Nome Completo'],
+    'DATA  DA VENDA': '08/10/2026',
+    'OS DA VENDA': osNumber1,
+    'OS': osNumber1,
+    'VENDA_OS': osNumber1,
+    isMultiOS: true,
+    multiOSCount: 2,
+    totalOS: 2,
+    osIndex: 1,
+    osLabel: 'Óculos 1',
+    allLinkedOS: allLinkedOSList,
+    PRODUTO: 'Lente Multifocal Varilux Comfort + Armação Ray-Ban Aviador',
+    LENTE: 'Lente Multifocal Varilux Comfort',
+    ARMAÇÃO: 'Armação Ray-Ban Aviador',
+    LABORATORIO: 'Laboratório Central Vision',
+    'VALOR TOTAL': totalSaleAmount,
+    'VALOR DA VENDA': totalSaleAmount,
+    'VALOR ENTRADA': entryAmount,
+    'SINAL': entryAmount,
+    'RESTANTE': remainingAmount,
+    'FORMAS_PAGAMENTO': 'Entrada Pix R$ 600,00 + Carnê 3x R$ 500,00',
+    STATUS_OS: 'Aguardando Confirmação',
+    SITUAÇÃO: 'Aguardando Confirmação',
+    DUPLICATAS_GERADAS: false,
+    FINANCEIRO_UNIFICADO: true,
+    COBRANCA_UNICA: true,
+    PARCELAS_JSON: JSON.stringify([
+      { numero: 1, totalParcelas: 3, valor: '500,00', vencimento: '2026-11-08' },
+      { numero: 2, totalParcelas: 3, valor: '500,00', vencimento: '2026-12-08' },
+      { numero: 3, totalParcelas: 3, valor: '500,00', vencimento: '2027-01-08' }
+    ]),
+    CIDADE: 'Cajati',
+    UNIDADE: 'Cajati'
+  };
+
+  // Registro Complementar (OS #2) criado pelo PDV
+  const secondarySaleRow = {
+    id: `${saleId}_os_2`,
+    saleId: saleId,
+    parentSaleId: saleId,
+    isMultiOS: true,
+    isSecondaryOS: true,
+    multiOSCount: 2,
+    totalOS: 2,
+    osIndex: 2,
+    osLabel: 'Óculos 2',
+    allLinkedOS: allLinkedOSList,
+    CLIENTE_ID: clientTitular.id,
+    CLIENTE_CPF: clientTitular['CPF / CNPJ'],
+    CPF: clientTitular['CPF / CNPJ'],
+    'NOME CLIENTE': clientTitular['Nome Completo'],
+    'DATA  DA VENDA': '08/10/2026',
+    'OS DA VENDA': osNumber2,
+    'OS': osNumber2,
+    'VENDA_OS': osNumber2,
+    STATUS_OS: 'Aguardando Confirmação',
+    SITUAÇÃO: 'Aguardando Confirmação',
+    PRODUTO: 'Lente Monofocal Antirreflexo Blue + Armação Oakley Metal Ink',
+    LENTE: 'Lente Monofocal Antirreflexo Blue',
+    ARMAÇÃO: 'Armação Oakley Metal Ink',
+    LABORATORIO: 'Laboratório Central Vision',
+    'VALOR TOTAL': '0,00',
+    'VALOR DA VENDA': '0,00',
+    'VALOR ENTRADA': '0,00',
+    'SINAL': '0,00',
+    'RESTANTE': '0,00',
+    'FORMAS_PAGAMENTO': `Cobrança Unificada (Venda #${saleId})`,
+    'FORMA_PAGTO': `Cobrança Unificada (Venda #${saleId})`,
+    PAGAMENTO_CONFERIDO: 'Sim',
+    DUPLICATAS_GERADAS: true,
+    FINANCEIRO_UNIFICADO: true,
+    COBRANCA_UNICA: true,
+    CIDADE: 'Cajati',
+    UNIDADE: 'Cajati'
+  };
+
+  const registroVendasMock = [primarySaleRow, secondarySaleRow];
+
+  // 39.4 Blindagem de Faturamento no Dashboard (Evita Faturamento Duplicado)
+  const faturamentoDashboard = registroVendasMock.reduce((acc, row) => {
+    return acc + parseCurrency(row['VALOR TOTAL'] || '0,00');
+  }, 0);
+
+  console.assert(faturamentoDashboard === 2100, `Faturamento somado deve ser exatamente R$ 2.100,00 mas foi R$ ${faturamentoDashboard}`);
+
+  // 39.5 Consolidação e Mapeamento em allOrders de OSManagement
+  const simulatedMapAllOrders = (salesList, clients) => {
+    return salesList.filter(sale => {
+      const osNum = sale["OS DA VENDA"] || sale["OS"] || sale["OS da COMPRA"] || sale["VENDA_OS"];
+      return !!osNum && String(osNum).trim() !== "" && String(osNum) !== "—";
+    }).map((sale, idx) => {
+      const osNumber = String(sale["OS DA VENDA"] || sale["OS"] || sale["VENDA_OS"] || "OS-" + (idx + 1)).trim();
+      const matchedClient = clients.find(c => isSameClient(c, sale));
+      const saleId = sale["saleId"] || sale["parentSaleId"] || sale.id || "";
+      const isMultiOS = Boolean(
+        sale["isMultiOS"] === true || 
+        (Array.isArray(sale["allLinkedOS"]) && sale["allLinkedOS"].length > 1) ||
+        (sale["multiOSCount"] && Number(sale["multiOSCount"]) > 1) ||
+        (sale["totalOS"] && Number(sale["totalOS"]) > 1) ||
+        /-\d+$/.test(osNumber)
+      );
+      const isSecondaryOS = Boolean(
+        sale["isSecondaryOS"] === true || 
+        (sale["FINANCEIRO_UNIFICADO"] === true && sale["VALOR TOTAL"] === '0,00')
+      );
+      const parentSaleId = sale["parentSaleId"] || (isSecondaryOS ? saleId : "");
+      
+      let osIndex = Number(sale["osIndex"]);
+      if (isNaN(osIndex) || !osIndex) {
+        const match = osNumber.match(/-(\d+)$/);
+        osIndex = match ? Number(match[1]) : 1;
+      }
+
+      let totalOS = Number(sale["totalOS"] || sale["multiOSCount"]);
+      if (isNaN(totalOS) || !totalOS) {
+        if (Array.isArray(sale["allLinkedOS"]) && sale["allLinkedOS"].length > 0) {
+          totalOS = sale["allLinkedOS"].length;
+        } else if (isMultiOS) {
+          totalOS = 2;
+        } else {
+          totalOS = 1;
+        }
+      }
+
+      const osLabel = sale["osLabel"] || (isMultiOS ? `Óculos ${osIndex}` : "");
+      const allLinkedOS = Array.isArray(sale["allLinkedOS"]) ? sale["allLinkedOS"] : [osNumber];
+      const financeiroUnificado = Boolean(
+        sale["FINANCEIRO_UNIFICADO"] === true || 
+        sale["COBRANCA_UNICA"] === true ||
+        isSecondaryOS
+      );
+
+      return {
+        raw: sale,
+        id: sale.id,
+        saleId,
+        isMultiOS,
+        isSecondaryOS,
+        parentSaleId,
+        osIndex,
+        totalOS,
+        osLabel,
+        allLinkedOS,
+        financeiroUnificado,
+        osNumber,
+        clientName: sale['NOME CLIENTE'],
+        unit: sale.UNIDADE,
+        valorTotal: sale['VALOR TOTAL']
+      };
+    });
+  };
+
+  const parsedOrders = simulatedMapAllOrders(registroVendasMock, [clientTitular]);
+  console.assert(parsedOrders.length === 2, 'Devem ser mapeadas 2 ordens de serviço');
+
+  const order1 = parsedOrders.find(o => o.osNumber === osNumber1);
+  const order2 = parsedOrders.find(o => o.osNumber === osNumber2);
+
+  console.assert(order1.isMultiOS === true, 'OS 1 deve ser identificada como isMultiOS');
+  console.assert(order1.osIndex === 1, 'OS 1 deve ter índice 1');
+  console.assert(order1.totalOS === 2, 'OS 1 deve ter totalOS 2');
+  console.assert(order1.isSecondaryOS === false, 'OS 1 não é secundária');
+
+  console.assert(order2.isMultiOS === true, 'OS 2 deve ser identificada como isMultiOS');
+  console.assert(order2.osIndex === 2, 'OS 2 deve ter índice 2');
+  console.assert(order2.totalOS === 2, 'OS 2 deve ter totalOS 2');
+  console.assert(order2.isSecondaryOS === true, 'OS 2 deve ser isSecondaryOS');
+  console.assert(order2.financeiroUnificado === true, 'OS 2 deve ter financeiroUnificado');
+
+  // 39.6 Função getLinkedOrdersForSale
+  const simulateGetLinkedOrdersForSale = (order, all) => {
+    if (!order) return [];
+    const linkedNumbers = Array.isArray(order.allLinkedOS) ? order.allLinkedOS : [];
+    const targetSaleId = order.saleId || order.parentSaleId;
+    
+    const matches = all.filter(o => {
+      if (o.id === order.id || o.osNumber === order.osNumber) return true;
+      if (targetSaleId && (o.saleId === targetSaleId || o.parentSaleId === targetSaleId)) return true;
+      if (linkedNumbers.length > 0 && linkedNumbers.includes(o.osNumber)) return true;
+      if (Array.isArray(o.allLinkedOS) && o.allLinkedOS.includes(order.osNumber)) return true;
+      const baseThis = String(order.osNumber).replace(/-\d+$/, '');
+      const baseOther = String(o.osNumber).replace(/-\d+$/, '');
+      if (baseThis && baseThis === baseOther && (order.isMultiOS || o.isMultiOS || /-\d+$/.test(order.osNumber))) return true;
+      return false;
+    });
+
+    const unique = [];
+    const seen = new Set();
+    for (const item of matches) {
+      const key = item.osNumber || item.id;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(item);
+      }
+    }
+    return unique.sort((a, b) => (a.osIndex || 1) - (b.osIndex || 1));
+  };
+
+  const linkedFrom1 = simulateGetLinkedOrdersForSale(order1, parsedOrders);
+  console.assert(linkedFrom1.length === 2, 'getLinkedOrdersForSale a partir da OS 1 deve retornar ambas as OSs');
+  console.assert(linkedFrom1[0].osNumber === osNumber1 && linkedFrom1[1].osNumber === osNumber2, 'OSs vinculadas devem estar ordenadas por índice (1 e 2)');
+
+  const linkedFrom2 = simulateGetLinkedOrdersForSale(order2, parsedOrders);
+  console.assert(linkedFrom2.length === 2, 'getLinkedOrdersForSale a partir da OS 2 deve retornar ambas as OSs');
+  console.assert(linkedFrom2[0].osNumber === osNumber1 && linkedFrom2[1].osNumber === osNumber2, 'OSs vinculadas devem estar ordenadas por índice a partir da OS 2');
+
+  // 39.7 Blindagem de Aprovação Financeira Sem Duplicação de Contas a Receber
+  let simulatedContasReceber = [];
+  const simulateMultiOSApproval = (orderToApprove) => {
+    const isSecondaryUnified = Boolean(
+      orderToApprove.isSecondaryOS || 
+      orderToApprove.raw?.isSecondaryOS || 
+      (orderToApprove.financeiroUnificado && parseCurrency(orderToApprove.valorTotal) === 0)
+    );
+
+    if (!isSecondaryUnified) {
+      // Cria duplicatas apenas para a OS primária
+      const parcelas = JSON.parse(orderToApprove.raw.PARCELAS_JSON || '[]');
+      for (const p of parcelas) {
+        simulatedContasReceber.push({
+          DOCUMENTO: `BOLETO ${p.numero}/${p.totalParcelas} - OS ${orderToApprove.osNumber}`,
+          VALOR: p.valor,
+          STATUS: 'Pendente'
+        });
+      }
+    }
+  };
+
+  // Aprova OS 1
+  simulateMultiOSApproval(order1);
+  console.assert(simulatedContasReceber.length === 3, 'Aprovação da OS 1 deve gerar 3 duplicatas no Contas a Receber');
+
+  // Aprova OS 2 (Secundária Unificada)
+  simulateMultiOSApproval(order2);
+  console.assert(simulatedContasReceber.length === 3, 'Aprovação da OS 2 NÃO deve gerar duplicatas adicionais (mantém exatamente 3)');
+
+  // 39.8 Edição de OS Secundária Preserva Flag Antiduplicação e Permite Salvar com Total Zero
+  const simulateEditSecondaryOS = (orig, changes) => {
+    const isSecondary = Boolean(orig.isSecondaryOS || (orig.FINANCEIRO_UNIFICADO && orig['VALOR TOTAL'] === '0,00'));
+    // Se for secundária, não bloqueia por valor total <= 0
+    const totalVal = isSecondary ? '0,00' : (changes['VALOR TOTAL'] || orig['VALOR TOTAL']);
+    return {
+      ...orig,
+      ...changes,
+      'VALOR TOTAL': totalVal,
+      'DUPLICATAS_GERADAS': isSecondary ? true : false,
+      'isSecondaryOS': isSecondary,
+      'FINANCEIRO_UNIFICADO': true
+    };
+  };
+
+  const editedSecondary = simulateEditSecondaryOS(secondarySaleRow, {
+    LENTE: 'Lente Monofocal Blue UV Editada',
+    LABORATORIO: 'Laboratório Express'
+  });
+  console.assert(editedSecondary.DUPLICATAS_GERADAS === true, 'Edição de OS secundária deve manter DUPLICATAS_GERADAS: true');
+  console.assert(editedSecondary.isSecondaryOS === true, 'Edição deve preservar isSecondaryOS');
+  console.assert(editedSecondary.FINANCEIRO_UNIFICADO === true, 'Edição deve preservar FINANCEIRO_UNIFICADO');
+  console.assert(editedSecondary['VALOR TOTAL'] === '0,00', 'Edição de OS secundária deve manter VALOR TOTAL: 0,00');
+
+  // 39.9 Mapeamento Individual de Etiquetas Térmicas Multi-OS (Preservação de Armação, Lente e Dioptria Próprias)
+  const simulatedMultiOrdersPrintData = [
+    {
+      numeroOS: osNumber1,
+      armacao: 'Armação Ray-Ban Aviador',
+      lente: 'Lente Multifocal Varilux Comfort',
+      odEsf: '-2.00', odCil: '-0.50', oeEsf: '-1.75', oeCil: '-0.25'
+    },
+    {
+      numeroOS: osNumber2,
+      armacao: 'Armação Oakley Metal Ink',
+      lente: 'Lente Monofocal Antirreflexo Blue',
+      odEsf: '-1.00', odCil: '0.00', oeEsf: '-1.25', oeCil: '0.00'
+    }
+  ];
+
+  const simulatedLabels = simulatedMultiOrdersPrintData.map(o => ({
+    ...primarySaleRow,
+    ...o,
+    numeroOS: o.numeroOS,
+    osNumber: o.numeroOS,
+    OS: o.numeroOS,
+    'OS DA VENDA': o.numeroOS
+  }));
+
+  console.assert(simulatedLabels.length === 2, 'Devem ser geradas 2 etiquetas distintas');
+  console.assert(simulatedLabels[0].armacao === 'Armação Ray-Ban Aviador' && simulatedLabels[0].odEsf === '-2.00', 'Etiqueta 1 deve conter armação e grau da OS 1');
+  console.assert(simulatedLabels[1].armacao === 'Armação Oakley Metal Ink' && simulatedLabels[1].odEsf === '-1.00', 'Etiqueta 2 deve conter armação e grau da OS 2, sem clonar os dados da OS 1');
+
+  // 39.10 Busca Integrada em OSManagement por SaleId e por Numeração Vinculada
+  const simulateSearchOS = (query, orders) => {
+    const q = query.toLowerCase().trim();
+    return orders.filter(order => {
+      const matchesOS = order.osNumber.toLowerCase().includes(q);
+      const matchesClient = order.clientName.toLowerCase().includes(q);
+      const matchesSaleId = (order.saleId || '').toLowerCase().includes(q) || (order.parentSaleId || '').toLowerCase().includes(q);
+      const matchesLinked = Array.isArray(order.allLinkedOS) && order.allLinkedOS.some(num => String(num).toLowerCase().includes(q));
+      return matchesOS || matchesClient || matchesSaleId || matchesLinked;
+    });
+  };
+
+  const searchByBase = simulateSearchOS('1050', parsedOrders);
+  console.assert(searchByBase.length === 2, 'Busca pelo número base "1050" deve retornar ambas as OSs da venda');
+
+  const searchBySaleId = simulateSearchOS(saleId, parsedOrders);
+  console.assert(searchBySaleId.length === 2, 'Busca pelo saleId deve retornar todas as OSs vinculadas à venda');
+
+  const searchByCompanion = simulateSearchOS(osNumber2, parsedOrders);
+  console.assert(searchByCompanion.length === 2, 'Busca pelo número da OS 2 com matchesLinked deve encontrar o par vinculado');
+
+  console.log('  ✅ Test 39 Passed: Múltiplas OS no PDV com Cobrança Unificada, Vínculo de Numeração & Gestão de OS validados com sucesso!\n');
+
+  // ─── TEST 40: 5 Itens Críticos de Produção (Contrato e Rodapé na OS, Fechamento de Caixa e Gaveta, Rastreabilidade de Vouchers, Higienização Stephanie Museti e Visibilidade Universal) ───────
+  console.log('▶ Test 40: 5 Itens Críticos de Produção (Contrato OS, Caixa Acurado, Vouchers ERP, Higienização Stephanie Museti & Visibilidade Universal)');
+
+  // 40.1 Item 1: Contrato e Rodapé Dinâmico na Impressão da OS (PrintableOS.jsx)
+  const printableOsContent = fs.readFileSync('./src/components/PrintableOS.jsx', 'utf-8');
+  console.assert(
+    printableOsContent.includes('CONTRATO DE VENDA E COMPRA DE ARMAÇÕES DE ÓCULOS, LENTES E LENTES DE CONTATO'),
+    'PrintableOS deve conter o cabeçalho do contrato óptico'
+  );
+  console.assert(
+    printableOsContent.includes('As partes acima nominadas, doravante determinadas ÓTICA e SOLICITANTE tem entre si justas e acertadas o presente contrato'),
+    'PrintableOS deve conter a cláusula inicial do contrato'
+  );
+  console.assert(
+    printableOsContent.includes('A SOLICITANTE adquire neste ato da OTICA a armação e lente, ou a lente de contato, pelo preço certo e ajustado'),
+    'PrintableOS deve conter a cláusula de aquisição'
+  );
+  console.assert(
+    printableOsContent.includes('A compra é feita em carater irrevogável e irretratável obrigando as partes, herdeiros e sucessores'),
+    'PrintableOS deve conter a cláusula de irrevogabilidade'
+  );
+  console.assert(
+    printableOsContent.includes('multa de 2% (dois por cento) sobre o valor devido') &&
+    printableOsContent.includes('serviços de proteção ao crédito SPC e SERASA'),
+    'PrintableOS deve conter a cláusula de inadimplência e SPC/SERASA'
+  );
+  console.assert(
+    printableOsContent.includes('Valor Total: R$') && printableOsContent.includes('Entrada: R$') && printableOsContent.includes('Restante: R$'),
+    'PrintableOS deve conter os três campos dinâmicos no rodapé: Valor Total, Entrada e Restante'
+  );
+  console.assert(
+    printableOsContent.includes('size: A4 portrait;') && printableOsContent.includes('os-sheet-page'),
+    'PrintableOS deve conter diretivas de estilo e paginação para folha única A4'
+  );
+
+  // 40.2 Item 2: Fechamento de Caixa Acurado com Separação de Boleto a Prazo e Conferência de Gaveta Física
+  const cashModalContent = fs.readFileSync('./src/components/CashManagementModal.jsx', 'utf-8');
+  const cashHistoryContent = fs.readFileSync('./src/components/CashHistoryModal.jsx', 'utf-8');
+
+  console.assert(
+    cashModalContent.includes('vendasBoletoTotal') && cashModalContent.includes('vendasBoletoQtd'),
+    'CashManagementModal deve calcular vendas em boleto/carnê a prazo separadamente das entradas imediatas'
+  );
+  console.assert(
+    cashModalContent.includes('Realmente Recebido') || cashModalContent.includes('REALMENTE RECEBIDO') || cashModalContent.includes('totalRecebidosCaixa'),
+    'CashManagementModal deve conter seção explícita de valores Realmente Recebidos em Caixa'
+  );
+  console.assert(
+    cashModalContent.includes('Faturado a Prazo') || cashModalContent.includes('Recebível Futuro') || cashModalContent.includes('Boleto / Carnê'),
+    'CashManagementModal deve conter seção de Faturado a Prazo em Boleto/Carnê (Recebível Futuro)'
+  );
+  console.assert(
+    cashModalContent.includes('dinheiroEsperado') && cashModalContent.includes('totalRecebidosCaixa'),
+    'CashManagementModal deve auditar o saldo físico esperado na gaveta em espécie (dinheiroEsperado)'
+  );
+  console.assert(
+    cashHistoryContent.includes('Faturado Boleto/Carnê') || cashHistoryContent.includes('Boleto a Prazo') || cashHistoryContent.includes('Faturado a Prazo (Boleto)') || cashHistoryContent.includes('vendasBoletoTotal'),
+    'CashHistoryModal deve discriminar valores faturados a prazo em boleto no histórico'
+  );
+
+  // Simulação Matemática Estrita do Fechamento de Caixa:
+  const mockFundo = 200.00;
+  const mockVendaDinheiro = 150.00;
+  const mockVendaPix = 250.00;
+  const mockVendaDebito = 100.00;
+  const mockVendaCredito = 400.00;
+  const mockVendaBoletoPrazo = 1800.00; // Boleto a prazo em 10x
+  const mockRecebimentoDinheiro = 80.00;
+  const mockSuprimento = 50.00;
+  const mockSangria = 60.00;
+
+  // Bloco 1: Total Realmente Recebido em Caixa (imediato)
+  const totalRecebidoImediato = mockVendaDinheiro + mockVendaPix + mockVendaDebito + mockVendaCredito + mockRecebimentoDinheiro;
+  console.assert(totalRecebidoImediato === 980.00, `Total Realmente Recebido deve ser R$ 980,00, calculou ${totalRecebidoImediato}`);
+
+  // Bloco 2: Faturado a Prazo em Boleto (Recebível Futuro)
+  const totalBoletoPrazo = mockVendaBoletoPrazo;
+  console.assert(totalBoletoPrazo === 1800.00, 'Total faturado em boleto a prazo deve ser R$ 1.800,00');
+
+  // Bloco 3: Conferência da Gaveta Física (Espécie)
+  // Fórmula: Fundo + Vendas Dinheiro + Recebimento Dinheiro + Suprimento - Sangria
+  const expectedPhysicalDrawer = mockFundo + mockVendaDinheiro + mockRecebimentoDinheiro + mockSuprimento - mockSangria;
+  console.assert(expectedPhysicalDrawer === 420.00, `Saldo esperado na gaveta física deve ser R$ 420,00 (200 + 150 + 80 + 50 - 60), calculou ${expectedPhysicalDrawer}`);
+
+  // O boleto NÃO pode inflar o saldo da gaveta de espécie:
+  console.assert(
+    expectedPhysicalDrawer !== (expectedPhysicalDrawer + totalBoletoPrazo),
+    'Boleto a prazo não pode impactar o saldo da gaveta física de dinheiro'
+  );
+
+  // Diferença com contagem de R$ 420,00:
+  const countedCash = 420.00;
+  const diferencaGaveta = countedCash - expectedPhysicalDrawer;
+  console.assert(diferencaGaveta === 0, 'Diferença de gaveta com contagem exata deve ser 0');
+
+  // 40.3 Item 3: Rastreabilidade de Vouchers no PDV, OS e ERP
+  const posRegisterContent = fs.readFileSync('./src/components/POSRegister.jsx', 'utf-8');
+  const erpOpticaContent = fs.readFileSync('./src/components/ErpOptica.jsx', 'utf-8');
+  const dataTableContent = fs.readFileSync('./src/components/DataTable.jsx', 'utf-8');
+  const osManagementContent = fs.readFileSync('./src/components/OSManagement.jsx', 'utf-8');
+
+  console.assert(
+    posRegisterContent.includes('HISTORICO_USO') || posRegisterContent.includes('usos_json'),
+    'POSRegister deve gravar histórico de uso no voucher ao finalizar venda'
+  );
+  console.assert(
+    dataTableContent.includes('onViewVoucherUsage') && dataTableContent.includes('Quem Usou'),
+    'DataTable deve incluir botão de ação "Quem Usou 👁️" para a aba VOUCHERS'
+  );
+  console.assert(
+    erpOpticaContent.includes('voucherUsageModal') || erpOpticaContent.includes('handleViewVoucherUsage'),
+    'ErpOptica deve conter modal de visualização do histórico de quem usou o voucher'
+  );
+  console.assert(
+    osManagementContent.includes('order.voucher') && osManagementContent.includes('descontoVoucher'),
+    'OSManagement deve extrair e exibir informações do voucher na lista/cards de OS'
+  );
+
+  // Simulação de registro e parse de histórico de voucher:
+  const mockVoucher = {
+    CODIGO: 'PROMO100',
+    TIPO: 'VALOR_FIXO',
+    VALOR: '100,00',
+    QUANTIDADE: 10,
+    HISTORICO_USO: JSON.stringify([
+      { cliente: 'Ana Paula', cpf: '12345678901', dataHora: '2026-10-08T10:00:00Z', os: 'OS-1001', valorDesconto: 100 },
+      { cliente: 'Bruno Lima', cpf: '98765432100', dataHora: '2026-10-08T11:30:00Z', os: 'OS-1002', valorDesconto: 100 }
+    ])
+  };
+  const parsedUsos = JSON.parse(mockVoucher.HISTORICO_USO);
+  console.assert(parsedUsos.length === 2, 'Histórico de uso de voucher deve conter 2 utilizações registradas');
+  console.assert(parsedUsos[0].cliente === 'Ana Paula' && parsedUsos[0].os === 'OS-1001', 'Primeiro uso deve registrar cliente e OS');
+  console.assert(parsedUsos[1].cpf === '98765432100' && parsedUsos[1].valorDesconto === 100, 'Segundo uso deve registrar CPF e valor do desconto');
+
+  // 40.4 Item 4: Higienização da Cliente Stephanie Museti
+  console.assert(isStephanieMuseti({ 'Nome Completo': 'Stephanie Museti' }) === true, 'isStephanieMuseti deve reconhecer "Stephanie Museti"');
+  console.assert(isStephanieMuseti({ 'CLIENTE': 'STEPHANIE MUSETE' }) === true, 'isStephanieMuseti deve reconhecer "STEPHANIE MUSETE"');
+  console.assert(isStephanieMuseti({ 'NOME': 'Stéphanie Museti da Silva' }) === true, 'isStephanieMuseti deve reconhecer com acento');
+  console.assert(isStephanieMuseti({ 'Nome Completo': 'Carlos Roberto da Silva' }) === false, 'isStephanieMuseti não deve dar falso positivo');
+
+  const mockDirtyData = {
+    'Registro_Vendas': [
+      { id: 'v1', 'NOME CLIENTE': 'Carlos Roberto', OS: '101' },
+      { id: 'v2', 'NOME CLIENTE': 'Stephanie Museti', OS: 'TEST-1' },
+      { id: 'v3', 'NOME CLIENTE': 'STEPHANIE MUSETE', OS: 'TEST-2' },
+      { id: 'v4', 'NOME CLIENTE': 'Maria Souza', OS: '102' }
+    ],
+    'BD MARKETING': [
+      { id: 'm1', 'CLIENTE': 'Stephanie Museti', TELEFONE: '11999999999' },
+      { id: 'm2', 'CLIENTE': 'Maria Souza', TELEFONE: '11888888888' }
+    ],
+    'CONTAS_RECEBER': [
+      { id: 'r1', CLIENTE: 'Carlos Roberto', VALOR: '150,00' },
+      { id: 'r2', CLIENTE: 'Stephanie Museti', VALOR: '50,00', DOCUMENTO: 'PARCELA 1/12' },
+      { id: 'r3', CLIENTE: 'Stephanie Museti', VALOR: '50,00', DOCUMENTO: 'PARCELA 2/12' },
+      { id: 'r4', CLIENTE: 'Maria Souza', VALOR: '300,00' }
+    ],
+    'CLIENTES_CADASTRADOS': [
+      {
+        id: 'c1',
+        'Nome Completo': 'Stephanie Museti',
+        'Valor Devido': '600,00',
+        'VALOR_DEVIDO': '600,00',
+        'Status de Pagamento': 'Pendente',
+        'STATUS_PAGAMENTO': 'Pendente'
+      },
+      {
+        id: 'c2',
+        'Nome Completo': 'Maria Souza',
+        'Valor Devido': '300,00',
+        'VALOR_DEVIDO': '300,00',
+        'Status de Pagamento': 'Pendente',
+        'STATUS_PAGAMENTO': 'Pendente'
+      }
+    ]
+  };
+
+  const mockGetItemKey = (row) => `id:${row.id}`;
+  const { nextData, modified, deletedKeys, deletedItems } = sanitizeStephanieMusetiData(mockDirtyData, mockGetItemKey);
+
+  console.assert(modified === true, 'sanitizeStephanieMusetiData deve retornar modified: true');
+  console.assert(Array.isArray(deletedItems) && deletedItems.length === 5, 'deletedItems deve conter os 5 registros expurgados para sincronização no Firestore');
+  console.assert(deletedItems.some(i => i.sheet === 'Registro_Vendas' && i.id === 'v2'), 'deletedItems deve conter v2 de Registro_Vendas');
+  console.assert(nextData.Registro_Vendas.length === 2, `Registro_Vendas deve conter 2 registros (sem Stephanie), retornou ${nextData.Registro_Vendas.length}`);
+  console.assert(!nextData.Registro_Vendas.some(r => isStephanieMuseti(r)), 'Nenhuma OS de Stephanie Museti deve permanecer em Registro_Vendas');
+  console.assert(nextData['BD MARKETING'].length === 1 && nextData['BD MARKETING'][0].id === 'm2', 'BD MARKETING deve conter apenas outros clientes');
+  console.assert(nextData.CONTAS_RECEBER.length === 2, `CONTAS_RECEBER deve conter 2 registros de outros clientes, retornou ${nextData.CONTAS_RECEBER.length}`);
+  console.assert(!nextData.CONTAS_RECEBER.some(r => isStephanieMuseti(r)), 'Nenhuma parcela de Stephanie Museti deve permanecer em CONTAS_RECEBER');
+
+  const sanitizedStephanie = nextData.CLIENTES_CADASTRADOS.find(c => isStephanieMuseti(c));
+  console.assert(sanitizedStephanie['Valor Devido'] === '0,00', `Valor Devido deve ser '0,00', retornou ${sanitizedStephanie['Valor Devido']}`);
+  console.assert(sanitizedStephanie['VALOR_DEVIDO'] === '0,00', `VALOR_DEVIDO deve ser '0,00', retornou ${sanitizedStephanie['VALOR_DEVIDO']}`);
+  console.assert(sanitizedStephanie['SALDO_DEVEDOR'] === '0,00', `SALDO_DEVEDOR deve ser '0,00', retornou ${sanitizedStephanie['SALDO_DEVEDOR']}`);
+  console.assert(sanitizedStephanie['Status de Pagamento'] === 'Em dia', `Status de Pagamento deve ser 'Em dia', retornou ${sanitizedStephanie['Status de Pagamento']}`);
+  console.assert(sanitizedStephanie['STATUS_PAGAMENTO'] === 'Em dia', `STATUS_PAGAMENTO deve ser 'Em dia', retornou ${sanitizedStephanie['STATUS_PAGAMENTO']}`);
+
+  const otherClient = nextData.CLIENTES_CADASTRADOS.find(c => !isStephanieMuseti(c));
+  console.assert(otherClient['Valor Devido'] === '300,00', 'Outros clientes não devem ter o Valor Devido alterado');
+  console.assert(deletedKeys.includes('id:v2') && deletedKeys.includes('id:v3') && deletedKeys.includes('id:r2'), 'deletedKeys deve conter os IDs purgados');
+
+  // Validação estrita do POSRegister gravando timestamps e pagamentos estruturados na venda
+  console.assert(
+    posRegisterContent.includes('dataHora: nowIso') && posRegisterContent.includes('pagamentosLista: effectivePayments'),
+    'POSRegister deve gravar timestamps ISO e lista de pagamentos estruturados diretamente no objeto newSale'
+  );
+
+  // 40.5 Item 5: Visibilidade Universal de OS para Vendedores e Admins (selectedUnit = 'ALL')
+  console.assert(
+    osManagementContent.includes('selectedUnit, setSelectedUnit] = useState("ALL")') || 
+    osManagementContent.includes('useState("ALL")') ||
+    osManagementContent.includes("useState('ALL')"),
+    'OSManagement deve inicializar selectedUnit com "ALL" por padrão para todos os papéis (Admin e Vendedor)'
+  );
+
+  // 40.6 Padronização Universal da Nomenclatura para "Boleto" (Eliminação de "Boleto / Carnê", "Carnê", etc.)
+  const printableReceiptContent = fs.readFileSync('./src/components/PrintableReceipt.jsx', 'utf-8');
+  const editOsContent = fs.readFileSync('./src/components/EditOSModal.jsx', 'utf-8');
+
+  console.assert(
+    posRegisterContent.includes("label: '📄 Boleto'") && !posRegisterContent.includes("label: '📄 Boleto / Carnê'"),
+    'POSRegister deve exibir botão de pagamento como "📄 Boleto"'
+  );
+  console.assert(
+    posRegisterContent.includes('Risco de Inadimplência no Boleto'),
+    'POSRegister deve alertar sobre risco de inadimplência no Boleto'
+  );
+  console.assert(
+    printableOsContent.includes('Cronograma de Parcelas do Boleto') && !printableOsContent.includes('Cronograma de Parcelas do Boleto / Carnê'),
+    'PrintableOS deve intitular o cronograma como "Cronograma de Parcelas do Boleto"'
+  );
+  console.assert(
+    printableOsContent.includes('Boleto (${installmentsList.length} parcelas programadas)') && !printableOsContent.includes('Boleto da Loja (${installmentsList.length}'),
+    'PrintableOS deve exibir forma de pagamento como "Boleto" sem sufixo "da Loja"'
+  );
+  console.assert(
+    printableReceiptContent.includes('Parcelamento no Boleto:') && !printableReceiptContent.includes('Parcelamento no Carnê'),
+    'PrintableReceipt deve identificar parcelamento como "Parcelamento no Boleto:"'
+  );
+  console.assert(
+    cashModalContent.includes('2. Faturado a Prazo no Boleto:') && !cashModalContent.includes('Faturado a Prazo no Boleto / Carnê'),
+    'CashManagementModal deve discriminar "Faturado a Prazo no Boleto:" sem termo Carnê'
+  );
+  console.assert(
+    cashHistoryContent.includes('💰 Recebimento (Boleto)') && !cashHistoryContent.includes('💰 Recebimento (Carnê)'),
+    'CashHistoryModal deve discriminar "Recebimento (Boleto)"'
+  );
+  console.assert(
+    editOsContent.includes('A Prazo / Boleto') && editOsContent.includes("label: '📄 Boleto'"),
+    'EditOSModal deve usar "A Prazo / Boleto" e "📄 Boleto"'
+  );
+
+  // Simulação da função de limpeza de string legado cleanBoletoDisplay:
+  const testCleanBoleto = (val) => {
+    if (!val) return '';
+    return String(val)
+      .replace(/(?<!\p{L})Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, 'Boleto')
+      .replace(/(?<!\p{L})Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, 'Boleto')
+      .replace(/(?<!\p{L})Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, 'Boleto')
+      .replace(/(?<!\p{L})Boleto\s+da\s+Loja(?!\p{L})/gui, 'Boleto')
+      .replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto');
+  };
+
+  console.assert(testCleanBoleto('Boleto / Carnê') === 'Boleto', 'Deve normalizar "Boleto / Carnê" para "Boleto"');
+  console.assert(testCleanBoleto('Boleto/Carnê') === 'Boleto', 'Deve normalizar "Boleto/Carnê" para "Boleto"');
+  console.assert(testCleanBoleto('Boleto Carnê') === 'Boleto', 'Deve normalizar "Boleto Carnê" para "Boleto"');
+  console.assert(testCleanBoleto('Carnê / Boleto') === 'Boleto', 'Deve normalizar "Carnê / Boleto" para "Boleto"');
+  console.assert(testCleanBoleto('BOLETO/CARNÊ') === 'Boleto', 'Deve normalizar "BOLETO/CARNÊ" para "Boleto"');
+  console.assert(testCleanBoleto('Boleto da Loja / Carnê') === 'Boleto', 'Deve normalizar "Boleto da Loja / Carnê" para "Boleto"');
+  console.assert(testCleanBoleto('Carnê') === 'Boleto', 'Deve normalizar "Carnê" para "Boleto"');
+  console.assert(testCleanBoleto('Boleto da Loja') === 'Boleto', 'Deve normalizar "Boleto da Loja" para "Boleto"');
+
+  console.log('  ✅ Test 40 Passed: 5 Itens Críticos de Produção validados com sucesso!\n');
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);

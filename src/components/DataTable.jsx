@@ -313,6 +313,16 @@ const fmt = (val) => {
   return s;
 };
 
+export const cleanBoletoDisplay = (val) => {
+  if (typeof val !== 'string') return val;
+  return val
+    .replace(/(?<!\p{L})Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, 'Boleto')
+    .replace(/(?<!\p{L})Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, 'Boleto')
+    .replace(/(?<!\p{L})Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, 'Boleto')
+    .replace(/(?<!\p{L})Boleto\s+da\s+Loja(?!\p{L})/gui, 'Boleto')
+    .replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto');
+};
+
 export const isMeaningfulRow = (row) => {
   if (!row || typeof row !== 'object') return false;
   return Object.entries(row).some(([k, v]) => {
@@ -322,7 +332,7 @@ export const isMeaningfulRow = (row) => {
   });
 };
 
-const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onViewInstallments, onViewProfile, onDeleteRow, currentUser, allowEdit = true, showPrintOS = false, showPrintLabel = false }) => {
+const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onViewInstallments, onViewProfile, onViewVoucherUsage, onDeleteRow, currentUser, allowEdit = true, showPrintOS = false, showPrintLabel = false }) => {
   const isAdmin = ['admin', 'administrativo'].includes(currentUser?.role);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -645,8 +655,18 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                       </button>
                     )}
                     {onViewInstallments && (
-                      <button onClick={() => onViewInstallments(row)} className="p-1.5 flex items-center gap-1.5 px-2.5 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 rounded-lg transition-colors font-black text-xs" title="Ver Todas as Mensalidades / Carnê do Cliente">
+                      <button onClick={() => onViewInstallments(row)} className="p-1.5 flex items-center gap-1.5 px-2.5 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 rounded-lg transition-colors font-black text-xs" title="Ver Todas as Mensalidades / Boletos do Cliente">
                         <Table2 size={14} /> Mensalidades
+                      </button>
+                    )}
+                    {onViewVoucherUsage && sheetName === 'VOUCHERS' && (
+                      <button 
+                        onClick={() => onViewVoucherUsage(row)} 
+                        className="p-1.5 flex items-center gap-1.5 px-2.5 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 rounded-lg transition-all font-black text-xs shadow-sm"
+                        title="Ver Quem Usou / Histórico de Uso deste Voucher"
+                      >
+                        <Eye size={13} />
+                        <span>Quem Usou 👁️</span>
                       </button>
                     )}
                     {sheetName === 'CONTAS_RECEBER' && (
@@ -895,13 +915,17 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                     );
                   }
 
+                  const isPaymentOrDocCol = colLower.includes('meio_pagamento') || colLower.includes('forma') || colLower === 'documento';
+                  const formatted = fmt(val);
+                  const displayContent = isPaymentOrDocCol ? cleanBoletoDisplay(formatted) : formatted;
+
                   return (
                     <td 
                       key={col} 
                       className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs max-w-[320px] overflow-hidden text-ellipsis"
                       title={val !== null && val !== undefined ? String(val) : ''}
                     >
-                      {fmt(val)}
+                      {displayContent}
                     </td>
                   );
                 })}

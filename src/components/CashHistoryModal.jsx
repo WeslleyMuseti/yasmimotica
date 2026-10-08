@@ -12,6 +12,16 @@ const formatCurrency = (val) => {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+const cleanBoletoDisplay = (val) => {
+  if (!val) return '';
+  return String(val)
+    .replace(/(?<!\p{L})Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, 'Boleto')
+    .replace(/(?<!\p{L})Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, 'Boleto')
+    .replace(/(?<!\p{L})Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, 'Boleto')
+    .replace(/(?<!\p{L})Boleto\s+da\s+Loja(?!\p{L})/gui, 'Boleto')
+    .replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto');
+};
+
 const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -138,10 +148,10 @@ export const CashHistoryContent = ({
     // Integrar vendas de salesData se existirem
     if (Array.isArray(salesData) && salesData.length > 0) {
       salesData.forEach((s, idx) => {
-        // Ignora se for quitação de parcela ou recebimento de carnê/mensalidade (já registrado em FLUXO_CAIXA como RECEBIMENTO)
+        // Ignora se for quitação de parcela ou recebimento de boleto/mensalidade (já registrado em FLUXO_CAIXA como RECEBIMENTO)
         const prod = String(s['PRODUTO'] || s['SERVIÇO'] || s['Produto'] || '').toLowerCase();
         const sTipo = String(s.tipo || s.TIPO || '').toUpperCase();
-        if (prod.includes('recebimento') || prod.includes('mensalidade') || prod.includes('carnê') || prod.includes('carne') || sTipo === 'RECEBIMENTO') {
+        if (prod.includes('recebimento') || prod.includes('mensalidade') || prod.includes('carnê') || prod.includes('carne') || prod.includes('boleto') || sTipo === 'RECEBIMENTO') {
           return;
         }
 
@@ -542,7 +552,7 @@ export const CashHistoryContent = ({
                   <option value="SANGRIA" className="bg-slate-900 text-white">💸 Sangria (Cofre/Despesa)</option>
                   <option value="SUPRIMENTO" className="bg-slate-900 text-white">📥 Suprimento de Troco</option>
                   <option value="VENDA" className="bg-slate-900 text-white">🛒 Vendas no PDV</option>
-                  <option value="RECEBIMENTO" className="bg-slate-900 text-white">💰 Recebimento (Carnê/Boleto)</option>
+                  <option value="RECEBIMENTO" className="bg-slate-900 text-white">💰 Recebimento (Boleto)</option>
                   <option value="SAÍDA" className="bg-slate-900 text-white">📤 Saída / Pagamento ERP</option>
                   <option value="FECHAMENTO" className="bg-slate-900 text-white">🔒 Fechamento (Relatório Z)</option>
                 </select>
@@ -748,7 +758,7 @@ export const CashHistoryContent = ({
                       <td className="px-5 py-4 max-w-[340px]">
                         <div className="space-y-1">
                           <div className="font-bold text-white text-xs leading-snug">
-                            {mov.motivo || mov.DESPESA || (tipo === 'VENDA' ? `Venda (${mov.formaPagamento || 'PDV'})` : 'Movimentação')}
+                            {cleanBoletoDisplay(mov.motivo || mov.DESPESA || (tipo === 'VENDA' ? `Venda (${mov.formaPagamento || 'PDV'})` : 'Movimentação'))}
                           </div>
                           {mov.despesaCategoria && (
                             <div className="inline-flex items-center gap-1 text-[10px] bg-rose-500/10 text-rose-300 border border-rose-500/20 px-2 py-0.5 rounded font-semibold">
@@ -761,8 +771,15 @@ export const CashHistoryContent = ({
                             </div>
                           )}
                           {tipo === 'FECHAMENTO' && (
-                            <div className="text-[11px] text-amber-300/90 font-mono bg-amber-500/10 border border-amber-500/20 rounded-lg p-1.5 mt-1">
-                              Gaveta: R$ {formatCurrency(mov.dinheiroEsperado)} | Contado: R$ {formatCurrency(mov.valor)} | Dif: R$ {formatCurrency(mov.diferenca)} ({mov.status || 'Conferido'})
+                            <div className="text-[11px] text-amber-300/90 font-mono bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 mt-1 space-y-1">
+                              <div>
+                                Gaveta: R$ {formatCurrency(mov.dinheiroEsperado)} | Contado: R$ {formatCurrency(mov.valor || mov.dinheiroContado)} | Dif: R$ {formatCurrency(mov.diferenca)} ({mov.status || 'Conferido'})
+                              </div>
+                              {(parseCurrency(mov.vendasBoletoTotal || mov.vendasBoleto) > 0) && (
+                                <div className="text-[10px] text-indigo-300 font-sans">
+                                  📄 Faturado a Prazo (Boleto): <strong>R$ {formatCurrency(mov.vendasBoletoTotal || mov.vendasBoleto)}</strong> ({mov.vendasBoletoQtd || 1} vendas) • Recebível futuro em Contas a Receber
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

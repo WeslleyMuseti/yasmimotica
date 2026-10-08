@@ -1022,7 +1022,7 @@ export const extractClientName = (obj) => {
 };
 
 /**
- * Utilitário de comparação estrita entre cliente e registros financeiros / OS / Carnês
+ * Utilitário de comparação estrita entre cliente e registros financeiros / OS / Boletos
  * Impede que homônimos com o mesmo nome tenham parcelas misturadas.
  */
 export const isSameClient = (clientA, clientB) => {
@@ -1052,4 +1052,127 @@ export const isSameClient = (clientA, clientB) => {
   }
 
   return false;
+};
+
+/**
+ * Identifica se um registro refere-se à cliente Stephanie Museti (ou variações de teste)
+ */
+export const isStephanieMuseti = (item) => {
+  if (!item || typeof item !== 'object') return false;
+  const name = String(
+    item['Nome Completo'] ?? item['NOME'] ?? item['CLIENTE'] ?? item['NOME CLIENTE'] ?? 
+    item['NOME DO CLIENTE'] ?? item['Nome'] ?? item['Cliente'] ?? item.cliente ?? item.nome ??
+    item['CLIENTE_NOME'] ?? item['TITULAR'] ?? item['SACADO'] ?? item['PAGADOR'] ?? ''
+  ).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+  const isSteph = name.includes('stephanie') || name.includes('stefanie') || name.includes('stephany') || name.includes('stefany');
+  const isMuseti = name.includes('museti') || name.includes('musete') || name.includes('musseti') || name.includes('mussette');
+
+  if (isSteph && isMuseti) return true;
+
+  // Verifica também em DOCUMENTO ou DESCRICAO para parcelas ou OSs avulsas
+  const docOrDesc = String(item['DOCUMENTO'] ?? item['DESCRICAO'] ?? item['HISTORICO'] ?? item['OBSERVACOES'] ?? '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const docSteph = (docOrDesc.includes('stephanie') || docOrDesc.includes('stefanie') || docOrDesc.includes('stephany') || docOrDesc.includes('stefany')) &&
+                   (docOrDesc.includes('museti') || docOrDesc.includes('musete') || docOrDesc.includes('musseti') || docOrDesc.includes('mussette'));
+  return docSteph;
+};
+
+/**
+ * Rotina de higienização segura e atômica da cliente Stephanie Museti:
+ * 1. Remove quaisquer OS de teste em Registro_Vendas e BD MARKETING
+ * 2. Remove duplicatas de parcelas pendentes em CONTAS_RECEBER
+ * 3. Zera 'Valor Devido' para '0,00' e define status 'Em dia' em CLIENTES_CADASTRADOS
+ */
+export const sanitizeStephanieMusetiData = (currentData, getItemKeyFn = null) => {
+  if (!currentData || typeof currentData !== 'object') {
+    return { nextData: currentData, modified: false, deletedKeys: [], deletedItems: [] };
+  }
+
+  let modified = false;
+  const nextData = { ...currentData };
+  const deletedKeys = [];
+  const deletedItems = [];
+
+  // 1. Limpar OS de teste em Registro_Vendas e BD MARKETING
+  ['Registro_Vendas', 'BD MARKETING'].forEach(sheet => {
+    if (Array.isArray(nextData[sheet])) {
+      const remaining = [];
+      nextData[sheet].forEach(row => {
+        if (isStephanieMuseti(row)) {
+          modified = true;
+          const rowId = row.id || row._id;
+          if (rowId) deletedItems.push({ sheet, id: rowId, row });
+          if (getItemKeyFn) {
+            const k = getItemKeyFn(row);
+            if (k) deletedKeys.push(k);
+          } else if (rowId) {
+            deletedKeys.push(`id:${rowId}`);
+          }
+        } else {
+          remaining.push(row);
+        }
+      });
+      if (remaining.length !== nextData[sheet].length) {
+        nextData[sheet] = remaining;
+      }
+    }
+  });
+
+  // 2. Limpar duplicatas de parcelas pendentes em CONTAS_RECEBER
+  if (Array.isArray(nextData['CONTAS_RECEBER'])) {
+    const remaining = [];
+    nextData['CONTAS_RECEBER'].forEach(row => {
+      if (isStephanieMuseti(row)) {
+        modified = true;
+        const rowId = row.id || row._id;
+        if (rowId) deletedItems.push({ sheet: 'CONTAS_RECEBER', id: rowId, row });
+        if (getItemKeyFn) {
+          const k = getItemKeyFn(row);
+          if (k) deletedKeys.push(k);
+        } else if (rowId) {
+          deletedKeys.push(`id:${rowId}`);
+        }
+      } else {
+        remaining.push(row);
+      }
+    });
+    if (remaining.length !== nextData['CONTAS_RECEBER'].length) {
+      nextData['CONTAS_RECEBER'] = remaining;
+    }
+  }
+
+  // 3. Zerar 'Valor Devido' para '0,00' e definir status 'Em dia' em CLIENTES_CADASTRADOS
+  if (Array.isArray(nextData['CLIENTES_CADASTRADOS'])) {
+    let clientsChanged = false;
+    const updatedClients = nextData['CLIENTES_CADASTRADOS'].map(client => {
+      if (isStephanieMuseti(client)) {
+        const currentDevido = String(client['Valor Devido'] || client['VALOR_DEVIDO'] || '0,00').trim();
+        const currentStatus = String(client['Status de Pagamento'] || client['STATUS_PAGAMENTO'] || 'Em dia').trim();
+        if (currentDevido !== '0,00' || currentStatus !== 'Em dia') {
+          clientsChanged = true;
+          modified = true;
+        }
+        return {
+          ...client,
+          'Valor Devido': '0,00',
+          'VALOR_DEVIDO': '0,00',
+          'valorDevido': '0,00',
+          'SALDO_DEVEDOR': '0,00',
+          'Saldo Devedor': '0,00',
+          'Status de Pagamento': 'Em dia',
+          'STATUS_PAGAMENTO': 'Em dia',
+          'statusPagamento': 'Em dia',
+          'Status Financeiro': 'Em dia',
+          'STATUS_FINANCEIRO': 'Em dia',
+          'STATUS': 'Em dia'
+        };
+      }
+      return client;
+    });
+    if (clientsChanged) {
+      nextData['CLIENTES_CADASTRADOS'] = updatedClients;
+    }
+  }
+
+  return { nextData, modified, deletedKeys, deletedItems };
 };

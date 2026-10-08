@@ -36,8 +36,10 @@ const formatDatePrint = (dStr) => {
   return dStr;
 };
 
-const PrintableOS = ({ osData, clientData = {} }) => {
+const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, total = 1 }) => {
   if (!osData) return null;
+
+  const isSecondary = Boolean(osData.isSecondaryOS || (isMulti && index > 1 && (osData.financeiroUnificado || parseCurrencyPrint(osData.valorTotal) === 0)));
 
   // ─── DADOS DO CLIENTE TITULAR ───────────────────────────────────
   const clientName = clientData['Nome Completo'] || clientData['NOME'] || clientData['CLIENTE'] || clientData['Nome'] || osData['nomeCliente'] || osData['CLIENTE'] || 'Cliente';
@@ -140,7 +142,7 @@ const PrintableOS = ({ osData, clientData = {} }) => {
 
   const hasItemPrices = orderItems.some(item => item.total && item.total > 0);
 
-  // ─── CRONOGRAMA DE PARCELAS DO BOLETO / CARNÊ ─────────────────────
+  // ─── CRONOGRAMA DE PARCELAS DO BOLETO ─────────────────────
   const installmentsList = useMemo(() => {
     let p = osData.parcelas;
     if (typeof p === 'string') {
@@ -165,9 +167,14 @@ const PrintableOS = ({ osData, clientData = {} }) => {
       return ['À Vista / Conforme Lançamento'];
     }
 
-    // Limpeza de prefixos redundantes
+    // Limpeza de prefixos redundantes e normalização para 'Boleto'
     let text = String(rawFP)
       .replace(/(?:FORMA DE PAGAMENTO|FORMA_PAGTO|FORMA_PAGAMENTO|MEIO_PAGAMENTO)\s*:\s*/gi, '')
+      .replace(/(?<!\p{L})Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, 'Boleto')
+      .replace(/(?<!\p{L})Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, 'Boleto')
+      .replace(/(?<!\p{L})Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, 'Boleto')
+      .replace(/(?<!\p{L})Boleto\s+da\s+Loja(?!\p{L})/gui, 'Boleto')
+      .replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto')
       .trim();
 
     // Divide por quebras de linha ou ' + '
@@ -182,72 +189,36 @@ const PrintableOS = ({ osData, clientData = {} }) => {
     }
 
     if (unique.length === 0 && installmentsList.length > 0) {
-      return [`Boleto / Carnê da Loja (${installmentsList.length} parcelas programadas)`];
+      return [`Boleto (${installmentsList.length} parcelas programadas)`];
     }
     
     return unique.length > 0 ? unique : ['À Vista / Conforme Lançamento'];
   }, [osData, clientData, installmentsList]);
 
   return (
-    <>
-      {/* ─── ESTILOS EXCLUSIVOS DE IMPRESSÃO EM FOLHA ÚNICA (SEM FOLHAS EXTRAS) ─── */}
-      <style dangerouslySetInnerHTML={{ __html: `
-        @media print {
-          @page {
-            size: A4 portrait;
-            margin: 5mm 7mm !important;
-          }
-          html, body {
-            margin: 0 !important;
-            padding: 0 !important;
-            height: auto !important;
-            background: #ffffff !important;
-            color: #0f172a !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          #print-section {
-            display: block !important;
-            width: 100% !important;
-            max-width: 196mm !important;
-            margin: 0 auto !important;
-            padding: 0 !important;
-            page-break-before: avoid !important;
-            page-break-after: avoid !important;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            box-sizing: border-box !important;
-          }
-        }
-      `}} />
-
-      <div 
-        id="print-section" 
-        className="hidden print:block bg-white text-slate-900 font-sans text-[9px] leading-tight select-none"
-      >
-        
-        {/* ─── CABEÇALHO COMPACTO DA OS ────────────────────────────── */}
-        <div className="border-b-2 border-slate-900 pb-1.5 mb-1.5 flex justify-between items-center">
-          <div className="flex items-center gap-2.5">
-            <img 
-              src="/logo-yasmin.png" 
-              alt="Yasmin Ótica" 
-              className="h-8 max-w-[130px] object-contain" 
-              onError={(e) => {
-                e.target.onerror = null;
-                e.target.src = "/logo-yasmin-transparent.png";
-              }}
-            />
-            <div className="border-l-2 border-slate-900 pl-2">
-              <h1 className="text-sm font-black uppercase tracking-wider text-slate-900 leading-none">YASMIN ÓTICA</h1>
-              <p className="text-[8px] font-bold uppercase tracking-widest text-slate-600 mt-0.5">Ordem de Serviço & Comprovante Óptico</p>
-            </div>
+    <div className="single-os-sheet-wrapper bg-white text-slate-900 font-sans text-[9px] leading-tight select-none">
+      {/* ─── CABEÇALHO COMPACTO DA OS ────────────────────────────── */}
+      <div className="border-b-2 border-slate-900 pb-1.5 mb-1.5 flex justify-between items-center">
+        <div className="flex items-center gap-2.5">
+          <img 
+            src="/logo-yasmin.png" 
+            alt="Yasmin Ótica" 
+            className="h-8 max-w-[130px] object-contain" 
+            onError={(e) => {
+              e.target.onerror = null;
+              e.target.src = "/logo-yasmin-transparent.png";
+            }}
+          />
+          <div className="border-l-2 border-slate-900 pl-2">
+            <h1 className="text-sm font-black uppercase tracking-wider text-slate-900 leading-none">YASMIN ÓTICA</h1>
+            <p className="text-[8px] font-bold uppercase tracking-widest text-slate-600 mt-0.5">Ordem de Serviço & Comprovante Óptico</p>
           </div>
+        </div>
 
-          <div className="text-right">
-            <div className="inline-block bg-slate-950 text-white px-2.5 py-0.5 rounded font-black text-xs uppercase tracking-wide">
-              OS Nº {osData.numeroOS || '---'}
-            </div>
+        <div className="text-right">
+          <div className="inline-block bg-slate-950 text-white px-2.5 py-0.5 rounded font-black text-xs uppercase tracking-wide">
+            OS Nº {osData.numeroOS || '---'}{isMulti ? ` (${index}/${total})` : ''}
+          </div>
             <p className="text-[8.5px] font-bold mt-0.5 text-slate-700">
               Emissão: {new Date().toLocaleDateString('pt-BR')} | Unidade: {osData.unidade || osData.selectedCity || cidade}
             </p>
@@ -424,16 +395,28 @@ const PrintableOS = ({ osData, clientData = {} }) => {
           
           <div className="grid grid-cols-3 gap-1.5 mb-1.5">
             <div className="border border-slate-800 p-1 text-center rounded bg-slate-50">
-              <p className="uppercase text-[7.5px] font-black text-slate-600">Valor Total da OS</p>
-              <p className="font-black text-xs text-slate-950">R$ {formatCurrencyPrint(osData.valorTotal)}</p>
+              <p className="uppercase text-[7.5px] font-black text-slate-600">
+                {isSecondary ? 'Cobrança da OS' : 'Valor Total da OS'}
+              </p>
+              <p className="font-black text-xs text-slate-950">
+                {isSecondary ? 'Cobrança Unificada' : `R$ ${formatCurrencyPrint(osData.valorTotal)}`}
+              </p>
             </div>
             <div className="border border-emerald-700 p-1 text-center rounded bg-emerald-50/50">
-              <p className="uppercase text-[7.5px] font-black text-emerald-800">Sinal / Entrada Paga</p>
-              <p className="font-black text-xs text-emerald-800">R$ {formatCurrencyPrint(osData.valorEntrada)}</p>
+              <p className="uppercase text-[7.5px] font-black text-emerald-800">
+                {isSecondary ? 'Faturamento' : 'Sinal / Entrada Paga'}
+              </p>
+              <p className="font-black text-xs text-emerald-800">
+                {isSecondary ? 'Faturado na OS 1' : `R$ ${formatCurrencyPrint(osData.valorEntrada)}`}
+              </p>
             </div>
-            <div className={`p-1 text-center rounded border ${parseCurrencyPrint(osData.restante) > 0 ? 'border-rose-600 bg-rose-50/50' : 'border-slate-400 bg-slate-50'}`}>
-              <p className={`uppercase text-[7.5px] font-black ${parseCurrencyPrint(osData.restante) > 0 ? 'text-rose-700' : 'text-slate-600'}`}>Falta / Restante</p>
-              <p className={`font-black text-xs ${parseCurrencyPrint(osData.restante) > 0 ? 'text-rose-800' : 'text-slate-900'}`}>R$ {formatCurrencyPrint(osData.restante)}</p>
+            <div className={`p-1 text-center rounded border ${(!isSecondary && parseCurrencyPrint(osData.restante) > 0) ? 'border-rose-600 bg-rose-50/50' : 'border-slate-400 bg-slate-50'}`}>
+              <p className={`uppercase text-[7.5px] font-black ${(!isSecondary && parseCurrencyPrint(osData.restante) > 0) ? 'text-rose-700' : 'text-slate-600'}`}>
+                {isSecondary ? 'Saldo Desta OS' : 'Falta / Restante'}
+              </p>
+              <p className={`font-black text-xs ${(!isSecondary && parseCurrencyPrint(osData.restante) > 0) ? 'text-rose-800' : 'text-slate-900'}`}>
+                {isSecondary ? 'R$ 0,00 (Faturamento Único)' : `R$ ${formatCurrencyPrint(osData.restante)}`}
+              </p>
             </div>
           </div>
 
@@ -441,28 +424,39 @@ const PrintableOS = ({ osData, clientData = {} }) => {
           <div className="bg-slate-50 p-1.5 rounded border border-slate-200 text-[8.5px] space-y-1">
             <div className="flex justify-between items-center">
               <strong className="text-[7.5px] uppercase text-slate-700 font-black">
-                Forma(s) de Pagamento Lançadas:
+                {isSecondary ? 'Vínculo de Cobrança:' : 'Forma(s) de Pagamento Lançadas:'}
               </strong>
-              {osData.voucher && (
-                <span className="text-[7.5px] font-bold text-emerald-700 bg-emerald-100/70 border border-emerald-300 px-1.5 py-0.2 rounded">
-                  🎟️ Voucher: {osData.voucher}
+              {(osData.voucher || clientData['VOUCHER']) && (
+                <span className="text-[7.5px] font-black text-emerald-800 bg-emerald-100/90 border border-emerald-400 px-2 py-0.5 rounded shadow-xs flex items-center gap-1">
+                  <span>🎟️ Voucher: {osData.voucher || clientData['VOUCHER']}</span>
+                  {(parseCurrencyPrint(osData.descontoVoucher ?? osData.valorDesconto ?? osData.DESCONTO_VOUCHER ?? clientData['DESCONTO_VOUCHER'] ?? clientData.descontoVoucher) > 0) && (
+                    <span className="text-emerald-950 font-bold">
+                      (-R$ {formatCurrencyPrint(osData.descontoVoucher ?? osData.valorDesconto ?? osData.DESCONTO_VOUCHER ?? clientData['DESCONTO_VOUCHER'] ?? clientData.descontoVoucher)})
+                    </span>
+                  )}
                 </span>
               )}
             </div>
 
             <div className="flex flex-wrap gap-1">
-              {paymentMethodsList.map((methodStr, idx) => (
-                <div key={idx} className="bg-white border border-slate-300 rounded px-2 py-0.5 text-slate-900 font-bold text-[8px] flex items-center gap-1 shadow-xs">
-                  <span>{methodStr}</span>
+              {isSecondary ? (
+                <div className="bg-white border border-indigo-300 rounded px-2 py-0.5 text-indigo-900 font-bold text-[8px] flex items-center gap-1 shadow-xs">
+                  <span>🔗 Cobrança Unificada vinculada à Venda / OS Principal (Não duplica débitos no cliente)</span>
                 </div>
-              ))}
+              ) : (
+                paymentMethodsList.map((methodStr, idx) => (
+                  <div key={idx} className="bg-white border border-slate-300 rounded px-2 py-0.5 text-slate-900 font-bold text-[8px] flex items-center gap-1 shadow-xs">
+                    <span>{methodStr}</span>
+                  </div>
+                ))
+              )}
             </div>
 
-            {/* Cronograma de Parcelas do Carnê / Boleto se houver parcelamento */}
-            {installmentsList.length > 0 && (
+            {/* Cronograma de Parcelas do Boleto se houver parcelamento */}
+            {!isSecondary && installmentsList.length > 0 && (
               <div className="mt-1 pt-1 border-t border-slate-200">
                 <span className="text-[7px] font-black uppercase text-indigo-900 block mb-0.5">
-                  📄 Cronograma de Parcelas do Boleto / Carnê ({installmentsList.length} parcelas):
+                  📄 Cronograma de Parcelas do Boleto ({installmentsList.length} parcelas):
                 </span>
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1">
                   {installmentsList.map((p, pIdx) => (
@@ -486,11 +480,28 @@ const PrintableOS = ({ osData, clientData = {} }) => {
           </div>
         )}
 
-        {/* ─── 6. TERMO DE RESPONSABILIDADE & RETIRADA (ENXUTO) ───────── */}
-        <div className="mb-1 text-[7.5px] leading-tight text-justify border border-slate-300 p-1 rounded bg-slate-50/30">
-          <p>
-            <strong>Termo de Retirada & Encomenda:</strong> A parte solicitante reconhece a encomenda dos produtos ópticos sob medida e a exatidão da prescrição médica apresentada. Os produtos não retirados no prazo de 30 (trinta) dias após a notificação de prontidão estarão sujeitos a protesto legal.
+        {/* ─── 6. CONTRATO DE VENDA E COMPRA DE ARMAÇÕES DE ÓCULOS, LENTES E LENTES DE CONTATO ───────── */}
+        <div className="mb-1 text-[7px] leading-[1.15] text-justify border border-slate-300 p-1.5 rounded bg-slate-50/30">
+          <p className="font-black text-center text-[7.5px] uppercase tracking-wider mb-0.5 text-slate-900">
+            CONTRATO DE VENDA E COMPRA DE ARMAÇÕES DE ÓCULOS, LENTES E LENTES DE CONTATO
           </p>
+          <p className="mb-0.5">
+            As partes acima nominadas, doravante determinadas ÓTICA e SOLICITANTE tem entre si justas e acertadas o presente contrato, pelas cláusulas abaixo:
+          </p>
+          <p className="mb-0.5">
+            A SOLICITANTE adquire neste ato da OTICA a armação e lente, ou a lente de contato, pelo preço certo e ajustado nas condições acima descritas, cujo valor reconhece a SOLICITANTE como liquido, certo e devido.
+            A compra é feita em carater irrevogável e irretratável obrigando as partes, herdeiros e sucessores.
+          </p>
+          <p className="mb-0.5">
+            A SOLICITANTE, caso não cumpra com o pagamento dos valores acima descritos, arcará com uma multa de 2% (dois por cento) sobre o valor devido, bem como com o juros de mora e correção monetária dos valores, até a sua quitação.
+            Em caso de não pagamento dos valores acima avançados o nome da SOLICITANTE será inscrito nos serviços de proteção ao crédito SPC e SERASA, o que autoriza de forma expressa.
+            E por estarem justas e contratadas firmam o presente
+          </p>
+          <div className="mt-1 pt-0.5 border-t border-slate-200 flex justify-between items-center text-[7.5px] font-black text-slate-900 tracking-tight">
+            <span>Valor Total: R$ {formatCurrencyPrint(osData.valorTotal ?? osData['VALOR TOTAL'] ?? osData['VALOR'] ?? osData.total ?? osData.valor ?? clientData['VALOR TOTAL'] ?? clientData['Valor Total'])}</span>
+            <span>Entrada: R$ {formatCurrencyPrint(osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? osData.entrada ?? osData.sinal ?? clientData['VALOR ENTRADA'] ?? clientData['Valor Entrada'])}</span>
+            <span>Restante: R$ {formatCurrencyPrint(osData.restante ?? osData['RESTANTE'] ?? osData.saldoRestante ?? clientData['RESTANTE'] ?? clientData['Restante'])}</span>
+          </div>
         </div>
 
         {/* ─── 7. CONFERÊNCIA DE ENTREGA ─────────────────────────────── */}
@@ -537,8 +548,78 @@ const PrintableOS = ({ osData, clientData = {} }) => {
         </div>
 
       </div>
+  );
+};
+
+const PrintableOS = ({ osData, clientData = {} }) => {
+  if (!osData) return null;
+  const list = (osData.multiOrders && Array.isArray(osData.multiOrders))
+    ? osData.multiOrders
+    : (Array.isArray(osData) ? osData : [osData]);
+
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 5mm 7mm !important;
+          }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            background: #ffffff !important;
+            color: #0f172a !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          #print-section {
+            display: block !important;
+            width: 100% !important;
+            max-width: 196mm !important;
+            margin: 0 auto !important;
+            padding: 0 !important;
+          }
+          .single-os-sheet-wrapper {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+          .os-sheet-page {
+            page-break-after: always !important;
+            break-after: page !important;
+            padding-bottom: 2mm;
+          }
+          .os-sheet-page:last-child {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+          }
+          .os-sheet-page-single {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+          }
+        }
+      `}} />
+
+      <div 
+        id="print-section" 
+        className="hidden print:block bg-white text-slate-900 font-sans text-[9px] leading-tight select-none"
+      >
+        {list.map((item, idx) => (
+          <div key={idx} className={list.length > 1 ? "os-sheet-page" : "os-sheet-page-single"}>
+            <SingleOSSheet 
+              osData={item} 
+              clientData={item.clientData || clientData}
+              isMulti={list.length > 1}
+              index={item.osIndex || (idx + 1)}
+              total={item.totalOS || list.length}
+            />
+          </div>
+        ))}
+      </div>
     </>
   );
 };
 
 export default PrintableOS;
+

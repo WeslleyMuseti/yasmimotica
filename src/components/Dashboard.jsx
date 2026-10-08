@@ -1002,7 +1002,7 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
             </div>
           </div>
           <div className="text-2xl font-extrabold text-amber-400">{fmtMoeda(globalStats.aReceber)}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Saldos devedores / carnês</div>
+          <div className="text-[11px] text-slate-500 mt-1">Saldos devedores / boletos</div>
         </div>
 
         {/* Card 5: Estoque */}

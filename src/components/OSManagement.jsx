@@ -5,7 +5,7 @@ import {
   Trash2, MapPin, ArrowLeft, ArrowUpDown, ChevronRight, ShieldAlert,
   Sparkles, CheckCircle2, AlertCircle, ShoppingBag, Phone, X, Check, PackageCheck, Tag,
   Glasses, ChevronDown, ChevronUp, LayoutGrid, Table as TableIcon, CreditCard, DollarSign,
-  ShieldCheck, XCircle, FileText, Receipt, FlaskConical
+  ShieldCheck, XCircle, FileText, Receipt, FlaskConical, Layers, Link
 } from "lucide-react";
 import PrintableOS from "./PrintableOS";
 import PrintableLabOS from "./PrintableLabOS";
@@ -130,6 +130,16 @@ export const toIsoDate = (val) => {
   return s;
 };
 
+export const cleanBoletoDisplay = (val) => {
+  if (!val) return '';
+  return String(val)
+    .replace(/(?<!\p{L})Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, 'Boleto')
+    .replace(/(?<!\p{L})Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, 'Boleto')
+    .replace(/(?<!\p{L})Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, 'Boleto')
+    .replace(/(?<!\p{L})Boleto\s+da\s+Loja(?!\p{L})/gui, 'Boleto')
+    .replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto');
+};
+
 export const extractOrderInstallments = (order) => {
   if (!order) return [];
   let parcelas = [];
@@ -151,7 +161,7 @@ export const extractOrderInstallments = (order) => {
     return parcelas;
   }
 
-  // Auto-reconstrução a partir de formasPagamento se for Boleto/Carnê
+  // Auto-reconstrução a partir de formasPagamento se for Boleto
   const fpTexto = String(order.formasPagamento || order.raw?.FORMAS_PAGAMENTO || order.raw?.FORMA_PAGTO || order.raw?.MEIO_PAGAMENTO || '');
   const isBoleto = /boleto|carnê|carne/i.test(fpTexto);
   if (isBoleto) {
@@ -261,12 +271,7 @@ const OSManagement = ({
   const isAdmin = ["admin", "administrativo"].includes(currentUser?.role);
   const isVendedor = currentUser?.role === 'vendedor';
 
-  const [selectedUnit, setSelectedUnit] = useState(() => {
-    if (["admin", "administrativo"].includes(currentUser?.role)) {
-      return "ALL";
-    }
-    return currentUser?.city || "ALL";
-  });
+  const [selectedUnit, setSelectedUnit] = useState("ALL");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState("cards"); // 'cards' (informações abaixo) por padrão!
@@ -393,7 +398,7 @@ const OSManagement = ({
       let valorEntrada = sale["VALOR ENTRADA"] || sale["SINAL"];
       let restante = sale["RESTANTE"];
 
-      // Se for pagamento exclusivo em Boleto/Carnê e não tiver entrada expressa
+      // Se for pagamento exclusivo em Boleto e não tiver entrada expressa
       const isApenasBoleto = /boleto|carnê|carne/i.test(formasPagamento) && !/dinheiro|pix|débito|debito|crédito|credito/i.test(formasPagamento);
       if (valorEntrada === undefined || valorEntrada === '') {
         if (isApenasBoleto) {
@@ -430,9 +435,58 @@ const OSManagement = ({
       const laboratorio = sale["LABORATORIO"] || sale["Laboratório"] || sale["LAB"] || "";
       const deadlineInfo = getDeadlineInfo(dtEntrega, status);
 
+      // Metadados de Venda com Múltiplas OS vinculadas (Cobrança Única)
+      const saleId = sale["saleId"] || sale["parentSaleId"] || sale.id || "";
+      const isMultiOS = Boolean(
+        sale["isMultiOS"] === true || 
+        (Array.isArray(sale["allLinkedOS"]) && sale["allLinkedOS"].length > 1) ||
+        (sale["multiOSCount"] && Number(sale["multiOSCount"]) > 1) ||
+        (sale["totalOS"] && Number(sale["totalOS"]) > 1) ||
+        /-\d+$/.test(osNumber)
+      );
+      const isSecondaryOS = Boolean(
+        sale["isSecondaryOS"] === true || 
+        (sale["FINANCEIRO_UNIFICADO"] === true && sale["VALOR TOTAL"] === '0,00')
+      );
+      const parentSaleId = sale["parentSaleId"] || (isSecondaryOS ? saleId : "");
+      
+      let osIndex = Number(sale["osIndex"]);
+      if (isNaN(osIndex) || !osIndex) {
+        const match = osNumber.match(/-(\d+)$/);
+        osIndex = match ? Number(match[1]) : 1;
+      }
+
+      let totalOS = Number(sale["totalOS"] || sale["multiOSCount"]);
+      if (isNaN(totalOS) || !totalOS) {
+        if (Array.isArray(sale["allLinkedOS"]) && sale["allLinkedOS"].length > 0) {
+          totalOS = sale["allLinkedOS"].length;
+        } else if (isMultiOS) {
+          totalOS = 2;
+        } else {
+          totalOS = 1;
+        }
+      }
+
+      const osLabel = sale["osLabel"] || (isMultiOS ? `Óculos ${osIndex}` : "");
+      const allLinkedOS = Array.isArray(sale["allLinkedOS"]) ? sale["allLinkedOS"] : [osNumber];
+      const financeiroUnificado = Boolean(
+        sale["FINANCEIRO_UNIFICADO"] === true || 
+        sale["COBRANCA_UNICA"] === true ||
+        isSecondaryOS
+      );
+
       return {
         raw: sale,
         id: sale.id || ("os-" + idx),
+        saleId,
+        isMultiOS,
+        isSecondaryOS,
+        parentSaleId,
+        osIndex,
+        totalOS,
+        osLabel,
+        allLinkedOS,
+        financeiroUnificado,
         osNumber,
         clientName,
         clientPhone: matchedClient?.["WhatsApp"] || sale["TELEFONE CLIENTE"] || sale["TELEFONE"] || "",
@@ -447,7 +501,7 @@ const OSManagement = ({
         restante,
         dioptria,
         medico,
-        formasPagamento,
+        formasPagamento: cleanBoletoDisplay(formasPagamento),
         dtVenda,
         dtEntrega,
         dtEntregaReal,
@@ -472,7 +526,9 @@ const OSManagement = ({
         matchedClient: matchedClient,
         parcelasJson: sale["PARCELAS_JSON"],
         duplicatasGeradas: sale["DUPLICATAS_GERADAS"] === true,
-        pagamentoConferido: sale["PAGAMENTO_CONFERIDO"] === true || sale["PAGAMENTO_CONFERIDO"] === "Sim"
+        pagamentoConferido: sale["PAGAMENTO_CONFERIDO"] === true || sale["PAGAMENTO_CONFERIDO"] === "Sim",
+        voucher: sale["VOUCHER"] || sale["voucher"] || sale.raw?.["VOUCHER"] || matchedClient?.["VOUCHER"] || "",
+        descontoVoucher: sale["DESCONTO_VOUCHER"] || sale["descontoVoucher"] || sale.raw?.["DESCONTO_VOUCHER"] || matchedClient?.["DESCONTO_VOUCHER"] || ""
       };
     });
 
@@ -506,6 +562,10 @@ const OSManagement = ({
         const matchesMedico = (order.medico || '').toLowerCase().includes(q);
         const matchesStatus = (order.status || '').toLowerCase().includes(q);
         const matchesLab = (order.laboratorio || '').toLowerCase().includes(q);
+        const matchesVoucher = (order.voucher || '').toLowerCase().includes(q);
+
+        const matchesSaleId = (order.saleId || '').toLowerCase().includes(q) || (order.parentSaleId || '').toLowerCase().includes(q);
+        const matchesLinked = Array.isArray(order.allLinkedOS) && order.allLinkedOS.some(num => String(num).toLowerCase().includes(q));
 
         let matchesDoc = false;
         if (cleanQ.length >= 3) {
@@ -516,7 +576,7 @@ const OSManagement = ({
           }
         }
 
-        if (!matchesOS && !matchesClient && !matchesProduct && !matchesUnit && !matchesArmacao && !matchesLente && !matchesMedico && !matchesStatus && !matchesLab && !matchesDoc) {
+        if (!matchesOS && !matchesClient && !matchesProduct && !matchesUnit && !matchesArmacao && !matchesLente && !matchesMedico && !matchesStatus && !matchesLab && !matchesDoc && !matchesSaleId && !matchesLinked && !matchesVoucher) {
           return false;
         }
       }
@@ -585,9 +645,15 @@ const OSManagement = ({
 
       const itemsToCreate = [];
 
-      if ((onAddBatch || onAddRow) && !alreadyHasPendingDuplicatas) {
+      const isSecondaryUnified = Boolean(
+        order.isSecondaryOS || 
+        order.raw?.isSecondaryOS || 
+        (order.financeiroUnificado && parseCurrency(order.valorTotal) === 0)
+      );
+
+      if ((onAddBatch || onAddRow) && !alreadyHasPendingDuplicatas && !isSecondaryUnified) {
         if (parcelas && parcelas.length > 0) {
-          // GERA EXCLUSIVAMENTE AS PARCELAS DO CARNÊ/BOLETO QUE AINDA NÃO FORAM PAGAS
+          // GERA EXCLUSIVAMENTE AS PARCELAS DO BOLETO QUE AINDA NÃO FORAM PAGAS
           for (const p of parcelas) {
             const numP = p.numero || 1;
             const totP = p.totalParcelas || parcelas.length;
@@ -612,7 +678,7 @@ const OSManagement = ({
                 DESCRICAO: `OS #${order.osNumber} - Parcela ${numP}/${totP} (${order.product || 'Óculos Completo'})`,
                 VENDA_OS: order.osNumber,
                 OS: order.osNumber,
-                DOCUMENTO: `BOLETO/CARNÊ ${numP}/${totP} - OS ${order.osNumber}`,
+                DOCUMENTO: `BOLETO ${numP}/${totP} - OS ${order.osNumber}`,
                 VALOR: valP,
                 DATA_VENCIMENTO: isoVenc,
                 'DATA VENCIMENTO': isoVenc,
@@ -621,7 +687,7 @@ const OSManagement = ({
                 CIDADE: order.unit,
                 LOJA: order.unit,
                 UNIDADE: order.unit,
-                MEIO_PAGAMENTO: 'Boleto Bancário / Carnê',
+                MEIO_PAGAMENTO: 'Boleto',
                 OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}`,
                 DATA_CADASTRO: todayStr
               });
@@ -653,7 +719,7 @@ const OSManagement = ({
               CIDADE: order.unit,
               LOJA: order.unit,
               UNIDADE: order.unit,
-              MEIO_PAGAMENTO: /boleto|carnê|carne/i.test(order.formasPagamento || '') ? 'Boleto Bancário / Carnê' : 'A Prazo',
+              MEIO_PAGAMENTO: /boleto|carnê|carne/i.test(order.formasPagamento || '') ? 'Boleto' : 'A Prazo',
               OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}. Total: R$ ${order.valorTotal}, Sinal: R$ ${order.valorEntrada}`,
               DATA_CADASTRO: todayStr
             });
@@ -673,7 +739,7 @@ const OSManagement = ({
 
       // 3. Atualizar débito na ficha do cliente em CLIENTES_CADASTRADOS
       const matchedClient = clientsData.find(c => isSameClient(c, order.raw || {})) || order.clientData || order.matchedClient;
-      if (matchedClient && onUpdateRow && !order.raw?.DUPLICATAS_GERADAS) {
+      if (matchedClient && onUpdateRow && !order.raw?.DUPLICATAS_GERADAS && !isSecondaryUnified) {
         const curDebt = parseCurrency(matchedClient['Valor Devido']);
         const amountToAdd = newlyCreatedPendingSum > 0 ? newlyCreatedPendingSum : restVal;
         if (amountToAdd > 0) {
@@ -1004,7 +1070,7 @@ const OSManagement = ({
       valorEntrada: order.raw["VALOR ENTRADA"] || "0,00",
       restante: order.raw["RESTANTE"] || "0,00",
       dataEntrega: order.dtEntrega,
-      formasPagamento: order.raw["FORMAS_PAGAMENTO"] || order.raw["MEIO_PAGAMENTO"] || "",
+      formasPagamento: cleanBoletoDisplay(order.raw["FORMAS_PAGAMENTO"] || order.raw["MEIO_PAGAMENTO"] || ""),
       observacoes: order.raw["OBSERVACOES"] || order.obsEntrega || "",
       odEsf: order.odEsf || order.raw["OD_ESF"] || "",
       odCil: order.odCil || order.raw["OD_CIL"] || "",
@@ -1086,7 +1152,7 @@ const OSManagement = ({
       valorEntrada: updatedRaw["VALOR ENTRADA"] || "0,00",
       restante: updatedRaw["RESTANTE"] || "0,00",
       dataEntrega: order.dtEntrega,
-      formasPagamento: updatedRaw["FORMAS_PAGAMENTO"] || updatedRaw["MEIO_PAGAMENTO"] || "",
+      formasPagamento: cleanBoletoDisplay(updatedRaw["FORMAS_PAGAMENTO"] || updatedRaw["MEIO_PAGAMENTO"] || ""),
       observacoes: updatedRaw["OBSERVACOES"] || order.obsEntrega || "",
       odEsf: updatedRaw["OD_ESF"] || "",
       odCil: updatedRaw["OD_CIL"] || "",
@@ -1106,6 +1172,194 @@ const OSManagement = ({
     setTimeout(() => {
       window.print();
     }, 300);
+  };
+
+  // Localiza todas as Ordens de Serviço vinculadas da mesma venda com cobrança unificada
+  const getLinkedOrdersForSale = (order) => {
+    if (!order) return [];
+    const linkedNumbers = Array.isArray(order.allLinkedOS) ? order.allLinkedOS : [];
+    const targetSaleId = order.saleId || order.parentSaleId;
+    
+    const matches = allOrders.filter(o => {
+      if (o.id === order.id || o.osNumber === order.osNumber) return true;
+      if (targetSaleId && (o.saleId === targetSaleId || o.parentSaleId === targetSaleId)) return true;
+      if (linkedNumbers.length > 0 && linkedNumbers.includes(o.osNumber)) return true;
+      if (Array.isArray(o.allLinkedOS) && o.allLinkedOS.includes(order.osNumber)) return true;
+      const baseThis = String(order.osNumber).replace(/-\d+$/, '');
+      const baseOther = String(o.osNumber).replace(/-\d+$/, '');
+      if (baseThis && baseThis === baseOther && (order.isMultiOS || o.isMultiOS || /-\d+$/.test(order.osNumber))) return true;
+      return false;
+    });
+
+    const unique = [];
+    const seen = new Set();
+    for (const item of matches) {
+      const key = item.osNumber || item.id;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(item);
+      }
+    }
+    return unique.sort((a, b) => (a.osIndex || 1) - (b.osIndex || 1));
+  };
+
+  // Impressão em lote de todas as OSs vinculadas à mesma venda (várias páginas A4)
+  const handlePrintAllOS = (order) => {
+    const linked = getLinkedOrdersForSale(order);
+    const ordersToPrint = linked.length > 0 ? linked : [order];
+    
+    setOsDataForLabPrint(null);
+    setPrintLabClient(null);
+
+    const primary = ordersToPrint[0];
+    const cData = {
+      ...primary.raw,
+      ...(primary.clientData || {}),
+      "Nome Completo": primary.clientName || primary.raw?.['CLIENTE'] || primary.raw?.['NOME'],
+      "WhatsApp": primary.clientPhone || primary.raw?.['TELEFONE'],
+      "Cidade": primary.clientCity || primary.unit
+    };
+    setPrintClient(cData);
+
+    const mappedMulti = ordersToPrint.map((o, idx) => ({
+      ...o.raw,
+      numeroOS: o.osNumber,
+      selectedCity: o.unit,
+      unidade: o.unit,
+      medico: o.medico || o.raw?.["MEDICO"] || "",
+      lente: o.lente || o.raw?.["LENTE"] || o.product,
+      armacao: o.armacao || o.raw?.["ARMAÇÃO"] || "",
+      valorTotal: o.valorTotal,
+      valorEntrada: o.raw?.["VALOR ENTRADA"] || "0,00",
+      restante: o.raw?.["RESTANTE"] || "0,00",
+      dataEntrega: o.dtEntrega,
+      formasPagamento: cleanBoletoDisplay(o.raw?.["FORMAS_PAGAMENTO"] || o.raw?.["MEIO_PAGAMENTO"] || ""),
+      observacoes: o.raw?.["OBSERVACOES"] || o.obsEntrega || "",
+      odEsf: o.odEsf || o.raw?.["OD_ESF"] || "",
+      odCil: o.odCil || o.raw?.["OD_CIL"] || "",
+      odEixo: o.odEixo || o.raw?.["OD_EIXO"] || "",
+      odDnp: o.odDnp || o.raw?.["OD_DNP"] || "",
+      odAlt: o.odAlt || o.raw?.["OD_ALT"] || "",
+      oeEsf: o.oeEsf || o.raw?.["OE_ESF"] || "",
+      oeCil: o.oeCil || o.raw?.["OE_CIL"] || "",
+      oeEixo: o.oeEixo || o.raw?.["OE_EIXO"] || "",
+      oeDnp: o.oeDnp || o.raw?.["OE_DNP"] || "",
+      oeAlt: o.oeAlt || o.raw?.["OE_ALT"] || "",
+      adicao: o.adicao || o.raw?.["ADICAO"] || "",
+      osIndex: o.osIndex || (idx + 1),
+      totalOS: ordersToPrint.length,
+      isMultiOS: true,
+      clientData: cData
+    }));
+
+    setOsDataForPrint({
+      ...mappedMulti[0],
+      multiOrders: mappedMulti
+    });
+
+    setTimeout(() => {
+      window.print();
+    }, 300);
+  };
+
+  // Impressão em lote de todas as fichas de laboratório vinculadas
+  const handlePrintAllLab = (order) => {
+    const linked = getLinkedOrdersForSale(order);
+    const ordersToPrint = linked.length > 0 ? linked : [order];
+
+    setOsDataForPrint(null);
+    setPrintClient(null);
+
+    const primary = ordersToPrint[0];
+    const cData = {
+      ...primary.raw,
+      ...(primary.clientData || {}),
+      "Nome Completo": primary.clientName || primary.raw?.['CLIENTE'] || primary.raw?.['NOME'],
+      "WhatsApp": primary.clientPhone || primary.raw?.['TELEFONE'],
+      "Cidade": primary.clientCity || primary.unit
+    };
+    setPrintLabClient(cData);
+
+    const mappedMulti = ordersToPrint.map((o, idx) => ({
+      raw: o.raw,
+      numeroOS: o.osNumber,
+      selectedCity: o.unit,
+      unidade: o.unit,
+      laboratorio: o.laboratorio || o.raw?.["LABORATORIO"] || "",
+      medico: o.medico || o.raw?.["MEDICO"] || "",
+      lente: o.lente || o.raw?.["LENTE"] || o.product,
+      armacao: o.armacao || o.raw?.["ARMAÇÃO"] || "",
+      valorTotal: o.valorTotal,
+      valorEntrada: o.raw?.["VALOR ENTRADA"] || "0,00",
+      restante: o.raw?.["RESTANTE"] || "0,00",
+      dataEntrega: o.dtEntrega,
+      formasPagamento: cleanBoletoDisplay(o.raw?.["FORMAS_PAGAMENTO"] || o.raw?.["MEIO_PAGAMENTO"] || ""),
+      observacoes: o.raw?.["OBSERVACOES"] || o.obsEntrega || "",
+      odEsf: o.odEsf || o.raw?.["OD_ESF"] || "",
+      odCil: o.odCil || o.raw?.["OD_CIL"] || "",
+      odEixo: o.odEixo || o.raw?.["OD_EIXO"] || "",
+      odDnp: o.odDnp || o.raw?.["OD_DNP"] || "",
+      odAlt: o.odAlt || o.raw?.["OD_ALT"] || "",
+      oeEsf: o.oeEsf || o.raw?.["OE_ESF"] || "",
+      oeCil: o.oeCil || o.raw?.["OE_CIL"] || "",
+      oeEixo: o.oeEixo || o.raw?.["OE_EIXO"] || "",
+      oeDnp: o.oeDnp || o.raw?.["OE_DNP"] || "",
+      oeAlt: o.oeAlt || o.raw?.["OE_ALT"] || "",
+      adicao: o.adicao || o.raw?.["ADICAO"] || "",
+      osIndex: o.osIndex || (idx + 1),
+      totalOS: ordersToPrint.length,
+      isMultiOS: true
+    }));
+
+    setOsDataForLabPrint({
+      ...mappedMulti[0],
+      multiOrders: mappedMulti
+    });
+
+    setTimeout(() => {
+      window.print();
+    }, 300);
+  };
+
+  // Impressão em lote de etiquetas térmicas de todas as OSs vinculadas
+  const handlePrintAllLabels = (order) => {
+    const linked = getLinkedOrdersForSale(order);
+    const ordersToPrint = linked.length > 0 ? linked : [order];
+    const clientMatch = clientsData.find(c => isSameClient(c, {
+      'Nome Completo': order.clientName,
+      'WhatsApp': order.clientPhone,
+      'CPF / CNPJ': order.clientCPF
+    })) || {};
+
+    const multiItems = ordersToPrint.map((o, idx) => ({
+      ...clientMatch,
+      ...o.raw,
+      numeroOS: o.osNumber,
+      osNumber: o.osNumber,
+      clientName: o.clientName,
+      armacao: o.armacao,
+      lente: o.lente,
+      unidade: o.unit,
+      dtEntrega: formatDate(o.dtEntrega),
+      odEsf: o.odEsf || o.raw?.OD_ESF || o.raw?.odEsf || clientMatch?.['OD_ESF'] || '',
+      odCil: o.odCil || o.raw?.OD_CIL || o.raw?.odCil || clientMatch?.['OD_CIL'] || '',
+      odEixo: o.odEixo || o.raw?.OD_EIXO || o.raw?.odEixo || clientMatch?.['OD_EIXO'] || '',
+      odDnp: o.odDnp || o.raw?.OD_DNP || o.raw?.odDnp || clientMatch?.['OD_DNP'] || '',
+      odAlt: o.odAlt || o.raw?.OD_ALT || o.raw?.odAlt || clientMatch?.['OD_ALT'] || '',
+      oeEsf: o.oeEsf || o.raw?.OE_ESF || o.raw?.oeEsf || clientMatch?.['OE_ESF'] || '',
+      oeCil: o.oeCil || o.raw?.OE_CIL || o.raw?.oeCil || clientMatch?.['OE_CIL'] || '',
+      oeEixo: o.oeEixo || o.raw?.OE_EIXO || o.raw?.oeEixo || clientMatch?.['OE_EIXO'] || '',
+      oeDnp: o.oeDnp || o.raw?.OE_DNP || o.raw?.oeDnp || clientMatch?.['OE_DNP'] || '',
+      oeAlt: o.oeAlt || o.raw?.OE_ALT || o.raw?.oeAlt || clientMatch?.['OE_ALT'] || '',
+      adicao: o.adicao || o.raw?.ADICAO || o.raw?.adicao || clientMatch?.['ADICAO'] || '',
+      osIndex: o.osIndex || (idx + 1),
+      totalOS: ordersToPrint.length
+    }));
+
+    setLabelModalData({
+      ...multiItems[0],
+      multiItems
+    });
   };
 
   return (
@@ -1418,6 +1672,30 @@ const OSManagement = ({
                         <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg bg-white/5 text-slate-300 border border-white/10">
                           {order.unit}
                         </span>
+                        {order.isMultiOS && (
+                          <span 
+                            className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1"
+                            title={`Venda com Múltiplas OS (${order.osIndex}/${order.totalOS})`}
+                          >
+                            <span className="text-xs">🔗</span> OS {order.osIndex}/{order.totalOS}
+                          </span>
+                        )}
+                        {(order.isSecondaryOS || order.financeiroUnificado) && (
+                          <span 
+                            className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                            title="Cobrança Unificada na Venda Principal"
+                          >
+                            Cobrança Unificada
+                          </span>
+                        )}
+                        {order.voucher && (
+                          <span 
+                            className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 shadow-xs"
+                            title={`Voucher utilizado: ${order.voucher}${order.descontoVoucher ? ` | Desconto: R$ ${formatMoney(order.descontoVoucher)}` : ''}`}
+                          >
+                            <span>🎟️</span> Voucher: {order.voucher} {parseCurrency(order.descontoVoucher) > 0 ? `(-R$ ${formatMoney(order.descontoVoucher)})` : ''}
+                          </span>
+                        )}
                       </div>
 
                       {/* Badge de Prazo */}
@@ -1580,15 +1858,38 @@ const OSManagement = ({
                           <span className="hidden sm:inline">Imprimir OS</span>
                         </button>
 
-                        {order.status !== "Aguardando Confirmação" && order.status !== "Cancelada" && (
+                        {order.isMultiOS && (
                           <button
-                            onClick={() => handlePrintLab(order)}
-                            className="p-2 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-400 rounded-xl transition-colors border border-fuchsia-500/20 flex items-center gap-1 text-xs font-bold"
-                            title="Imprimir OS de Laboratório"
+                            onClick={() => handlePrintAllOS(order)}
+                            className="p-2 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 rounded-xl transition-colors border border-indigo-500/40 flex items-center gap-1 text-xs font-black shadow-sm"
+                            title={`Imprimir Todas as ${order.totalOS || 'Múltiplas'} OSs Desta Venda de Uma Só Vez`}
                           >
-                            <FlaskConical size={15} />
-                            <span className="hidden sm:inline">OS Lab</span>
+                            <Printer size={15} />
+                            <span className="hidden sm:inline">Todas OSs ({order.totalOS})</span>
                           </button>
+                        )}
+
+                        {order.status !== "Aguardando Confirmação" && order.status !== "Cancelada" && (
+                          <>
+                            <button
+                              onClick={() => handlePrintLab(order)}
+                              className="p-2 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-400 rounded-xl transition-colors border border-fuchsia-500/20 flex items-center gap-1 text-xs font-bold"
+                              title="Imprimir OS de Laboratório"
+                            >
+                              <FlaskConical size={15} />
+                              <span className="hidden sm:inline">OS Lab</span>
+                            </button>
+                            {order.isMultiOS && (
+                              <button
+                                onClick={() => handlePrintAllLab(order)}
+                                className="p-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-xl transition-colors border border-purple-500/40 flex items-center gap-1 text-xs font-black shadow-sm"
+                                title={`Imprimir Todos os Labs das ${order.totalOS} OSs vinculadas`}
+                              >
+                                <FlaskConical size={15} />
+                                <span className="hidden sm:inline">Todos Labs ({order.totalOS})</span>
+                              </button>
+                            )}
+                          </>
                         )}
 
                         <button
@@ -1599,6 +1900,17 @@ const OSManagement = ({
                           <Tag size={15} />
                           <span className="hidden sm:inline">Etiqueta Lab</span>
                         </button>
+
+                        {order.isMultiOS && (
+                          <button
+                            onClick={() => handlePrintAllLabels(order)}
+                            className="p-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-xl transition-colors border border-amber-500/40 flex items-center gap-1 text-xs font-black shadow-sm"
+                            title={`Imprimir Todas as Etiquetas das ${order.totalOS} OSs vinculadas`}
+                          >
+                            <Tag size={15} />
+                            <span className="hidden sm:inline">Todas Etiquetas</span>
+                          </button>
+                        )}
 
                         {isAdmin && onDeleteRow && (
                           <button
@@ -1844,6 +2156,14 @@ const OSManagement = ({
                               </span>
                             )}
                           </div>
+                          {order.voucher && (
+                            <div className="flex justify-between items-center py-1 border-b border-white/5 bg-emerald-500/10 px-2 rounded-lg">
+                              <span className="text-emerald-400 font-bold flex items-center gap-1 text-[11px]">🎟️ Voucher: {order.voucher}</span>
+                              <span className="text-emerald-300 font-black text-xs">
+                                {parseCurrency(order.descontoVoucher) > 0 ? `-R$ ${formatMoney(order.descontoVoucher)}` : 'Aplicado'}
+                              </span>
+                            </div>
+                          )}
                           {order.formasPagamento && (
                             <div className="pt-1">
                               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
@@ -1912,6 +2232,24 @@ const OSManagement = ({
                                 {order.unit}
                               </span>
                             </div>
+                            {order.isMultiOS && (
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                <span 
+                                  className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1"
+                                  title={`Venda com Múltiplas OS (${order.osIndex}/${order.totalOS})`}
+                                >
+                                  🔗 OS {order.osIndex}/{order.totalOS}
+                                </span>
+                                {(order.isSecondaryOS || order.financeiroUnificado) && (
+                                  <span 
+                                    className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                    title="Cobrança Unificada na Venda Principal"
+                                  >
+                                    Unificada
+                                  </span>
+                                )}
+                              </div>
+                            )}
                             {order.isDelayed ? (
                               <span className="inline-flex items-center gap-1 text-[10px] font-black text-red-400 bg-red-500/10 border border-red-500/30 px-2 py-0.5 rounded-md mt-1.5">
                                 <AlertTriangle size={10} /> Entrega Atrasada
@@ -2004,6 +2342,13 @@ const OSManagement = ({
                                 <p className="text-emerald-400 font-bold">100% Quitado</p>
                               )}
                             </div>
+                            {order.voucher && (
+                              <div className="mt-1">
+                                <span className="inline-flex items-center gap-1 text-[9.5px] font-black text-emerald-300 bg-emerald-500/20 border border-emerald-500/40 px-1.5 py-0.5 rounded shadow-2xs">
+                                  🎟️ {order.voucher} {parseCurrency(order.descontoVoucher) > 0 ? `(-R$ ${formatMoney(order.descontoVoucher)})` : ''}
+                                </span>
+                              </div>
+                            )}
                             {order.formasPagamento && (
                               <div className="mt-1.5 pt-1.5 border-t border-white/5">
                                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">Condições / Vencimentos:</span>
@@ -2148,14 +2493,41 @@ const OSManagement = ({
                                 <Printer size={15} />
                               </button>
 
-                              {order.status !== "Aguardando Confirmação" && order.status !== "Cancelada" && (
+                              {order.isMultiOS && (
                                 <button
-                                  onClick={() => handlePrintLab(order)}
-                                  className="p-2 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-400 rounded-xl transition-colors border border-fuchsia-500/20"
-                                  title="Imprimir OS de Laboratório"
+                                  onClick={() => handlePrintAllOS(order)}
+                                  className="p-2 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 rounded-xl transition-colors border border-indigo-500/40"
+                                  title={`Imprimir Todas as ${order.totalOS || 'Múltiplas'} OSs Desta Venda juntas`}
                                 >
-                                  <FlaskConical size={15} />
+                                  <span className="text-xs font-bold flex items-center gap-1">
+                                    <Printer size={14} />
+                                    <span className="text-[10px]">({order.totalOS})</span>
+                                  </span>
                                 </button>
+                              )}
+
+                              {order.status !== "Aguardando Confirmação" && order.status !== "Cancelada" && (
+                                <>
+                                  <button
+                                    onClick={() => handlePrintLab(order)}
+                                    className="p-2 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-400 rounded-xl transition-colors border border-fuchsia-500/20"
+                                    title="Imprimir OS de Laboratório"
+                                  >
+                                    <FlaskConical size={15} />
+                                  </button>
+                                  {order.isMultiOS && (
+                                    <button
+                                      onClick={() => handlePrintAllLab(order)}
+                                      className="p-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-xl transition-colors border border-purple-500/40"
+                                      title={`Imprimir Todos os Labs das ${order.totalOS} OSs vinculadas`}
+                                    >
+                                      <span className="text-xs font-bold flex items-center gap-1">
+                                        <FlaskConical size={14} />
+                                        <span className="text-[10px]">({order.totalOS})</span>
+                                      </span>
+                                    </button>
+                                  )}
+                                </>
                               )}
 
                               <button
@@ -2165,6 +2537,19 @@ const OSManagement = ({
                               >
                                 <Tag size={15} />
                               </button>
+
+                              {order.isMultiOS && (
+                                <button
+                                  onClick={() => handlePrintAllLabels(order)}
+                                  className="p-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-xl transition-colors border border-amber-500/40"
+                                  title={`Imprimir Todas as Etiquetas das ${order.totalOS} OSs vinculadas`}
+                                >
+                                  <span className="text-xs font-bold flex items-center gap-1">
+                                    <Tag size={14} />
+                                    <span className="text-[10px]">({order.totalOS})</span>
+                                  </span>
+                                </button>
+                              )}
 
                               {isAdmin && onDeleteRow && (
                                 <button

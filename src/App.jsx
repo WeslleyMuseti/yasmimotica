@@ -33,7 +33,9 @@ import {
   OFFLINE_QUEUE_KEY,
   saveBatch,
   areUserListsEqual,
-  reconcileUsers
+  reconcileUsers,
+  sanitizeStephanieMusetiData,
+  isStephanieMuseti
 } from './firebaseSync';
 
 const parseSafeCurrency = (val) => {
@@ -64,10 +66,20 @@ function App() {
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   const [data, setData] = useState(() => {
+    let initial = {
+      'CLIENTES_CADASTRADOS': [],
+      'Registro_Vendas': [],
+      'CAD_LENTES': [],
+      'CAD_ARMACOES': [],
+      'CAD_BRINDES': [],
+      'CONTAS_PAGAR': [],
+      'CONTAS_RECEBER': [],
+      'FLUXO_CAIXA': JSON.parse(localStorage.getItem('YASMIN_FLUXO_CAIXA') || '[]')
+    };
     try {
       const backup = loadOfflineSnapshot();
       if (backup && typeof backup === 'object') {
-        return {
+        initial = {
           'CLIENTES_CADASTRADOS': backup['CLIENTES_CADASTRADOS'] || [],
           'Registro_Vendas': backup['Registro_Vendas'] || [],
           'CAD_LENTES': backup['CAD_LENTES'] || [],
@@ -79,16 +91,8 @@ function App() {
         };
       }
     } catch {}
-    return {
-      'CLIENTES_CADASTRADOS': [],
-      'Registro_Vendas': [],
-      'CAD_LENTES': [],
-      'CAD_ARMACOES': [],
-      'CAD_BRINDES': [],
-      'CONTAS_PAGAR': [],
-      'CONTAS_RECEBER': [],
-      'FLUXO_CAIXA': JSON.parse(localStorage.getItem('YASMIN_FLUXO_CAIXA') || '[]')
-    };
+    const { nextData } = sanitizeStephanieMusetiData(initial);
+    return nextData;
   });
   const [view, setView] = useState('login'); // login, loading, dashboard, syncing, clients, erp, admin
   const [currentUser, setCurrentUser] = useState(null);
@@ -208,7 +212,7 @@ function App() {
     }
   }, [data['FLUXO_CAIXA']]);
 
-  // Sanitização e Remoção de Duplicidades em CONTAS_RECEBER (Lançamentos de Saldo Único que duplicam Parcelas de Carnê/Boleto)
+  // Sanitização e Remoção de Duplicidades em CONTAS_RECEBER (Lançamentos de Saldo Único que duplicam Parcelas de Boleto)
   useEffect(() => {
     const receberList = data?.['CONTAS_RECEBER'];
     if (!receberList || !Array.isArray(receberList) || receberList.length === 0) return;
@@ -227,8 +231,24 @@ function App() {
 
     const resultList = [];
 
+    const normalizeReceberRow = (row) => {
+      if (!row) return row;
+      const copy = { ...row };
+      if (/boleto|carnê|carne/i.test(copy.MEIO_PAGAMENTO || copy.meio_pagamento || '')) {
+        copy.MEIO_PAGAMENTO = 'Boleto';
+        if (copy.meio_pagamento) copy.meio_pagamento = 'Boleto';
+      }
+      if (copy.DOCUMENTO && /carnê|carne/i.test(copy.DOCUMENTO)) {
+        copy.DOCUMENTO = copy.DOCUMENTO
+          .replace(/(?<!\p{L})BOLETO\s*(?:DA\s*LOJA\s*)?(?:\/|\s+)?\s*CARN[EÊ]s?(?!\p{L})/gui, 'BOLETO')
+          .replace(/(?<!\p{L})CARN[EÊ]s?\s*(?:\/|\s+)?\s*BOLETO(?!\p{L})/gui, 'BOLETO')
+          .replace(/(?<!\p{L})CARN[EÊ]s?(?!\p{L})/gui, 'BOLETO');
+      }
+      return copy;
+    };
+
     Object.entries(byClient).forEach(([client, rows]) => {
-      // Identifica se há parcelas de carnê/boleto (ex: BOLETO 1/12, etc.)
+      // Identifica se há parcelas de boleto (ex: BOLETO 1/12, etc.)
       const installmentRows = rows.filter(r => {
         const doc = String(r.DOCUMENTO || r.documento || '').toUpperCase();
         const desc = String(r.DESCRICAO || r.descricao || '').toUpperCase();
@@ -252,10 +272,10 @@ function App() {
           } else {
             // Normaliza as parcelas para que a tabela exiba perfeitamente
             if (isInst) {
-              const enriched = { ...r };
+              const enriched = normalizeReceberRow(r);
               if (!enriched.MEIO_PAGAMENTO && !enriched.meio_pagamento) {
-                enriched.MEIO_PAGAMENTO = 'Boleto Bancário / Carnê';
-                enriched.meio_pagamento = 'Boleto Bancário / Carnê';
+                enriched.MEIO_PAGAMENTO = 'Boleto';
+                enriched.meio_pagamento = 'Boleto';
               }
               if (!enriched.DATA_VENCIMENTO && enriched['DATA VENCIMENTO']) {
                 enriched.DATA_VENCIMENTO = enriched['DATA VENCIMENTO'];
@@ -269,12 +289,12 @@ function App() {
               }
               resultList.push(enriched);
             } else {
-              resultList.push(r);
+              resultList.push(normalizeReceberRow(r));
             }
           }
         });
       } else {
-        rows.forEach(r => resultList.push(r));
+        rows.forEach(r => resultList.push(normalizeReceberRow(r)));
       }
     });
 
@@ -417,7 +437,14 @@ function App() {
           if (cleanRows.length > 0) sheets[name] = cleanRows;
         });
         if (isMounted) {
-          setData(prev => ({ ...sheets, ...prev }));
+          setData(prev => {
+            const merged = { ...sheets, ...prev };
+            const { nextData, modified, deletedKeys: sDelKeys } = sanitizeStephanieMusetiData(merged, getItemKey);
+            if (modified && sDelKeys && sDelKeys.length > 0) {
+              sDelKeys.forEach(k => addDeletedKey(k));
+            }
+            return nextData;
+          });
         }
       } catch (err) {
         clearTimeout(abortTimeout);
@@ -466,7 +493,30 @@ function App() {
           merged['BD MARKETING'] = [];
         }
 
-        return merged;
+        // 🛡️ Higienização atômica e automática para Stephanie Museti
+        const { nextData, modified, deletedKeys: sDelKeys, deletedItems } = sanitizeStephanieMusetiData(merged, getItemKey);
+        if (modified) {
+          if (sDelKeys && sDelKeys.length > 0) {
+            sDelKeys.forEach(k => addDeletedKey(k));
+          }
+          if (isConfigured) {
+            if (deletedItems && deletedItems.length > 0) {
+              deletedItems.forEach(({ sheet, id }) => {
+                if (id) deleteDocument(sheet, id).catch(() => {});
+              });
+            }
+            if (Array.isArray(nextData['CLIENTES_CADASTRADOS'])) {
+              const stephanieClient = nextData['CLIENTES_CADASTRADOS'].find(c => isStephanieMuseti(c));
+              if (stephanieClient && stephanieClient.id) {
+                saveDocument('CLIENTES_CADASTRADOS', stephanieClient).catch(err => {
+                  console.warn('Aviso ao sincronizar cliente higienizada com Firestore:', err);
+                });
+              }
+            }
+          }
+        }
+
+        return nextData;
       });
       
       // Update users somente quando a coleção USUARIOS sofreu atualização (previne churn e consumo elevado a cada venda/movimento)
@@ -704,7 +754,7 @@ function App() {
       "⚠️ ZERAR TODO O FINANCEIRO E BASE DE OS:\n\n" +
       "Isso irá apagar permanentemente:\n" +
       "• Todas as Ordens de Serviço (OS) e Vendas registradas\n" +
-      "• Todas as Contas a Receber (boletos, carnês, mensalidades)\n" +
+      "• Todas as Contas a Receber (boletos, mensalidades)\n" +
       "• Todas as Contas a Pagar\n" +
       "• Todo o Fluxo de Caixa (fechamentos, sangrias, suprimentos)\n" +
       "• Zerará o saldo devedor dos clientes mantendo cadastros e receitas\n\n" +

@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Save, Printer, User, Eye, FileText, Calendar, DollarSign, Activity, CheckCircle2, AlertTriangle, Trash2, Plus, CreditCard, QrCode } from 'lucide-react';
+import { 
+  X, Save, Printer, User, Eye, FileText, Calendar, DollarSign, 
+  Activity, CheckCircle2, AlertTriangle, Trash2, Plus, CreditCard, 
+  QrCode, Glasses, Layers, Copy 
+} from 'lucide-react';
 
 const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -78,9 +82,24 @@ const parseInitialPayments = (clientData) => {
   return parsed;
 };
 
-const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesData = [], armacoesData = [], salesData = [], currentUser }) => {
+const OSGeneratorModal = ({ 
+  isOpen, 
+  onClose, 
+  clientData, 
+  saleData,
+  onSaveAndPrint, 
+  lentesData = [], 
+  armacoesData = [], 
+  salesData = [], 
+  currentUser 
+}) => {
   const [selectedCity, setSelectedCity] = useState('');
+  const [baseOSNumber, setBaseOSNumber] = useState('');
   
+  // Lista de Ordens de Serviço para suportar 1 ou MÚLTIPLAS OS na mesma venda
+  const [osList, setOsList] = useState([]);
+  const [activeTabIndex, setActiveTabIndex] = useState(0);
+
   const userCity = currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore || 'Cajati') : null;
   const filteredLentes = userCity 
     ? lentesData.filter(l => {
@@ -231,9 +250,37 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
     parcelas: [],
     responsavel: '',
     voucher: '',
-    rg: ''
+    rg: '',
+    laboratorio: ''
   });
 
+  // Calcula o prefixo da unidade selecionada
+  const getCityPrefix = (city) => {
+    if (city === 'Cajati') return 'CAJ';
+    if (city === 'Registro') return 'REG';
+    if (city === 'Jacupiranga') return 'JAC';
+    if (city === 'Venda Externa') return 'EXT';
+    return 'CAJ';
+  };
+
+  // Calcula o próximo número base de OS
+  const calculateNextBaseOS = (city, sData) => {
+    const prefix = getCityPrefix(city);
+    let maxNum = 0;
+    (sData || []).forEach(sale => {
+      const os = sale['OS DA VENDA'] || sale['OS'] || sale['VENDA_OS'];
+      if (os && String(os).toUpperCase().startsWith(prefix.toUpperCase())) {
+        const cleanNumPart = String(os).replace(new RegExp(`^${prefix}[-#\\s]?`, 'i'), '');
+        const numPart = parseInt(cleanNumPart, 10);
+        if (!isNaN(numPart) && numPart > maxNum) {
+          maxNum = numPart;
+        }
+      }
+    });
+    return `${prefix}-${maxNum + 1}`;
+  };
+
+  // Inicialização quando clientData abre
   useEffect(() => {
     if (clientData && isOpen) {
       const vTotal = clientData['valorTotal'] || clientData['Valor Devido'] || (clientData['VALOR TOTAL'] ? String(clientData['VALOR TOTAL']) : '') || '';
@@ -249,12 +296,76 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
       const initialPayments = parseInitialPayments(clientData);
       setPayments(initialPayments);
 
+      const targetCity = userCity || vCidade || 'Cajati';
+      setSelectedCity(targetCity);
+
+      const existingOS = clientData['OS DA VENDA'] || clientData['OS'] || clientData['numeroOS'] || saleData?.['OS DA VENDA'] || saleData?.['OS'];
+      const nextBase = existingOS ? String(existingOS).replace(/-\d+$/, '') : calculateNextBaseOS(targetCity, salesData);
+      setBaseOSNumber(nextBase);
+
+      // Detectar itens ópticos do carrinho para sugerir 1 ou múltiplas OS
+      const rawItens = clientData.itens || clientData.cart || saleData?.itens || [];
+      const extractedFrames = [];
+      const extractedLenses = [];
+      if (Array.isArray(rawItens) && rawItens.length > 0) {
+        rawItens.forEach(item => {
+          const qtd = Math.max(1, parseInt(item.qtd || 1, 10));
+          const t = item.type || '';
+          const sheet = item.rawProduct?.sheetName || item.sheetName || '';
+          const name = String(item.nome || item.descricao || '');
+
+          const isLens = t === 'lentes' || sheet === 'CAD_LENTES' || (/lente/i.test(name) && !/armaç[aã]o/i.test(name));
+          const isFrame = !isLens && (t === 'armacoes' || sheet === 'CAD_ARMACOES' || /armaç[aã]o/i.test(name) || (item.rawProduct && item.rawProduct['MODELO'] && t !== 'brindes' && t !== 'avulso'));
+
+          for (let i = 0; i < qtd; i++) {
+            if (isFrame) extractedFrames.push(name || '');
+            if (isLens) extractedLenses.push(name || '');
+          }
+        });
+      }
+
+      const pairCount = Math.max(extractedFrames.length, extractedLenses.length);
+      const initialCount = pairCount >= 2 ? pairCount : 1;
+
+      const generatedList = [];
+      for (let i = 0; i < initialCount; i++) {
+        const osNum = initialCount > 1 ? `${nextBase}-${i + 1}` : nextBase;
+        generatedList.push({
+          id: `os_tab_${Date.now()}_${i}`,
+          label: `Óculos ${i + 1}`,
+          numeroOS: osNum,
+          medico: clientData['medico'] || clientData['MEDICO'] || '',
+          dataEntrega: clientData['dataEntrega'] || clientData['PREVISAO_ENTREGA'] || '',
+          laboratorio: clientData['LABORATORIO'] || clientData['laboratorio'] || '',
+          lente: extractedLenses[i] || (i === 0 ? (clientData['Marca de Lente'] || clientData['Lente'] || clientData['lente'] || '') : ''),
+          armacao: extractedFrames[i] || (i === 0 ? (clientData['Modelo de Armação'] || clientData['Armação'] || clientData['armacao'] || '') : ''),
+          odEsf: i === 0 ? (clientData['OD_ESF'] || clientData['odEsf'] || '') : '',
+          odCil: i === 0 ? (clientData['OD_CIL'] || clientData['odCil'] || '') : '',
+          odEixo: i === 0 ? (clientData['OD_EIXO'] || clientData['odEixo'] || '') : '',
+          odDnp: i === 0 ? (clientData['OD_DNP'] || clientData['odDnp'] || '') : '',
+          odAlt: i === 0 ? (clientData['OD_ALT'] || clientData['odAlt'] || '') : '',
+          odDp: '', odOpa: '',
+          oeEsf: i === 0 ? (clientData['OE_ESF'] || clientData['oeEsf'] || '') : '',
+          oeCil: i === 0 ? (clientData['OE_CIL'] || clientData['oeCil'] || '') : '',
+          oeEixo: i === 0 ? (clientData['OE_EIXO'] || clientData['oeEixo'] || '') : '',
+          oeDnp: i === 0 ? (clientData['OE_DNP'] || clientData['oeDnp'] || '') : '',
+          oeAlt: i === 0 ? (clientData['OE_ALT'] || clientData['oeAlt'] || '') : '',
+          oeDp: '', oeOpa: '',
+          adicao: i === 0 ? (clientData['ADICAO'] || clientData['adicao'] || '') : '',
+          observacoes: i === 0 ? (clientData['observacoes'] || clientData['OBSERVACOES'] || '') : '',
+          valorTotal: ''
+        });
+      }
+
+      setOsList(generatedList);
+      setActiveTabIndex(0);
+
       setFormData(prev => ({
         ...prev,
         medico: clientData['medico'] || clientData['MEDICO'] || '',
         dataEntrega: clientData['dataEntrega'] || clientData['PREVISAO_ENTREGA'] || '',
-        lente: clientData['Marca de Lente'] || clientData['Lente'] || clientData['lente'] || '',
-        armacao: clientData['Modelo de Armação'] || clientData['Armação'] || clientData['armacao'] || '',
+        lente: extractedLenses[0] || clientData['Marca de Lente'] || clientData['Lente'] || clientData['lente'] || '',
+        armacao: extractedFrames[0] || clientData['Modelo de Armação'] || clientData['Armação'] || clientData['armacao'] || '',
         odEsf: clientData['OD_ESF'] || clientData['odEsf'] || '',
         odCil: clientData['OD_CIL'] || clientData['odCil'] || '',
         odEixo: clientData['OD_EIXO'] || clientData['odEixo'] || '',
@@ -276,76 +387,135 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
           : (clientData['PARCELAS_JSON'] ? (typeof clientData['PARCELAS_JSON'] === 'string' ? JSON.parse(clientData['PARCELAS_JSON']) : clientData['PARCELAS_JSON']) : []),
         responsavel: clientData['Responsável Nome'] || clientData['Responsável'] || clientData['responsavel'] || '',
         rg: clientData['RG'] || clientData['rg'] || '',
-        numeroOS: ''
+        laboratorio: clientData['LABORATORIO'] || clientData['laboratorio'] || '',
+        numeroOS: nextBase
       }));
-
-      setSelectedCity(userCity || vCidade || 'Cajati');
     }
   }, [clientData, isOpen, currentUser, userCity]);
 
-  // Handle auto generation of OS when city changes
-  useEffect(() => {
-    if (selectedCity && isOpen) {
-      let prefix = '';
-      if (selectedCity === 'Cajati') prefix = 'CAJ';
-      else if (selectedCity === 'Registro') prefix = 'REG';
-      else if (selectedCity === 'Jacupiranga') prefix = 'JAC';
-      else if (selectedCity === 'Venda Externa') prefix = 'EXT';
+  // Atualização de prefixo e base quando a cidade muda
+  const handleCityChange = (newCity) => {
+    setSelectedCity(newCity);
+    const newBase = calculateNextBaseOS(newCity, salesData);
+    setBaseOSNumber(newBase);
+    setOsList(prev => prev.map((item, idx) => ({
+      ...item,
+      numeroOS: prev.length === 1 ? newBase : `${newBase}-${idx + 1}`
+    })));
+  };
 
-      if (prefix) {
-        let maxNum = 0;
-        salesData.forEach(sale => {
-          const os = sale['OS DA VENDA'] || sale['OS'] || sale['VENDA_OS'];
-          if (os && os.startsWith(prefix + '-')) {
-            const numPart = parseInt(os.replace(prefix + '-', ''), 10);
-            if (!isNaN(numPart) && numPart > maxNum) {
-              maxNum = numPart;
-            }
-          }
-        });
-        const nextNum = maxNum + 1;
-        setFormData(prev => ({ ...prev, numeroOS: `${prefix}-${nextNum}` }));
+  // Alteração do número base manualmente
+  const handleBaseOSChange = (newBase) => {
+    setBaseOSNumber(newBase);
+    setOsList(prev => prev.map((item, idx) => ({
+      ...item,
+      numeroOS: prev.length === 1 ? newBase : `${newBase}-${idx + 1}`
+    })));
+  };
+
+  // Adicionar um novo óculos / OS vinculado
+  const handleAddOS = () => {
+    const nextIdx = osList.length;
+    let cleanBase = (baseOSNumber || 'CAJ-001').replace(/-\d+$/, '');
+
+    const updated = osList.map((os, i) => {
+      if (osList.length === 1 && !os.numeroOS.includes('-')) {
+        return { ...os, numeroOS: `${cleanBase}-1` };
       }
-    }
-  }, [selectedCity, isOpen, salesData]);
+      return os;
+    });
+
+    const newOS = {
+      id: `os_tab_${Date.now()}_${nextIdx}`,
+      label: `Óculos ${nextIdx + 1}`,
+      numeroOS: `${cleanBase}-${nextIdx + 1}`,
+      medico: osList[0]?.medico || formData.medico || '',
+      dataEntrega: osList[0]?.dataEntrega || formData.dataEntrega || '',
+      laboratorio: osList[0]?.laboratorio || formData.laboratorio || '',
+      lente: '',
+      armacao: '',
+      odEsf: '', odCil: '', odEixo: '', odDnp: '', odAlt: '', odDp: '', odOpa: '',
+      oeEsf: '', oeCil: '', oeEixo: '', oeDnp: '', oeAlt: '', oeDp: '', oeOpa: '',
+      adicao: '',
+      observacoes: '',
+      valorTotal: ''
+    };
+
+    updated.push(newOS);
+    setOsList(updated);
+    setActiveTabIndex(updated.length - 1);
+  };
+
+  // Remover um óculos / OS da lista
+  const handleRemoveOS = (idxToRemove) => {
+    if (osList.length <= 1) return;
+    const remaining = osList.filter((_, idx) => idx !== idxToRemove);
+    const cleanBase = (baseOSNumber || 'CAJ-001').replace(/-\d+$/, '');
+    const reindexed = remaining.map((os, i) => ({
+      ...os,
+      label: os.label.startsWith('Óculos ') ? `Óculos ${i + 1}` : os.label,
+      numeroOS: remaining.length === 1 ? cleanBase : `${cleanBase}-${i + 1}`
+    }));
+    setOsList(reindexed);
+    setActiveTabIndex(prev => Math.min(prev, reindexed.length - 1));
+  };
+
+  // Copiar dioptria do Óculos 1 para o Óculos atual ativo
+  const handleCopyPrescriptionFromFirst = () => {
+    if (activeTabIndex === 0 || !osList[0]) return;
+    const source = osList[0];
+    setOsList(prev => prev.map((os, idx) => {
+      if (idx !== activeTabIndex) return os;
+      return {
+        ...os,
+        medico: source.medico || os.medico,
+        odEsf: source.odEsf,
+        odCil: source.odCil,
+        odEixo: source.odEixo,
+        odDnp: source.odDnp,
+        odAlt: source.odAlt,
+        odDp: source.odDp,
+        odOpa: source.odOpa,
+        oeEsf: source.oeEsf,
+        oeCil: source.oeCil,
+        oeEixo: source.oeEixo,
+        oeDnp: source.oeDnp,
+        oeAlt: source.oeAlt,
+        oeDp: source.oeDp,
+        oeOpa: source.oeOpa,
+        adicao: source.adicao,
+        laboratorio: source.laboratorio || os.laboratorio
+      };
+    }));
+  };
+
+  const currentOS = osList[activeTabIndex] || osList[0] || {};
+
+  // Manipulador de campos para a OS ativa
+  const handleCurrentOSChange = (field, value) => {
+    setOsList(prev => prev.map((item, idx) => {
+      if (idx !== activeTabIndex) return item;
+      return { ...item, [field]: value };
+    }));
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    let newFormData = { ...formData, [name]: value };
-
-    if (name === 'lente' || name === 'armacao') {
-      // Find prices from ERP
-      const selectedLente = filteredLentes.find(l => {
-        const nome = `${l.MARCA || l.marca || ''} ${l.MODELO || l.modelo || ''}`.trim();
-        return nome === (name === 'lente' ? value : newFormData.lente);
-      });
-      const selectedArmacao = filteredArmacoes.find(a => {
-        const nome = `${a.MARCA || a.marca || ''} ${a.MODELO || a.modelo || ''}`.trim();
-        return nome === (name === 'armacao' ? value : newFormData.armacao);
-      });
-
-      let totalProdutos = 0;
-      if (selectedLente) totalProdutos += parseCurrency(selectedLente.PRECO_VENDA || selectedLente.preco_venda);
-      if (selectedArmacao) totalProdutos += parseCurrency(selectedArmacao.PRECO_VENDA || selectedArmacao.preco_venda);
-      
-      if (totalProdutos > 0) {
-        newFormData.valorTotal = formatCurrency(totalProdutos);
-        
-        // Recalculate restante
+    // Se for campo de formulário global financeiro
+    if (name === 'valorTotal' || name === 'valorEntrada' || name === 'restante' || name === 'formasPagamento') {
+      let newFormData = { ...formData, [name]: value };
+      if (name === 'valorTotal' || name === 'valorEntrada') {
+        const total = parseCurrency(newFormData.valorTotal) || 0;
         const entrada = parseCurrency(newFormData.valorEntrada) || 0;
-        const rest = totalProdutos - entrada;
+        const rest = total - entrada;
         newFormData.restante = rest > 0 ? formatCurrency(rest) : '0,00';
       }
+      setFormData(newFormData);
+      return;
     }
 
-    if (name === 'valorTotal' || name === 'valorEntrada') {
-      const total = parseCurrency(newFormData.valorTotal) || 0;
-      const entrada = parseCurrency(newFormData.valorEntrada) || 0;
-      const rest = total - entrada;
-      newFormData.restante = rest > 0 ? formatCurrency(rest) : '0,00';
-    }
-
-    setFormData(newFormData);
+    // Caso contrário, atualiza a OS ativa no array
+    handleCurrentOSChange(name, value);
   };
 
   const handleCalculateRestante = () => {
@@ -358,6 +528,55 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
       valorEntrada: entrada > 0 ? formatCurrency(entrada) : prev.valorEntrada,
       restante: rest > 0 ? formatCurrency(rest) : '0,00'
     }));
+  };
+
+  const handleSaveClick = () => {
+    const finalParcelas = payments.filter(p => p.method === 'Boleto').flatMap(p => p.parcelas || []);
+    const finalFormas = payments.length > 0 ? payments.map(p => p.texto).join('\n') : formData.formasPagamento;
+
+    if (osList.length <= 1) {
+      const activeOS = osList[0] || {};
+      const singleData = {
+        ...formData,
+        ...activeOS,
+        numeroOS: activeOS.numeroOS || formData.numeroOS || baseOSNumber,
+        formasPagamento: finalFormas,
+        parcelas: finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || []),
+        PARCELAS_JSON: JSON.stringify(finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || [])),
+        selectedCity: selectedCity || 'Cajati',
+        unidade: selectedCity || 'Cajati',
+        laboratorio: activeOS.laboratorio || formData.laboratorio || ''
+      };
+      onSaveAndPrint(singleData);
+    } else {
+      const multiPayload = {
+        isMultiOS: true,
+        totalOS: osList.length,
+        baseOS: baseOSNumber,
+        selectedCity: selectedCity || 'Cajati',
+        unidade: selectedCity || 'Cajati',
+        formasPagamento: finalFormas,
+        parcelas: finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || []),
+        PARCELAS_JSON: JSON.stringify(finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || [])),
+        valorTotal: formData.valorTotal,
+        valorEntrada: formData.valorEntrada,
+        restante: formData.restante,
+        orders: osList.map((item, idx) => ({
+          ...formData,
+          ...item,
+          osIndex: idx + 1,
+          totalOS: osList.length,
+          numeroOS: item.numeroOS || `${baseOSNumber}-${idx + 1}`,
+          selectedCity: selectedCity || 'Cajati',
+          unidade: selectedCity || 'Cajati',
+          formasPagamento: finalFormas,
+          parcelas: finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || []),
+          PARCELAS_JSON: JSON.stringify(finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || [])),
+          laboratorio: item.laboratorio || ''
+        }))
+      };
+      onSaveAndPrint(multiPayload);
+    }
   };
 
   if (!isOpen) return null;
@@ -380,14 +599,23 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
           className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto glass-card border border-white/10 shadow-2xl rounded-2xl flex flex-col"
         >
           {/* Header */}
-          <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 border-b border-white/10 bg-slate-900/80 backdrop-blur-md">
+          <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 border-b border-white/10 bg-slate-900/90 backdrop-blur-md">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-fuchsia-500/20 rounded-xl flex items-center justify-center">
                 <FileText className="text-fuchsia-400" size={20} />
               </div>
               <div>
-                <h3 className="text-lg font-black text-white">Gerar Ordem de Serviço</h3>
-                <p className="text-xs text-slate-400">Cliente: <span className="text-sky-400 font-bold">{clientData?.['Nome Completo'] || 'Desconhecido'}</span></p>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  Gerar Ordem de Serviço
+                  {osList.length > 1 && (
+                    <span className="px-2 py-0.5 text-[10px] font-black uppercase rounded-full bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30">
+                      Multi-OS ({osList.length} Óculos)
+                    </span>
+                  )}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Cliente: <span className="text-sky-400 font-bold">{clientData?.['Nome Completo'] || clientData?.['NOME'] || 'Desconhecido'}</span>
+                </p>
               </div>
             </div>
             <button onClick={onClose} className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all">
@@ -395,14 +623,82 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
             </button>
           </div>
 
+          {/* BARRA DE ABAS MULTI-OS COM BOTÃO DE ADICIONAR */}
+          <div className="bg-slate-950/80 border-b border-white/10 px-6 py-3 flex items-center justify-between gap-3 overflow-x-auto">
+            <div className="flex items-center gap-2">
+              {osList.map((os, idx) => (
+                <button
+                  key={os.id || idx}
+                  type="button"
+                  onClick={() => setActiveTabIndex(idx)}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
+                    activeTabIndex === idx 
+                      ? 'bg-fuchsia-600 text-white shadow-lg shadow-fuchsia-600/30 ring-1 ring-fuchsia-400' 
+                      : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                  }`}
+                >
+                  <Glasses size={14} />
+                  <span>{os.label || `Óculos ${idx + 1}`}</span>
+                  <span className="text-[10px] font-mono opacity-80 font-black">
+                    ({os.numeroOS || `#${idx + 1}`})
+                  </span>
+                  {osList.length > 1 && (
+                    <span 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveOS(idx);
+                      }}
+                      className="ml-1 hover:text-rose-400 transition-colors p-0.5"
+                      title="Remover este óculos"
+                    >
+                      <X size={12} />
+                    </span>
+                  )}
+                </button>
+              ))}
+
+              <button
+                type="button"
+                onClick={handleAddOS}
+                className="px-3 py-1.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs font-black flex items-center gap-1.5 transition-all"
+                title="Adicionar mais um óculos / OS vinculado nesta mesma venda"
+              >
+                <Plus size={14} /> Adicionar Óculos (OS)
+              </button>
+            </div>
+
+            {osList.length > 1 && activeTabIndex > 0 && (
+              <button
+                type="button"
+                onClick={handleCopyPrescriptionFromFirst}
+                className="px-3 py-1.5 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shrink-0"
+                title="Copiar graus OD/OE do Óculos 1 para este óculos"
+              >
+                <Copy size={13} /> Copiar Receita do Óculos 1
+              </button>
+            )}
+          </div>
+
           {/* Form */}
           <div className="p-6 space-y-8">
             
-            {/* Bloco 1: Receita / Dioptria */}
+            {/* Bloco 1: Receita / Dioptria do Óculos Ativo */}
             <div className="space-y-4">
-              <h4 className="text-sm font-black uppercase tracking-widest text-slate-300 flex items-center gap-2 border-b border-white/10 pb-2">
-                <Activity size={16} className="text-sky-400"/> Receita / Dioptria
-              </h4>
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <h4 className="text-sm font-black uppercase tracking-widest text-slate-300 flex items-center gap-2">
+                  <Activity size={16} className="text-sky-400"/> Receita / Dioptria — {currentOS.label || `Óculos ${activeTabIndex + 1}`}
+                </h4>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold">Identificação:</span>
+                  <input
+                    type="text"
+                    value={currentOS.label || ''}
+                    onChange={(e) => handleCurrentOSChange('label', e.target.value)}
+                    placeholder="Ex: Óculos 1 - Longe"
+                    className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-fuchsia-300 font-bold focus:outline-none focus:border-fuchsia-500"
+                  />
+                </div>
+              </div>
               
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="space-y-1">
@@ -415,7 +711,7 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
                   ) : (
                     <select 
                       value={selectedCity} 
-                      onChange={(e) => setSelectedCity(e.target.value)} 
+                      onChange={(e) => handleCityChange(e.target.value)} 
                       className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-sky-400 font-bold focus:outline-none focus:border-sky-500/50"
                     >
                       <option value="">Selecione...</option>
@@ -426,18 +722,79 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
                     </select>
                   )}
                 </div>
+
                 <div className="space-y-1">
-                  <label className="text-[10px] uppercase text-slate-500 font-bold">Nº da OS</label>
-                  <input type="text" name="numeroOS" value={formData.numeroOS} onChange={handleChange} placeholder="CAJ-001" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-fuchsia-400 font-bold focus:outline-none focus:border-fuchsia-500/50" />
+                  <label className="text-[10px] uppercase text-slate-500 font-bold">
+                    Nº desta OS {osList.length > 1 ? `(${activeTabIndex + 1}/${osList.length})` : ''}
+                  </label>
+                  <input 
+                    type="text" 
+                    name="numeroOS" 
+                    value={currentOS.numeroOS || ''} 
+                    onChange={handleChange} 
+                    placeholder="CAJ-001" 
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-fuchsia-400 font-bold focus:outline-none focus:border-fuchsia-500/50" 
+                  />
                 </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase text-slate-500 font-bold">Laboratório Óptico</label>
+                  <input 
+                    list="datalist-labs-os"
+                    type="text" 
+                    name="laboratorio" 
+                    value={currentOS.laboratorio || ''} 
+                    onChange={handleChange} 
+                    placeholder="Ex: Haytek, Essilor, Hoya..." 
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50" 
+                  />
+                  <datalist id="datalist-labs-os">
+                    <option value="Haytek" />
+                    <option value="Essilor" />
+                    <option value="Hoya" />
+                    <option value="Optview" />
+                    <option value="Digital Labs" />
+                    <option value="Laboratório Central" />
+                  </datalist>
+                </div>
+
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase text-slate-500 font-bold">Médico Oftalmologista</label>
-                  <input type="text" name="medico" value={formData.medico} onChange={handleChange} placeholder="Nome do Médico" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50" />
+                  <input 
+                    type="text" 
+                    name="medico" 
+                    value={currentOS.medico || ''} 
+                    onChange={handleChange} 
+                    placeholder="Nome do Médico" 
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50" 
+                  />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-1">
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase text-slate-500 font-bold">Data de Entrega</label>
-                  <input type="date" name="dataEntrega" value={formData.dataEntrega} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50" />
+                  <input 
+                    type="date" 
+                    name="dataEntrega" 
+                    value={currentOS.dataEntrega || ''} 
+                    onChange={handleChange} 
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50" 
+                  />
                 </div>
+
+                {osList.length > 1 && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase text-slate-500 font-bold">Nº Base da Venda</label>
+                    <input 
+                      type="text" 
+                      value={baseOSNumber} 
+                      onChange={(e) => handleBaseOSChange(e.target.value)} 
+                      placeholder="CAJ-001" 
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-300 font-mono focus:outline-none focus:border-slate-500" 
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="overflow-x-auto">
@@ -457,37 +814,44 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
                   <tbody className="space-y-2">
                     <tr>
                       <td className="font-black text-sky-400 pr-2 text-left">OD</td>
-                      <td className="px-1"><input type="text" name="odEsf" value={formData.odEsf} onChange={handleChange} placeholder="0.00" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
-                      <td className="px-1"><input type="text" name="odCil" value={formData.odCil} onChange={handleChange} placeholder="0.00" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
-                      <td className="px-1"><input type="text" name="odEixo" value={formData.odEixo} onChange={handleChange} placeholder="0°" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
-                      <td className="px-1"><input type="text" name="odDnp" value={formData.odDnp} onChange={handleChange} placeholder="mm" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
-                      <td className="px-1"><input type="text" name="odAlt" value={formData.odAlt} onChange={handleChange} placeholder="mm" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
-                      <td className="px-1"><input type="text" name="odDp" value={formData.odDp} onChange={handleChange} placeholder="mm" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
-                      <td className="px-1"><input type="text" name="odOpa" value={formData.odOpa} onChange={handleChange} placeholder="---" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1"><input type="text" name="odEsf" value={currentOS.odEsf || ''} onChange={handleChange} placeholder="0.00" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1"><input type="text" name="odCil" value={currentOS.odCil || ''} onChange={handleChange} placeholder="0.00" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1"><input type="text" name="odEixo" value={currentOS.odEixo || ''} onChange={handleChange} placeholder="0°" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1"><input type="text" name="odDnp" value={currentOS.odDnp || ''} onChange={handleChange} placeholder="mm" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1"><input type="text" name="odAlt" value={currentOS.odAlt || ''} onChange={handleChange} placeholder="mm" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1"><input type="text" name="odDp" value={currentOS.odDp || ''} onChange={handleChange} placeholder="mm" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1"><input type="text" name="odOpa" value={currentOS.odOpa || ''} onChange={handleChange} placeholder="---" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
                     </tr>
                     <tr>
                       <td className="font-black text-emerald-400 pr-2 pt-2 text-left">OE</td>
-                      <td className="px-1 pt-2"><input type="text" name="oeEsf" value={formData.oeEsf} onChange={handleChange} placeholder="0.00" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
-                      <td className="px-1 pt-2"><input type="text" name="oeCil" value={formData.oeCil} onChange={handleChange} placeholder="0.00" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
-                      <td className="px-1 pt-2"><input type="text" name="oeEixo" value={formData.oeEixo} onChange={handleChange} placeholder="0°" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
-                      <td className="px-1 pt-2"><input type="text" name="oeDnp" value={formData.oeDnp} onChange={handleChange} placeholder="mm" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
-                      <td className="px-1 pt-2"><input type="text" name="oeAlt" value={formData.oeAlt} onChange={handleChange} placeholder="mm" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
-                      <td className="px-1 pt-2"><input type="text" name="oeDp" value={formData.oeDp} onChange={handleChange} placeholder="mm" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
-                      <td className="px-1 pt-2"><input type="text" name="oeOpa" value={formData.oeOpa} onChange={handleChange} placeholder="---" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1 pt-2"><input type="text" name="oeEsf" value={currentOS.oeEsf || ''} onChange={handleChange} placeholder="0.00" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1 pt-2"><input type="text" name="oeCil" value={currentOS.oeCil || ''} onChange={handleChange} placeholder="0.00" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1 pt-2"><input type="text" name="oeEixo" value={currentOS.oeEixo || ''} onChange={handleChange} placeholder="0°" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1 pt-2"><input type="text" name="oeDnp" value={currentOS.oeDnp || ''} onChange={handleChange} placeholder="mm" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1 pt-2"><input type="text" name="oeAlt" value={currentOS.oeAlt || ''} onChange={handleChange} placeholder="mm" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1 pt-2"><input type="text" name="oeDp" value={currentOS.oeDp || ''} onChange={handleChange} placeholder="mm" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
+                      <td className="px-1 pt-2"><input type="text" name="oeOpa" value={currentOS.oeOpa || ''} onChange={handleChange} placeholder="---" className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white text-xs font-mono" /></td>
                     </tr>
                   </tbody>
                 </table>
               </div>
               <div className="w-full sm:w-1/3 mt-3">
                 <label className="text-[10px] uppercase text-slate-400 font-bold">Adição (Perto)</label>
-                <input type="text" name="adicao" value={formData.adicao} onChange={handleChange} placeholder="+0.00" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-center text-white font-mono text-sm" />
+                <input 
+                  type="text" 
+                  name="adicao" 
+                  value={currentOS.adicao || ''} 
+                  onChange={handleChange} 
+                  placeholder="+0.00" 
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-center text-white font-mono text-sm" 
+                />
               </div>
             </div>
 
-            {/* Bloco 2: Produtos */}
+            {/* Bloco 2: Produtos do Óculos Ativo */}
             <div className="space-y-4">
               <h4 className="text-sm font-black uppercase tracking-widest text-slate-300 flex items-center gap-2 border-b border-white/10 pb-2">
-                <Eye size={16} className="text-fuchsia-400"/> Lente & Armação
+                <Eye size={16} className="text-fuchsia-400"/> Lente & Armação — {currentOS.label || `Óculos ${activeTabIndex + 1}`}
               </h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
@@ -496,7 +860,7 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
                     list="datalist-lentes-os"
                     type="text" 
                     name="lente" 
-                    value={formData.lente} 
+                    value={currentOS.lente || ''} 
                     onChange={handleChange} 
                     placeholder="Selecione ou digite..."
                     className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white" 
@@ -516,13 +880,13 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
                       list="datalist-armacoes-os"
                       type="text" 
                       name="armacao" 
-                      value={formData.armacao} 
+                      value={currentOS.armacao || ''} 
                       onChange={handleChange} 
                       placeholder="Selecione ou digite..."
                       className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white" 
                     />
                     {(() => {
-                      const selectedArmacaoObj = filteredArmacoes.find(a => `${a.MARCA || a.marca || ''} ${a.MODELO || a.modelo || ''}`.trim() === formData.armacao);
+                      const selectedArmacaoObj = filteredArmacoes.find(a => `${a.MARCA || a.marca || ''} ${a.MODELO || a.modelo || ''}`.trim() === (currentOS.armacao || ''));
                       if (selectedArmacaoObj && selectedArmacaoObj.IMAGEM) {
                         return (
                           <div className="w-10 h-10 shrink-0 rounded-lg overflow-hidden border border-white/10 bg-black/40 shadow-xl">
@@ -544,7 +908,7 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
               </div>
             </div>
 
-            {/* Bloco 3: Financeiro */}
+            {/* Bloco 3: Financeiro & Cobrança Unificada */}
             {(() => {
               const totalVal = parseCurrency(formData.valorTotal);
               const coveredVal = payments.reduce((sum, p) => sum + p.valor, 0);
@@ -554,13 +918,28 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
               return (
                 <div className="space-y-4">
                   <h4 className="text-sm font-black uppercase tracking-widest text-slate-300 flex items-center gap-2 border-b border-white/10 pb-2">
-                    <DollarSign size={16} className="text-emerald-400"/> Financeiro & Formas de Pagamento
+                    <DollarSign size={16} className="text-emerald-400"/> Financeiro &amp; Cobrança Unificada do Cliente
                   </h4>
+
+                  {/* Banner de Cobrança Unificada se houver mais de 1 OS */}
+                  {osList.length > 1 && (
+                    <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-start gap-3">
+                      <CheckCircle2 size={18} className="text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-xs font-black text-emerald-300 uppercase tracking-wide">
+                          Faturamento Unificado para o Cliente ({osList.length} Ordens de Serviço Vinculadas)
+                        </p>
+                        <p className="text-[11px] text-slate-300 font-medium mt-0.5 leading-snug">
+                          O cliente será cobrado uma única vez pelo valor total da compra ({formatCurrency(formData.valorTotal)}). Todas as {osList.length} OSs geradas compartilham a mesma venda, mesmo cadastro e mesmo vendedor, gerando fichas distintas para o laboratório sem duplicar títulos a receber ou saldo no boleto.
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Resumo em 3 Cards */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] uppercase text-slate-500 font-bold">Valor Total (R$)</label>
+                      <label className="text-[10px] uppercase text-slate-500 font-bold">Valor Total da Venda (R$)</label>
                       <input 
                         type="text" 
                         name="valorTotal" 
@@ -592,7 +971,7 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
                         className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-amber-300 font-black bg-white/5 outline-none" 
                         readOnly 
                       />
-                      <span className="text-[9px] text-slate-500 block">Boleto Bancário / Carnê</span>
+                      <span className="text-[9px] text-slate-500 block">Boleto</span>
                     </div>
                   </div>
 
@@ -613,7 +992,7 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
                       <div>
                         <span>
                           {isFullyCovered 
-                            ? '✅ Total da OS 100% Coberto!' 
+                            ? '✅ Total da Venda 100% Coberto!' 
                             : coveredVal > totalVal + 0.01 
                             ? `⚠️ Valor lançado excede o total em R$ ${formatCurrency(coveredVal - totalVal)}` 
                             : `⚠️ Falta cobrir: R$ ${formatCurrency(remainingVal)}`}
@@ -652,7 +1031,7 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
                         { id: 'PIX', label: '⚡ PIX' },
                         { id: 'Débito', label: '💳 Cartão Débito' },
                         { id: 'Crédito', label: '💳 Cartão Crédito' },
-                        { id: 'Boleto', label: '📄 Boleto / Carnê' }
+                        { id: 'Boleto', label: '📄 Boleto' }
                       ].map(m => (
                         <button
                           key={m.id}
@@ -748,25 +1127,34 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
                           <span className="uppercase tracking-wider font-black flex items-center gap-1.5">
                             <Calendar size={13} /> Datas de Vencimento ({payInstallments}x)
                           </span>
-                          <span className="text-slate-400">
-                            {formatCurrency((parseCurrency(payValue) || remainingVal) / parseInt(payInstallments, 10))} / parcela
+                          <span className="text-[10px] text-slate-400">
+                            Personalize as datas individuais se necessário
                           </span>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1">
-                          {Array.from({ length: parseInt(payInstallments, 10) }, (_, i) => {
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 pt-1 max-h-40 overflow-y-auto">
+                          {Array.from({ length: parseInt(payInstallments, 10) }).map((_, i) => {
                             const num = i + 1;
                             const baseD = payFirstDueDate ? new Date(payFirstDueDate + 'T12:00:00') : new Date();
-                            baseD.setDate(baseD.getDate() + 30 * i);
-                            const calculatedDate = baseD.toISOString().split('T')[0];
-                            const currentDateVal = osCustomDueDates[num] || calculatedDate;
+                            const calcD = new Date(baseD);
+                            calcD.setDate(calcD.getDate() + 30 * (num - 1));
+                            const defaultIso = calcD.toISOString().split('T')[0];
+                            const currentVal = osCustomDueDates[num] || defaultIso;
+
                             return (
-                              <div key={num} className="bg-white/5 p-2 rounded-lg border border-white/5 flex items-center justify-between gap-2 text-xs">
-                                <span className="font-bold text-slate-300">{num}ª Parcela:</span>
+                              <div key={num} className="bg-white/5 p-2 rounded-lg border border-white/10 flex flex-col gap-1">
+                                <span className="text-[10px] text-slate-400 font-bold">
+                                  {num}ª Parcela
+                                </span>
                                 <input
                                   type="date"
-                                  value={currentDateVal}
-                                  onChange={e => setOsCustomDueDates(prev => ({ ...prev, [num]: e.target.value }))}
-                                  className="bg-black/80 border border-white/10 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                                  value={currentVal}
+                                  onChange={e => {
+                                    setOsCustomDueDates(prev => ({
+                                      ...prev,
+                                      [num]: e.target.value
+                                    }));
+                                  }}
+                                  className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-1 text-[11px] text-white font-mono outline-none focus:border-emerald-500"
                                 />
                               </div>
                             );
@@ -776,27 +1164,29 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
                     )}
                   </div>
 
-                  {/* Lista Visual de Pagamentos Lançados */}
+                  {/* Lista de Pagamentos Lançados */}
                   {payments.length > 0 && (
-                    <div className="space-y-2 bg-black/40 p-3.5 rounded-xl border border-white/10">
+                    <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                          Pagamentos Lançados nesta OS ({payments.length}):
-                        </span>
+                        <label className="text-[10px] uppercase text-slate-400 font-bold">
+                          Pagamentos Adicionados ({payments.length})
+                        </label>
                         <button
                           type="button"
                           onClick={handleClearPayments}
-                          className="text-[10px] font-bold text-rose-400 hover:text-rose-300 hover:underline transition-colors"
+                          className="text-[10px] text-rose-400 hover:underline font-bold"
                         >
                           Limpar Todos
                         </button>
                       </div>
-
-                      <div className="space-y-1.5">
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
                         {payments.map(p => (
-                          <div key={p.id} className="p-2.5 bg-slate-900/90 rounded-lg border border-white/10 flex items-center justify-between gap-3 text-xs">
-                            <div className="min-w-0 flex-1">
-                              <p className="font-bold text-white text-xs flex items-center gap-1.5">
+                          <div
+                            key={p.id}
+                            className="p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between text-xs"
+                          >
+                            <div className="flex-1 pr-2">
+                              <p className="font-bold text-white">
                                 {p.texto}
                               </p>
                             </div>
@@ -832,36 +1222,45 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
               );
             })()}
 
-            {/* Observações */}
+            {/* Observações da OS Ativa */}
             <div className="space-y-1">
-              <label className="text-[10px] uppercase text-slate-500 font-bold">Observações Adicionais</label>
-              <textarea name="observacoes" value={formData.observacoes} onChange={handleChange} rows="2" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white resize-none"></textarea>
+              <label className="text-[10px] uppercase text-slate-500 font-bold">
+                Observações Adicionais ({currentOS.label || `Óculos ${activeTabIndex + 1}`})
+              </label>
+              <textarea 
+                name="observacoes" 
+                value={currentOS.observacoes || ''} 
+                onChange={handleChange} 
+                rows="2" 
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white resize-none"
+              ></textarea>
             </div>
 
           </div>
 
           {/* Footer / Actions */}
-          <div className="sticky bottom-0 border-t border-white/10 bg-slate-900/80 backdrop-blur-md px-6 py-4 flex items-center justify-end gap-3">
-            <button onClick={onClose} className="px-5 py-2.5 rounded-xl font-bold text-slate-400 hover:text-white transition-colors">
-              Cancelar
-            </button>
-            <button 
-              onClick={() => {
-                const finalParcelas = payments.filter(p => p.method === 'Boleto').flatMap(p => p.parcelas || []);
-                const finalFormas = payments.length > 0 ? payments.map(p => p.texto).join('\n') : formData.formasPagamento;
-                onSaveAndPrint({ 
-                  ...formData, 
-                  formasPagamento: finalFormas,
-                  parcelas: finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || []),
-                  PARCELAS_JSON: JSON.stringify(finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || [])),
-                  selectedCity: selectedCity || 'Cajati', 
-                  unidade: selectedCity || 'Cajati' 
-                });
-              }}
-              className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-fuchsia-500 to-indigo-500 hover:from-fuchsia-400 hover:to-indigo-400 text-white font-black rounded-xl shadow-lg shadow-fuchsia-500/20 transition-all"
-            >
-              <Printer size={16} /> Salvar e Imprimir OS
-            </button>
+          <div className="sticky bottom-0 border-t border-white/10 bg-slate-900/90 backdrop-blur-md px-6 py-4 flex items-center justify-between gap-3">
+            <div className="text-xs text-slate-400 font-bold">
+              {osList.length > 1 ? (
+                <span className="text-fuchsia-400 flex items-center gap-1.5">
+                  <Layers size={15} /> {osList.length} OSs serão geradas vinculadas à Venda
+                </span>
+              ) : (
+                <span>1 Ordem de Serviço padrão</span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button onClick={onClose} className="px-5 py-2.5 rounded-xl font-bold text-slate-400 hover:text-white transition-colors">
+                Cancelar
+              </button>
+              <button 
+                onClick={handleSaveClick}
+                className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-fuchsia-500 to-indigo-500 hover:from-fuchsia-400 hover:to-indigo-400 text-white font-black rounded-xl shadow-lg shadow-fuchsia-500/20 transition-all active:scale-95"
+              >
+                <Printer size={16} /> {osList.length > 1 ? `Salvar e Imprimir ${osList.length} OSs` : 'Salvar e Imprimir OS'}
+              </button>
+            </div>
           </div>
 
         </motion.div>
