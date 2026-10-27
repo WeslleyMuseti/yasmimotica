@@ -20,11 +20,11 @@ const COLLECTIONS = [
   'Registro_Vendas',
   'CAD_LENTES',
   'CAD_ARMACOES',
+  'CAD_ACESSORIOS',
   'CAD_BRINDES',
   'CONTAS_PAGAR',
   'CONTAS_RECEBER',
   'USUARIOS',
-  'DELETED_ITEMS',
   'FLUXO_CAIXA',
   'TRANSFERENCIAS_ESTOQUE',
   'VOUCHERS'
@@ -1070,8 +1070,11 @@ export const isStephanieMuseti = (item) => {
 
   if (isSteph && isMuseti) return true;
 
-  // Verifica também em DOCUMENTO ou DESCRICAO para parcelas ou OSs avulsas
-  const docOrDesc = String(item['DOCUMENTO'] ?? item['DESCRICAO'] ?? item['HISTORICO'] ?? item['OBSERVACOES'] ?? '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  // Verifica também em DOCUMENTO, DESCRICAO, motivo ou detalhes para parcelas, caixa ou OSs avulsas
+  const docOrDesc = String(
+    item['DOCUMENTO'] ?? item['DESCRICAO'] ?? item['HISTORICO'] ?? item['OBSERVACOES'] ??
+    item.motivo ?? item.MOTIVO ?? item.detalhes ?? item.DETALHES ?? ''
+  ).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
   const docSteph = (docOrDesc.includes('stephanie') || docOrDesc.includes('stefanie') || docOrDesc.includes('stephany') || docOrDesc.includes('stefany')) &&
                    (docOrDesc.includes('museti') || docOrDesc.includes('musete') || docOrDesc.includes('musseti') || docOrDesc.includes('mussette'));
   return docSteph;
@@ -1079,7 +1082,7 @@ export const isStephanieMuseti = (item) => {
 
 /**
  * Rotina de higienização segura e atômica da cliente Stephanie Museti:
- * 1. Remove quaisquer OS de teste em Registro_Vendas e BD MARKETING
+ * 1. Remove quaisquer OS de teste em Registro_Vendas, BD MARKETING e FLUXO_CAIXA
  * 2. Remove duplicatas de parcelas pendentes em CONTAS_RECEBER
  * 3. Zera 'Valor Devido' para '0,00' e define status 'Em dia' em CLIENTES_CADASTRADOS
  */
@@ -1093,8 +1096,8 @@ export const sanitizeStephanieMusetiData = (currentData, getItemKeyFn = null) =>
   const deletedKeys = [];
   const deletedItems = [];
 
-  // 1. Limpar OS de teste em Registro_Vendas e BD MARKETING
-  ['Registro_Vendas', 'BD MARKETING'].forEach(sheet => {
+  // 1. Limpar OS e movimentos de teste em Registro_Vendas, BD MARKETING e FLUXO_CAIXA
+  ['Registro_Vendas', 'BD MARKETING', 'FLUXO_CAIXA'].forEach(sheet => {
     if (Array.isArray(nextData[sheet])) {
       const remaining = [];
       nextData[sheet].forEach(row => {

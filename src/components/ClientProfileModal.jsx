@@ -9,10 +9,12 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PrintableOS from './PrintableOS';
+import PrintableClientProfile from './PrintableClientProfile';
 import DocumentAttachmentInput from './DocumentAttachmentInput';
 import EditOSModal from './EditOSModal';
 import ReceiptModal from './ReceiptModal';
 import { isSameClient } from '../firebaseSync';
+import { syncOSPaymentDate, syncInstallmentPaymentDate } from '../dateSyncUtils';
 
 const formatCPF_CNPJ = (val) => {
   if (!val) return 'Não informado';
@@ -92,6 +94,7 @@ const ClientProfileModal = ({
   onDeleteSale, 
   onDeleteClient, 
   currentUser, 
+  data = {},
   receberData = [], 
   onUpdateRow,
   onAddRow,
@@ -106,7 +109,18 @@ const ClientProfileModal = ({
   const [paymentOS, setPaymentOS] = useState('');
   const [confirmDeleteIndex, setConfirmDeleteIndex] = useState(null);
   const [osDataForPrint, setOsDataForPrint] = useState(null);
+  const [isPrintingProfile, setIsPrintingProfile] = useState(false);
   const [editSuccessMessage, setEditSuccessMessage] = useState(false);
+
+  // Impressão da ficha cadastral completa (dados pessoais + responsável legal)
+  const handlePrintProfile = () => {
+    setOsDataForPrint(null);
+    setIsPrintingProfile(true);
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => setIsPrintingProfile(false), 1500);
+    }, 250);
+  };
   
   // Edição de Ordem de Serviço (OS) existente no perfil
   const [editingOS, setEditingOS] = useState(null);
@@ -172,6 +186,21 @@ const ClientProfileModal = ({
       await onUpdateSale(editingOS, finalizedRow);
     } else if (onUpdateRow && editingOS) {
       await onUpdateRow('Registro_Vendas', editingOS, finalizedRow);
+    }
+
+    if (onUpdateRow && editingOS) {
+      const fullData = data && Object.keys(data).length > 0 ? data : {
+        Registro_Vendas: clientHistory,
+        CONTAS_RECEBER: receberData
+      };
+      await syncOSPaymentDate({
+        osNumber: finalizedRow['OS DA VENDA'] || finalizedRow['OS'],
+        saleRow: finalizedRow,
+        newDate: finalizedRow['DATA DA VENDA'] || finalizedRow['DATA'],
+        newTime: finalizedRow.hora || finalizedRow.HORA,
+        data: fullData,
+        onUpdateRow
+      });
     }
     setLocalHistory(prev => prev.map(item => {
       const isThis = item === editingOS ||
@@ -311,7 +340,7 @@ const ClientProfileModal = ({
     };
   }, [clientErpInvoices, currentClient]);
 
-  const handleSettleSingleInvoice = (inv) => {
+  const handleSettleSingleInvoice = async (inv) => {
     const val = parseCurrency(inv.VALOR || inv.valor);
     const osNum = inv.VENDA_OS || inv.OS || inv.venda_os || '';
     const desc = inv.DESCRICAO || inv.descricao || (osNum ? `OS #${osNum}` : 'Parcela');
@@ -329,21 +358,16 @@ const ClientProfileModal = ({
         }));
       } else {
         const todayIso = new Date().toISOString().split('T')[0];
-        const todayStr = new Date().toLocaleDateString('pt-BR');
-        const clientId = currentClient?.id || currentClient?._id || '';
-        const clientCpf = String(currentClient?.['CPF / CNPJ'] || currentClient?.['CPF'] || '').trim();
-        const clientName = currentClient?.['Nome Completo'] || currentClient?.['NOME'] || 'Cliente';
-        const clientCity = currentClient?.['Cidade'] || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || 'Cajati';
 
-        // (a) update installment in CONTAS_RECEBER to STATUS: 'Recebido'
-        if (onUpdateRow) {
-          onUpdateRow('CONTAS_RECEBER', inv, {
-            ...inv,
-            STATUS: 'Recebido',
-            status: 'Recebido',
-            DATA_RECEBIMENTO: todayIso
-          });
-        }
+        // (a) update installment in CONTAS_RECEBER to STATUS: 'Recebido' e sincroniza no FLUXO_CAIXA
+        await syncInstallmentPaymentDate({
+          installmentRow: inv,
+          newPaymentDate: todayIso,
+          data,
+          onUpdateRow,
+          onAddRow,
+          currentUser
+        });
 
         // (b) decrement client's 'Valor Devido' in CLIENTES_CADASTRADOS
         const currentDebt = parseCurrency(currentClient?.['Valor Devido']);
@@ -360,25 +384,6 @@ const ClientProfileModal = ({
           onUpdateRow('CLIENTES_CADASTRADOS', currentClient, updatedClient);
         }
         setCurrentClient(updatedClient);
-
-        // (c) add entry in FLUXO_CAIXA with tipo: 'RECEBIMENTO'
-        if (onAddRow) {
-          onAddRow('FLUXO_CAIXA', {
-            id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-            tipo: 'RECEBIMENTO',
-            dataHora: new Date().toISOString(),
-            data: todayStr,
-            unidade: clientCity,
-            operador: currentUser?.username || 'Caixa',
-            valor: val,
-            formaPagamento: 'DINHEIRO / RECEBIMENTO',
-            motivo: `Recebimento Parcela - ${clientName}`,
-            detalhes: osNum ? `OS #${osNum} - ${desc}` : desc,
-            CLIENTE_ID: clientId,
-            CLIENTE_CPF: clientCpf,
-            CPF: clientCpf
-          });
-        }
       }
     }
   };
@@ -465,8 +470,15 @@ const ClientProfileModal = ({
   const handleAddSubmit = (e) => {
     e.preventDefault();
     if (onAddPurchase) {
+      const pDate = newPurchase['DATA  DA VENDA'] || newPurchase['DATA DA VENDA'] || newPurchase['DATA'] || new Date().toISOString().split('T')[0];
       onAddPurchase({
         ...newPurchase,
+        'DATA  DA VENDA': pDate,
+        'DATA DA VENDA': pDate,
+        'DATA_VENDA': pDate,
+        'Data da Venda': pDate,
+        'data_venda': pDate,
+        'DATA': pDate,
         'NOME CLIENTE': currentClient['Nome Completo'] || currentClient['NOME'],
         'TELEFONE': currentClient['WhatsApp'] || ''
       });
@@ -527,20 +539,32 @@ const ClientProfileModal = ({
                 
                 <div className="flex items-center gap-2 shrink-0">
                   {!isEditing && (
-                    <button
-                      onClick={handleStatusToggle}
-                      title="Clique para alternar o status manualmente se necessário"
-                      className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs font-black transition-all border ${
-                        realFinancials.statusReal === 'Em dia'
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
-                          : realFinancials.statusReal === 'Pendente'
-                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
-                          : 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20 shadow-[0_0_15px_rgba(244,63,94,0.15)]'
-                      }`}
-                    >
-                      {realFinancials.statusReal === 'Em dia' ? <CheckCircle size={13}/> : <AlertTriangle size={13}/>}
-                      <span className="hidden sm:inline">{realFinancials.statusReal.toUpperCase()}</span>
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={handlePrintProfile}
+                        title="Imprimir Ficha Cadastral com Dados Pessoais e do Responsável"
+                        className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs font-black transition-all bg-sky-500/10 text-sky-400 border border-sky-500/30 hover:bg-sky-500/20 shadow-[0_0_15px_rgba(14,165,233,0.15)]"
+                      >
+                        <Printer size={13} />
+                        <span className="hidden sm:inline">IMPRIMIR FICHA</span>
+                      </button>
+
+                      <button
+                        onClick={handleStatusToggle}
+                        title="Clique para alternar o status manualmente se necessário"
+                        className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs font-black transition-all border ${
+                          realFinancials.statusReal === 'Em dia'
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                            : realFinancials.statusReal === 'Pendente'
+                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
+                            : 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20 shadow-[0_0_15px_rgba(244,63,94,0.15)]'
+                        }`}
+                      >
+                        {realFinancials.statusReal === 'Em dia' ? <CheckCircle size={13}/> : <AlertTriangle size={13}/>}
+                        <span className="hidden sm:inline">{realFinancials.statusReal.toUpperCase()}</span>
+                      </button>
+                    </>
                   )}
 
                   <button onClick={onClose} className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-full transition-all bg-white/5 border border-white/10">
@@ -1443,24 +1467,47 @@ const ClientProfileModal = ({
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const compFormas = compra['FORMAS_PAGAMENTO'] || compra['MEIO_PAGAMENTO'] || '';
+                                      const compFormas = compra['FORMAS_PAGAMENTO'] || compra['MEIO_PAGAMENTO'] || compra['FORMA DE PAGAMENTO'] || '';
                                       const isApenasBoleto = /boleto|carnê|carne/i.test(compFormas) && !/dinheiro|pix|débito|debito|crédito|credito/i.test(compFormas);
                                       const compTotal = compra['VALOR TOTAL'] || compra['VALOR'] || '0,00';
                                       const compEntrada = compra['VALOR ENTRADA'] || compra['SINAL'] || (isApenasBoleto ? '0,00' : '0,00');
                                       const compRestante = compra['RESTANTE'] || (isApenasBoleto ? compTotal : '0,00');
+                                      let parsedParcelas = [];
+                                      if (Array.isArray(compra.parcelas)) {
+                                        parsedParcelas = compra.parcelas;
+                                      } else if (compra['PARCELAS_JSON']) {
+                                        try {
+                                          parsedParcelas = typeof compra['PARCELAS_JSON'] === 'string'
+                                            ? JSON.parse(compra['PARCELAS_JSON'])
+                                            : compra['PARCELAS_JSON'];
+                                        } catch (_) {
+                                          parsedParcelas = [];
+                                        }
+                                      }
 
                                       setOsDataForPrint({
                                         numeroOS: compra['OS DA VENDA'] || compra['OS'] || compra['VENDA_OS'],
-                                        selectedCity: currentClient['Cidade'] || 'Central',
-                                        unidade: currentClient['Cidade'] || 'Central',
+                                        selectedCity: compra['CIDADE'] || compra['UNIDADE'] || currentClient['Cidade'] || 'Central',
+                                        unidade: compra['CIDADE'] || compra['UNIDADE'] || currentClient['Cidade'] || 'Central',
                                         medico: compra['MEDICO'] || '',
                                         lente: compra['LENTE'] || compra['PRODUTO'] || '',
                                         armacao: compra['ARMAÇÃO'] || '',
                                         valorTotal: compTotal,
                                         valorEntrada: compEntrada,
                                         restante: compRestante,
-                                        dataEntrega: compra['DATA ENTREGA ÓCULOS'] || compra['DATA_ENTREGA'] || '',
+                                        dataVenda: compra['DATA  DA VENDA'] || compra['DATA DA VENDA'] || compra['DATA_VENDA'] || compra['Data da Venda'] || compra['data_venda'] || compra['DATA'] || compra['Data'] || '',
+                                        dataEntrega: compra['DATA ENTREGA ÓCULOS'] || compra['DATA_ENTREGA'] || compra['PREVISAO_ENTREGA'] || '',
                                         formasPagamento: compFormas,
+                                        FORMA_ENTRADA: compra['FORMA_ENTRADA'] || compra['formaPagamentoEntrada'] || '',
+                                        formaPagamentoEntrada: compra['formaPagamentoEntrada'] || compra['FORMA_ENTRADA'] || '',
+                                        FORMA_RESTANTE: compra['FORMA_RESTANTE'] || compra['formaPagamentoRestante'] || '',
+                                        formaPagamentoRestante: compra['formaPagamentoRestante'] || compra['FORMA_RESTANTE'] || '',
+                                        parcelas: parsedParcelas,
+                                        PARCELAS_JSON: compra['PARCELAS_JSON'] || '',
+                                        isSecondaryOS: Boolean(compra.isSecondaryOS || compra.FINANCEIRO_UNIFICADO || compra.financeiroUnificado),
+                                        financeiroUnificado: Boolean(compra.isSecondaryOS || compra.FINANCEIRO_UNIFICADO || compra.financeiroUnificado),
+                                        nomePessoa: compra['PACIENTE'] || compra['NOME_BENEFICIARIO'] || compra.nomePessoa || '',
+                                        PACIENTE: compra['PACIENTE'] || compra['NOME_BENEFICIARIO'] || compra.nomePessoa || '',
                                         observacoes: compra['OBSERVACOES'] || '',
                                         odEsf: compra['OD_ESF'] || '',
                                         odCil: compra['OD_CIL'] || '',
@@ -1474,7 +1521,11 @@ const ClientProfileModal = ({
                                         oeAlt: compra['OE_ALT'] || '',
                                         adicao: compra['ADICAO'] || ''
                                       });
-                                      setTimeout(() => window.print(), 300);
+                                      setIsPrintingProfile(false);
+                                      setTimeout(() => {
+                                        window.print();
+                                        setTimeout(() => setOsDataForPrint(null), 1500);
+                                      }, 300);
                                     }}
                                     className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-bold px-2 py-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 transition-all"
                                   >
@@ -1725,6 +1776,15 @@ const ClientProfileModal = ({
                   <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 w-full pt-4 border-t border-white/10">
                     <div className="flex flex-wrap items-center gap-2.5">
                       <button
+                        type="button"
+                        onClick={handlePrintProfile}
+                        className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-white/10 hover:bg-white/15 border border-white/20 text-white transition-all shadow-md"
+                        title="Imprimir Ficha Cadastral Completa do Cliente e Responsável Legal"
+                      >
+                        <Printer size={15} /> Imprimir Ficha Cadastral
+                      </button>
+
+                      <button
                         onClick={() => {
                           if (onEditClick) {
                             onEditClick(currentClient);
@@ -1794,6 +1854,9 @@ const ClientProfileModal = ({
       {createPortal(modalContent, document.body)}
       {osDataForPrint && currentClient && (
         <PrintableOS clientData={currentClient} osData={osDataForPrint} />
+      )}
+      {(isPrintingProfile || (!osDataForPrint && isOpen)) && currentClient && (
+        <PrintableClientProfile clientData={currentClient} storeName="YASMIN ÓTICA" />
       )}
       {/* Modal de Edição de OS */}
       <EditOSModal

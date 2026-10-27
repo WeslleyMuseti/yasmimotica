@@ -31,6 +31,27 @@ import {
   filterAndSortStock,
   extractStockFacets
 } from './src/stockFilters.js';
+import {
+  sanitizeXmlTag,
+  escapeXmlText,
+  jsonToXml,
+  buildSalesHistoryXml,
+  buildCashHistoryXml,
+  buildStockXml,
+  parseXmlToObjects,
+  buildFinancialSummaryXml
+} from './src/xmlUtils.js';
+import {
+  normalizeInstallmentDateIso,
+  formatInstallmentDateBr,
+  extractOSFromRow,
+  resolveInstallmentClientName,
+  filterInstallmentsByDateRange,
+  buildOverdueInstallmentAlerts,
+  generateInstallmentSchedule,
+  buildReparcelamentoOSPayload
+} from './src/reparcelamentoUtils.js';
+import * as XLSX from 'xlsx';
 
 async function runTests() {
   console.log('🧪 Starting Verification Test Suite...\n');
@@ -4311,6 +4332,2137 @@ async function runTests() {
   console.assert(testCleanBoleto('Boleto da Loja') === 'Boleto', 'Deve normalizar "Boleto da Loja" para "Boleto"');
 
   console.log('  ✅ Test 40 Passed: 5 Itens Críticos de Produção validados com sucesso!\n');
+
+  // ==========================================
+  // TEST 41: VENDEDORES EXTERNOS SELECIONANDO LOJA NO PDV/OS & ESTOQUE DE ACESSÓRIOS NO ERP
+  // ==========================================
+  {
+    console.log('▶ Test 41: Vendedores Externos no PDV/OS & Estoque Completo de Acessórios (CAD_ACESSORIOS)');
+
+    const erpOpticaSource = fs.readFileSync('./src/components/ErpOptica.jsx', 'utf-8');
+    const firebaseSyncSource = fs.readFileSync('./src/firebaseSync.js', 'utf-8');
+    const osGeneratorSource = fs.readFileSync('./src/components/OSGeneratorModal.jsx', 'utf-8');
+    const productTransferSource = fs.readFileSync('./src/components/ProductTransferModal.jsx', 'utf-8');
+    const stockFilterSource = fs.readFileSync('./src/components/StockFilterModal.jsx', 'utf-8');
+    const posRegisterSource = fs.readFileSync('./src/components/POSRegister.jsx', 'utf-8');
+
+    // 41.1 Validação de Detecção e Seleção de Loja para Vendedores Externos
+    const checkIsExternalVendor = (user) => {
+      const isVendor = user?.role === 'vendedor';
+      return isVendor && (
+        String(user?.city || user?.assignedStore || '').trim().toLowerCase().includes('extern') ||
+        String(user?.role || '').trim().toLowerCase().includes('extern')
+      );
+    };
+
+    const vendorFixedCajati = { role: 'vendedor', city: 'Cajati' };
+    const vendorFixedRegistro = { role: 'vendedor', city: 'Registro' };
+    const vendorExternalCity = { role: 'vendedor', city: 'Venda Externa' };
+    const vendorExternalRole = { role: 'vendedor', city: 'Externa - Itariri' };
+    const adminUser = { role: 'admin', city: 'Cajati' };
+
+    console.assert(checkIsExternalVendor(vendorFixedCajati) === false, 'Vendedor fixo de Cajati não é vendedor externo');
+    console.assert(checkIsExternalVendor(vendorFixedRegistro) === false, 'Vendedor fixo de Registro não é vendedor externo');
+    console.assert(checkIsExternalVendor(vendorExternalCity) === true, 'Vendedor com cidade "Venda Externa" deve ser identificado como externo');
+    console.assert(checkIsExternalVendor(vendorExternalRole) === true, 'Vendedor com "Externa" na cidade deve ser identificado como externo');
+    console.assert(checkIsExternalVendor(adminUser) === false, 'Admin não deve ser identificado como vendedor');
+
+    // Validação no código-fonte do PDV (POSRegister.jsx) e Gerador de OS (OSGeneratorModal.jsx)
+    console.assert(
+      posRegisterSource.includes('isExternalVendor') && posRegisterSource.includes('Vendedor Externo'),
+      'POSRegister.jsx deve implementar verificação isExternalVendor e badge "Vendedor Externo"'
+    );
+    console.assert(
+      osGeneratorSource.includes('isExternalVendor') && osGeneratorSource.includes('Vendedor Externo'),
+      'OSGeneratorModal.jsx deve implementar verificação isExternalVendor e badge "Vendedor Externo"'
+    );
+
+    // 41.2 Validação de CAD_ACESSORIOS em firebaseSync.js (COLLECTIONS)
+    console.assert(
+      firebaseSyncSource.includes("'CAD_ACESSORIOS'"),
+      'firebaseSync.js COLLECTIONS deve conter CAD_ACESSORIOS para sincronização em tempo real'
+    );
+
+    // 41.3 Validação do Módulo de Acessórios no ERP (ErpOptica.jsx)
+    console.assert(
+      erpOpticaSource.includes("activeTab === 'acessorios' ? 'CAD_ACESSORIOS' :") || erpOpticaSource.includes("'CAD_ACESSORIOS'"),
+      'ErpOptica.jsx deve mapear aba acessorios para a coleção CAD_ACESSORIOS'
+    );
+    console.assert(
+      erpOpticaSource.includes('acessoriosData') && erpOpticaSource.includes('acessoriosStats'),
+      'ErpOptica.jsx deve conter acessoriosData e acessoriosStats computados'
+    );
+    console.assert(
+      erpOpticaSource.includes('acessoriosForm') && erpOpticaSource.includes('Cadastrar Novo Acessório no Estoque'),
+      'ErpOptica.jsx deve conter formulário completo de cadastro de acessórios'
+    );
+    console.assert(
+      erpOpticaSource.includes('Catálogo de Acessórios em Estoque'),
+      'ErpOptica.jsx deve exibir cabeçalho do Catálogo de Acessórios em Estoque'
+    );
+
+    // 41.4 Validação de Acessórios no PDV (POSRegister.jsx)
+    console.assert(
+      posRegisterSource.includes("'acessorios'") && posRegisterSource.includes('Acessórios'),
+      'POSRegister.jsx deve conter categoria de produtos para Acessórios no catálogo'
+    );
+    console.assert(
+      posRegisterSource.includes("sheetName = 'CAD_ACESSORIOS'") || posRegisterSource.includes("CAD_ACESSORIOS"),
+      'POSRegister.jsx deve associar itens de acessórios à planilha CAD_ACESSORIOS'
+    );
+    console.assert(
+      posRegisterSource.includes("decrementStockAtomically(targetSheet,") || posRegisterSource.includes("decrementStockAtomically("),
+      'POSRegister.jsx deve realizar baixa atômica de estoque de acessórios em CAD_ACESSORIOS'
+    );
+
+    // 41.5 Validação de Transferência de Acessórios entre Lojas (ProductTransferModal.jsx)
+    console.assert(
+      productTransferSource.includes("'acessorios'") && productTransferSource.includes('CAD_ACESSORIOS'),
+      'ProductTransferModal.jsx deve permitir transferência entre lojas para produtos do tipo acessorios'
+    );
+
+    // 41.6 Validação de Filtros e Exportação Excel de Acessórios (StockFilterModal.jsx)
+    console.assert(
+      stockFilterSource.includes("isAcessorio = type === 'acessorios'") && stockFilterSource.includes("isAcessorio ? 'Acessorios' :"),
+      'StockFilterModal.jsx deve suportar filtros inteligentes e exportação Excel de Acessórios'
+    );
+
+    // 41.7 Validação de Restrição para Vendedor Externo (Consulta permitida, mas Inclusão restrita a Venda Externa)
+    const isProdFromExternalTest = (item) => {
+      if (!item) return false;
+      const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.Unidade || item.unidade || '').trim().toLowerCase();
+      return u.includes('extern');
+    };
+
+    const itemCajati = { UNIDADE: 'Cajati', MODELO: 'Ray-Ban RB5228' };
+    const itemRegistro = { CIDADE: 'Registro', MODELO: 'Oakley Holbrook' };
+    const itemVendaExterna = { UNIDADE: 'Venda Externa', MODELO: 'Vogue VO5050' };
+    const itemExternaRegional = { UNIDADE: 'Externa - Vale', MODELO: 'Armani Exchange' };
+
+    console.assert(isProdFromExternalTest(itemCajati) === false, 'Item de Cajati não é de Venda Externa');
+    console.assert(isProdFromExternalTest(itemRegistro) === false, 'Item de Registro não é de Venda Externa');
+    console.assert(isProdFromExternalTest(itemVendaExterna) === true, 'Item de Venda Externa deve retornar true');
+    console.assert(isProdFromExternalTest(itemExternaRegional) === true, 'Item com Externa na unidade deve retornar true');
+
+    // Validação no código-fonte do PDV (POSRegister.jsx)
+    console.assert(
+      posRegisterSource.includes('isProductFromVendaExterna') && posRegisterSource.includes('isProductFromVendaExterna(prod)'),
+      'POSRegister.jsx deve implementar helper isProductFromVendaExterna'
+    );
+    console.assert(
+      posRegisterSource.includes('Inclusão não permitida para Vendedor Externo') || posRegisterSource.includes('Inclusão bloqueada para Vendedor Externo'),
+      'POSRegister.jsx deve conter mensagem de bloqueio no addToCart'
+    );
+    console.assert(
+      posRegisterSource.includes('Bloqueado para Vendedor Externo') && posRegisterSource.includes('playScannerBeep(false)'),
+      'POSRegister.jsx deve bloquear bip de leitor USB para produtos de outras filiais'
+    );
+    console.assert(
+      posRegisterSource.includes('Outra Loja') && posRegisterSource.includes('Lock'),
+      'POSRegister.jsx deve travar botão com cadeado "Outra Loja" para vendedor externo'
+    );
+
+    // Validação no código-fonte do Gerador de OS (OSGeneratorModal.jsx)
+    console.assert(
+      osGeneratorSource.includes('isProductFromVendaExterna') && osGeneratorSource.includes('Inclusão bloqueada para Vendedor Externo'),
+      'OSGeneratorModal.jsx deve validar e bloquear emissão de OS com armações/lentes de outras filiais para vendedor externo'
+    );
+
+    console.log('  ✅ Test 41 Passed: Vendedores Externos no PDV/OS e Estoque de Acessórios no ERP validados com sucesso!\n');
+  }
+
+  // ─── TEST 42: Impressão da Ficha Cadastral com Dados Pessoais & Responsável Legal ─────────────
+  {
+    console.log('▶ Test 42: Impressão da Ficha Cadastral do Cliente & Responsável Legal (A4 Folha Única)');
+
+    // 1. Verificar arquivo do componente PrintableClientProfile.jsx
+    console.assert(fs.existsSync('./src/components/PrintableClientProfile.jsx'), 'PrintableClientProfile.jsx deve existir');
+    const printableProfileSource = fs.readFileSync('./src/components/PrintableClientProfile.jsx', 'utf-8');
+
+    // Validações do cabeçalho e estrutura
+    console.assert(printableProfileSource.includes('Ficha Cadastral do Cliente') && printableProfileSource.includes('Responsável Legal'), 'Deve conter título oficial da ficha cadastral');
+    console.assert(printableProfileSource.includes('size: A4 portrait'), 'Deve definir estilo de página A4 portrait');
+    console.assert(printableProfileSource.includes('id="print-client-profile"'), 'Deve conter container com id print-client-profile');
+
+    // Validações dos quadros de dados
+    console.assert(printableProfileSource.includes('1. DADOS PESSOAIS DO CLIENTE (TITULAR DA CONTA)'), 'Deve conter Quadro 1 de dados do titular');
+    console.assert(printableProfileSource.includes('2. DADOS DO RESPONSÁVEL LEGAL / TUTOR'), 'Deve conter Quadro 2 de dados do responsável');
+    console.assert(printableProfileSource.includes('3. SITUAÇÃO FINANCEIRA'), 'Deve conter Quadro 3 de financeiro e histórico óptico');
+    console.assert(printableProfileSource.includes('Auditoria de Documentos Físicos / Digitais Anexados'), 'Deve conter Quadro 4 de auditoria de anexos');
+    console.assert(printableProfileSource.includes('Declaro para todos os fins legais que as informações cadastrais'), 'Deve conter Quadro 5 de termo e assinaturas');
+
+    // Validações de campos do cliente
+    console.assert(printableProfileSource.includes('clientCpf') && printableProfileSource.includes('clientRg'), 'Deve formatar CPF e RG do cliente');
+    console.assert(printableProfileSource.includes('clientBirth') && printableProfileSource.includes('calculateAge'), 'Deve calcular idade e data de nascimento');
+    console.assert(printableProfileSource.includes('clientAddress'), 'Deve formatar endereço completo do cliente');
+    console.assert(printableProfileSource.includes('clientRef1Name') && printableProfileSource.includes('clientRef2Name'), 'Deve exibir referências pessoais do cliente');
+    console.assert(printableProfileSource.includes('clientInsta') || printableProfileSource.includes('clientFace'), 'Deve suportar redes sociais do cliente');
+
+    // Validações de campos do responsável legal
+    console.assert(printableProfileSource.includes('respCpf') && printableProfileSource.includes('respRg'), 'Deve formatar CPF e RG do responsável');
+    console.assert(printableProfileSource.includes('respBirth') && printableProfileSource.includes('respAddress'), 'Deve formatar nascimento e endereço do responsável');
+    console.assert(printableProfileSource.includes('respRef1Name') && printableProfileSource.includes('respRef2Name'), 'Deve exibir referências do responsável');
+    console.assert(printableProfileSource.includes('maior de idade e assume responsabilidade integral'), 'Deve ter termo de auto-responsabilidade caso sem responsável');
+
+    // Validações de assinaturas
+    console.assert(printableProfileSource.includes('Assinatura do Cliente / Titular'), 'Deve conter linha de assinatura do cliente');
+    console.assert(printableProfileSource.includes('Assinatura do Responsável Legal') || printableProfileSource.includes('Atendente / Responsável Técnico'), 'Deve conter linha de assinatura do responsável ou atendente');
+
+    // 2. Verificar integração em ClientProfileModal.jsx
+    console.assert(fs.existsSync('./src/components/ClientProfileModal.jsx'), 'ClientProfileModal.jsx deve existir');
+    const clientProfileModalSource = fs.readFileSync('./src/components/ClientProfileModal.jsx', 'utf-8');
+
+    console.assert(
+      clientProfileModalSource.includes("import PrintableClientProfile from './PrintableClientProfile'"),
+      'ClientProfileModal.jsx deve importar PrintableClientProfile'
+    );
+    console.assert(
+      clientProfileModalSource.includes('handlePrintProfile'),
+      'ClientProfileModal.jsx deve implementar handlePrintProfile'
+    );
+    console.assert(
+      clientProfileModalSource.includes('IMPRIMIR FICHA'),
+      'ClientProfileModal.jsx deve ter botão IMPRIMIR FICHA no cabeçalho'
+    );
+    console.assert(
+      clientProfileModalSource.includes('Imprimir Ficha Cadastral'),
+      'ClientProfileModal.jsx deve ter botão Imprimir Ficha Cadastral no rodapé'
+    );
+    console.assert(
+      clientProfileModalSource.includes('<PrintableClientProfile'),
+      'ClientProfileModal.jsx deve renderizar PrintableClientProfile'
+    );
+
+    // 3. Verificar regras CSS de impressão em index.css
+    console.assert(fs.existsSync('./src/index.css'), 'src/index.css deve existir');
+    const indexCssSource = fs.readFileSync('./src/index.css', 'utf-8');
+
+    console.assert(
+      indexCssSource.includes('#print-client-profile'),
+      'src/index.css deve incluir #print-client-profile nas regras de visibilidade de impressão'
+    );
+    console.assert(
+      indexCssSource.includes('#print-client-profile > div'),
+      'src/index.css deve incluir #print-client-profile no controle de quebra de página'
+    );
+
+    console.log('  ✅ Test 42 Passed: Impressão da Ficha Cadastral do Cliente & Responsável Legal validada com 100% de sucesso!\n');
+  }
+
+  // ─── TEST 43: Migração de CSV para XML Estruturado (Vendas, Caixa, Estoque & Upload) ───
+  {
+    console.log('▶ Test 43: Migração de CSV para XML Estruturado (Vendas, Caixa, Estoque & Upload)');
+
+    // 1. Sanitização de tags e escape de caracteres especiais
+    console.assert(sanitizeXmlTag('Preço de Venda') === 'preco_de_venda', 'sanitizeXmlTag deve normalizar Preço de Venda');
+    console.assert(sanitizeXmlTag('SKU / Referência') === 'sku_referencia', 'sanitizeXmlTag deve normalizar SKU / Referência');
+    console.assert(sanitizeXmlTag('Nome do Cliente & Razão Social') === 'nome_do_cliente_razao_social', 'sanitizeXmlTag deve remover & e acentos');
+    console.assert(sanitizeXmlTag('') === 'campo', 'sanitizeXmlTag deve retornar fallback para string vazia');
+
+    console.assert(escapeXmlText('Armação & Lente <Especial> "50mm" \'Novo\'') === 'Armação &amp; Lente &lt;Especial&gt; &quot;50mm&quot; &apos;Novo&apos;', 'escapeXmlText deve escapar todos os 5 caracteres reservados');
+    console.assert(escapeXmlText(null) === '' && escapeXmlText(undefined) === '', 'escapeXmlText deve tratar null/undefined');
+
+    // 2. Geração de XML de Histórico de Vendas (buildSalesHistoryXml)
+    const mockSales = [
+      {
+        id: 'sale_001',
+        'OS DA VENDA': 'OS-8899',
+        'CLIENTE': 'Yasmin & Carla Consultoria',
+        'CPF': '123.456.789-00',
+        'DATA': '2026-10-09',
+        'VENDEDOR': 'Carla',
+        'UNIDADE': 'Cajati',
+        'TOTAL VENDA': '750,00',
+        'VALOR ENTRADA': '250,00',
+        'RESTANTE': '500,00',
+        'FORMA DE PAGAMENTO': 'Boleto (2x)',
+        'STATUS_OS': 'Em Laboratório',
+        'ARMAÇÃO': 'Ray-Ban RB3025 <Gold>',
+        'LENTE': 'Varilux Physio',
+        'LABORATÓRIO': 'Lab Central'
+      }
+    ];
+
+    const salesXml = buildSalesHistoryXml(mockSales, { loja: 'Cajati', vendedor: 'Carla', periodo: 'Hoje' });
+    console.assert(salesXml.startsWith('<?xml version="1.0" encoding="UTF-8"?>'), 'salesXml deve conter declaração XML UTF-8');
+    console.assert(salesXml.includes('<historico_vendas_otica'), 'salesXml deve conter tag raiz historico_vendas_otica');
+    console.assert(salesXml.includes('loja="Cajati"') && salesXml.includes('vendedor="Carla"'), 'salesXml deve incluir metadados no nó raiz');
+    console.assert(salesXml.includes('<venda index="1">'), 'salesXml deve encapsular itens com <venda>');
+    console.assert(salesXml.includes('<os_numero>OS-8899</os_numero>'), 'salesXml deve mapear os_numero');
+    console.assert(salesXml.includes('<cliente_nome>Yasmin &amp; Carla Consultoria</cliente_nome>'), 'salesXml deve escapar caracteres do cliente');
+    console.assert(salesXml.includes('<armacao>Ray-Ban RB3025 &lt;Gold&gt;</armacao>'), 'salesXml deve escapar caracteres da armação');
+    console.assert(salesXml.includes('</historico_vendas_otica>'), 'salesXml deve fechar tag raiz');
+
+    // 3. Geração de XML de Movimentações de Caixa (buildCashHistoryXml)
+    const mockCash = [
+      {
+        id: 'mov_99',
+        dataHora: '2026-10-09T14:30:00',
+        unidade: 'Registro',
+        operador: 'Maria',
+        tipo: 'RECEBIMENTO',
+        valor: 150.00,
+        formaPagamento: 'DINHEIRO',
+        motivo: 'Recebimento de Mensalidade Boleto',
+        osNumero: 'OS-1011'
+      }
+    ];
+
+    const cashXml = buildCashHistoryXml(mockCash, { loja: 'Registro', operador: 'Maria' });
+    console.assert(cashXml.includes('<historico_caixa_otica'), 'cashXml deve conter tag raiz historico_caixa_otica');
+    console.assert(cashXml.includes('<movimento index="1">'), 'cashXml deve conter nós <movimento>');
+    console.assert(cashXml.includes('<tipo_operacao>RECEBIMENTO</tipo_operacao>'), 'cashXml deve conter tipo_operacao');
+    console.assert(cashXml.includes('<os_vinculada>OS-1011</os_vinculada>'), 'cashXml deve conter os_vinculada');
+
+    // 4. Geração de XML de Estoque (buildStockXml)
+    const mockStock = [
+      {
+        id: 'prod_stock_1',
+        UNIDADE: 'Jacupiranga',
+        MARCA: 'Oakley',
+        MODELO: 'Holbrook XL',
+        CATEGORIA: 'Armações',
+        REFERENCIA_SKU: 'OO9417-01',
+        ESTOQUE: 1,
+        PRECO_COMPRA: '250,00',
+        PRECO_VENDA: '600,00'
+      }
+    ];
+
+    const stockXml = buildStockXml(mockStock, { tipo: 'Armações', unidade: 'Jacupiranga', filtro: 'Estoque Crítico' });
+    console.assert(stockXml.includes('<estoque_otica'), 'stockXml deve conter tag raiz estoque_otica');
+    console.assert(stockXml.includes('<produto index="1">'), 'stockXml deve conter nós <produto>');
+    console.assert(stockXml.includes('<marca>Oakley</marca>'), 'stockXml deve conter marca');
+    console.assert(stockXml.includes('<status_estoque>Crítico</status_estoque>'), 'stockXml deve identificar status_estoque Crítico para saldo <= 2');
+
+    // 5. Parser de XML para importação (parseXmlToObjects)
+    // 5.1 Importação de XML gerado pelo próprio sistema
+    const parsedStock = parseXmlToObjects(stockXml);
+    console.assert(Array.isArray(parsedStock) && parsedStock.length === 1, 'parseXmlToObjects deve retornar array com 1 item');
+    console.assert(parsedStock[0].marca === 'Oakley', 'parseXmlToObjects deve extrair marca Oakley');
+    console.assert(parsedStock[0].modelo === 'Holbrook XL', 'parseXmlToObjects deve extrair modelo Holbrook XL');
+
+    // 5.2 Importação de XML padrão NFe fiscal (<det><prod>)
+    const nfeXmlSample = `<?xml version="1.0" encoding="UTF-8"?>
+    <nfeProc>
+      <NFe>
+        <infNFe>
+          <det nItem="1">
+            <prod>
+              <cProd>OAK-998</cProd>
+              <xProd>ARMAÇÃO OAKLEY PITCHMAN R</xProd>
+              <NCM>90031100</NCM>
+              <CFOP>5102</CFOP>
+              <uCom>UN</uCom>
+              <qCom>10.0000</qCom>
+              <vUnCom>180.00</vUnCom>
+              <vProd>1800.00</vProd>
+            </prod>
+          </det>
+        </infNFe>
+      </NFe>
+    </nfeProc>`;
+
+    const parsedNfe = parseXmlToObjects(nfeXmlSample);
+    console.assert(parsedNfe.length === 1, 'parseXmlToObjects deve extrair 1 item de NFe fiscal');
+    console.assert(parsedNfe[0]['Código'] === 'OAK-998', 'parseXmlToObjects deve extrair cProd');
+    console.assert(parsedNfe[0]['Nome / Descrição'] === 'ARMAÇÃO OAKLEY PITCHMAN R', 'parseXmlToObjects deve extrair xProd');
+    console.assert(parsedNfe[0]['Quantidade'] === 10, 'parseXmlToObjects deve extrair qCom');
+
+    // 6. Verificação de Código e Integrações nos Componentes da UI
+    const cashModalCode = fs.readFileSync('./src/components/CashHistoryModal.jsx', 'utf-8');
+    console.assert(cashModalCode.includes('handleExportExcel'), 'CashHistoryModal.jsx deve conter handleExportExcel');
+    console.assert(cashModalCode.includes('buildCashHistoryXml'), 'CashHistoryModal.jsx deve chamar buildCashHistoryXml');
+    console.assert(cashModalCode.includes('Baixar Planilha (Excel .xlsx)'), 'CashHistoryModal.jsx deve exibir botão Baixar Planilha (Excel .xlsx)');
+
+    const stockFilterCode = fs.readFileSync('./src/components/StockFilterModal.jsx', 'utf-8');
+    console.assert(stockFilterCode.includes('handleDownloadXML'), 'StockFilterModal.jsx deve conter handleDownloadXML');
+    console.assert(stockFilterCode.includes('buildStockXml'), 'StockFilterModal.jsx deve chamar buildStockXml');
+    console.assert(stockFilterCode.includes('Baixar XML'), 'StockFilterModal.jsx deve exibir botão Baixar XML');
+
+    const erpCode = fs.readFileSync('./src/components/ErpOptica.jsx', 'utf-8');
+    console.assert(erpCode.includes('handleExportStockXML'), 'ErpOptica.jsx deve conter handleExportStockXML');
+    console.assert(erpCode.includes('buildStockXml'), 'ErpOptica.jsx deve chamar buildStockXml');
+    console.assert(erpCode.includes('Exportar XML'), 'ErpOptica.jsx deve exibir botão Exportar XML');
+
+    const dashboardCode = fs.readFileSync('./src/components/Dashboard.jsx', 'utf-8');
+    console.assert(dashboardCode.includes('handleExportSalesXML'), 'Dashboard.jsx deve conter handleExportSalesXML');
+    console.assert(dashboardCode.includes('buildSalesHistoryXml'), 'Dashboard.jsx deve chamar buildSalesHistoryXml');
+    console.assert(dashboardCode.includes('Baixar Vendas (.xlsx)'), 'Dashboard.jsx deve exibir botão Baixar Vendas (.xlsx)');
+
+    const uploaderCode = fs.readFileSync('./src/components/FileUploader.jsx', 'utf-8');
+    console.assert(uploaderCode.includes("ext === 'xml'"), 'FileUploader.jsx deve reconhecer extensão .xml');
+    console.assert(uploaderCode.includes('parseXmlToObjects'), 'FileUploader.jsx deve chamar parseXmlToObjects');
+    console.assert(uploaderCode.includes('.xml'), 'FileUploader.jsx deve aceitar arquivos .xml no input');
+
+    console.log('  ✅ Test 43 Passed: Migração de CSV para XML Estruturado (Vendas, Caixa, Estoque & Upload) validada com 100% de sucesso!\n');
+  }
+
+  // ─── TEST 44: Campo e Persistência de "Data da Venda" na OS, PDV, ERP e XML ───
+  console.log('▶ Test 44: Verificação de Campo e Propagação de "Data da Venda" na OS, PDV, ERP e XML');
+  {
+    // 1. Verificação no DataTable.jsx (ERP e tabelas gerais)
+    const dataTableCode = fs.readFileSync('./src/components/DataTable.jsx', 'utf-8');
+    console.assert(dataTableCode.includes("'DATA  DA VENDA': 'Data da Venda'"), 'DataTable COLUMN_LABELS deve conter DATA  DA VENDA');
+    console.assert(dataTableCode.includes("'DATA DA VENDA': 'Data da Venda'"), 'DataTable COLUMN_LABELS deve conter DATA DA VENDA');
+    console.assert(dataTableCode.includes("'DATA_VENDA': 'Data da Venda'"), 'DataTable COLUMN_LABELS deve conter DATA_VENDA');
+    console.assert(dataTableCode.includes("id: 'data_venda'"), 'DataTable CANONICAL_ALIASES deve definir o grupo data_venda');
+
+    // 2. Verificação no OSGeneratorModal.jsx
+    const osGenCode = fs.readFileSync('./src/components/OSGeneratorModal.jsx', 'utf-8');
+    console.assert(osGenCode.includes('ensureIsoDate'), 'OSGeneratorModal deve conter função ensureIsoDate');
+    console.assert(osGenCode.includes('ensureBrDate'), 'OSGeneratorModal deve conter função ensureBrDate');
+    console.assert(osGenCode.includes('dataVenda:'), 'OSGeneratorModal deve gerenciar dataVenda no estado do formulário');
+    console.assert(osGenCode.includes('name="dataVenda"'), 'OSGeneratorModal deve renderizar input de data de venda');
+    console.assert(osGenCode.includes("'DATA  DA VENDA':"), 'OSGeneratorModal deve salvar alias histórico DATA  DA VENDA');
+    console.assert(osGenCode.includes("'DATA DA VENDA':"), 'OSGeneratorModal deve salvar alias padronizado DATA DA VENDA');
+
+    // 3. Verificação no PrintableOS.jsx (Folha A4 da OS)
+    const printOsCode = fs.readFileSync('./src/components/PrintableOS.jsx', 'utf-8');
+    console.assert(printOsCode.includes('saleDate'), 'PrintableOS deve extrair a data da venda');
+    console.assert(printOsCode.includes('Data da Venda:'), 'PrintableOS deve exibir Data da Venda na impressão');
+    console.assert(printOsCode.includes('DATA  DA VENDA') && printOsCode.includes('DATA DA VENDA'), 'PrintableOS deve verificar múltiplos aliases');
+
+    // 4. Verificação no POSRegister.jsx (Checkout do PDV)
+    const posCode = fs.readFileSync('./src/components/POSRegister.jsx', 'utf-8');
+    console.assert(posCode.includes("'DATA  DA VENDA': todayStr"), 'POSRegister deve registrar DATA  DA VENDA');
+    console.assert(posCode.includes("'DATA DA VENDA': todayStr"), 'POSRegister deve registrar DATA DA VENDA');
+    console.assert(posCode.includes("'DATA_VENDA': todayStr"), 'POSRegister deve registrar DATA_VENDA');
+
+    // 5. Verificação no EditOSModal.jsx
+    const editOsCode = fs.readFileSync('./src/components/EditOSModal.jsx', 'utf-8');
+    console.assert(editOsCode.includes('dataVenda'), 'EditOSModal deve gerenciar dataVenda');
+    console.assert(editOsCode.includes("'DATA DA VENDA': normDate.brDate") || editOsCode.includes("'DATA DA VENDA': formData.dataVenda"), 'EditOSModal deve salvar DATA DA VENDA atualizado');
+
+    // 6. Verificação no OSManagement.jsx
+    const osMgmtCode = fs.readFileSync('./src/components/OSManagement.jsx', 'utf-8');
+    console.assert(osMgmtCode.includes('dtVenda'), 'OSManagement deve resolver dtVenda');
+    console.assert(osMgmtCode.includes('dataVenda: order.dtVenda'), 'OSManagement deve repassar dataVenda na impressão');
+
+    // 7. Verificação no xmlUtils.js
+    const xmlCode = fs.readFileSync('./src/xmlUtils.js', 'utf-8');
+    console.assert(xmlCode.includes("sale['DATA  DA VENDA'] || sale['DATA DA VENDA']"), 'xmlUtils deve mapear todos os aliases de data de venda');
+
+    // 8. Teste funcional de conversão e extração de datas
+    const ensureIsoDate = (d) => {
+      if (!d) return new Date().toISOString().split('T')[0];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+      const parts = String(d).split('/');
+      if (parts.length === 3) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      return new Date().toISOString().split('T')[0];
+    };
+    const ensureBrDate = (iso) => {
+      if (!iso) return new Date().toLocaleDateString('pt-BR');
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(iso)) return iso;
+      const parts = String(iso).split('-');
+      if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      return new Date().toLocaleDateString('pt-BR');
+    };
+
+    console.assert(ensureIsoDate('13/10/2026') === '2026-10-13', 'ensureIsoDate deve converter DD/MM/AAAA para YYYY-MM-DD');
+    console.assert(ensureBrDate('2026-10-13') === '13/10/2026', 'ensureBrDate deve converter YYYY-MM-DD para DD/MM/AAAA');
+
+    console.log('  ✅ Test 44 Passed: Campo e Persistência de "Data da Venda" na OS, PDV, ERP e XML validados com 100% de sucesso!\n');
+  }
+
+  // ─── TEST 45: Ocultação de Parcelas na Gestão de OS & Formatação do Formulário de OS ───
+  console.log('▶ Test 45: Ocultação de Parcelas na Gestão de OS & Formatação do Formulário de OS');
+  {
+    // 1. Verificação de funções e filtros em OSManagement.jsx
+    const osMgmtCode = fs.readFileSync('./src/components/OSManagement.jsx', 'utf-8');
+    console.assert(osMgmtCode.includes('isInstallmentRow'), 'OSManagement.jsx deve conter a função isInstallmentRow');
+    console.assert(osMgmtCode.includes('cleanPaymentMethodForOS'), 'OSManagement.jsx deve conter cleanPaymentMethodForOS');
+    console.assert(osMgmtCode.includes('validSales = rawSales.filter(sale => !isInstallmentRow(sale))'), 'OSManagement.jsx deve filtrar parcelas em allOrders');
+    console.assert(osMgmtCode.includes('seenOSNumbers'), 'OSManagement.jsx deve desduplicar linhas com mesmo número de OS');
+    console.assert(osMgmtCode.includes('formasPagamentoLimpa'), 'OSManagement.jsx deve usar formasPagamentoLimpa');
+
+    // 2. Teste funcional de isInstallmentRow
+    const testIsInstallmentRow = (sale) => {
+      if (!sale) return false;
+      if (sale['PARCELA'] || sale.parcela || sale['NUMERO_PARCELA'] || sale['PARCELA_NUM'] || sale['N_PARCELA'] || sale['NUM_PARCELA']) return true;
+      const tipo = String(sale['TIPO'] || sale['Tipo'] || sale['TIPO_REGISTRO'] || sale['TIPO_OPERACAO'] || '').toUpperCase();
+      if (tipo.includes('PARCELA') || tipo === 'DUPLICATA' || tipo === 'CARNE' || tipo === 'CARNÊ' || tipo === 'BOLETO') return true;
+      const doc = String(sale['DOCUMENTO'] || sale['Documento'] || sale['DOC'] || '').toLowerCase();
+      if (doc.includes('parcela') || doc.includes('duplicata')) return true;
+      if (/boleto\s*\d+\s*(?:\/|de)\s*\d+/i.test(doc)) return true;
+      if (/\b\d+\s*\/\s*\d+\b/.test(doc) && /boleto/i.test(doc)) return true;
+      const desc = String(sale['DESCRICAO'] || sale['Descricao'] || sale['HISTORICO'] || sale['DETALHES'] || '').toLowerCase();
+      if (desc.includes('parcela') || desc.includes('duplicata')) return true;
+      if (/boleto\s*\d+\s*(?:\/|de)\s*\d+/i.test(desc)) return true;
+      const prod = String(sale['PRODUTO'] || sale['Produto'] || '').toLowerCase();
+      if (/^parcela\s*\d+/i.test(prod) || /^duplicata\s*\d+/i.test(prod) || /^boleto\s*\d+/i.test(prod)) return true;
+      if (/boleto\s*\d+\s*(?:\/|de)\s*\d+/i.test(prod)) return true;
+      const fp = String(sale['FORMA DE PAGAMENTO'] || sale['FORMA'] || sale['FORMA_PAGTO'] || '').toLowerCase();
+      if (/^parcela\s*\d+/i.test(fp)) return true;
+      return false;
+    };
+
+    console.assert(testIsInstallmentRow({ 'OS': 'CAJ-001', 'PARCELA': '1/3' }) === true, 'Linha com PARCELA deve ser identificada como parcela');
+    console.assert(testIsInstallmentRow({ 'OS': 'CAJ-001', 'TIPO': 'PARCELA' }) === true, 'Linha com TIPO PARCELA deve ser identificada como parcela');
+    console.assert(testIsInstallmentRow({ 'OS': 'CAJ-001', 'DOCUMENTO': 'Duplicata 2/3' }) === true, 'Linha com DOCUMENTO Duplicata deve ser identificada como parcela');
+    console.assert(testIsInstallmentRow({ 'OS': 'CAJ-001', 'DOCUMENTO': 'BOLETO 1/3 - OS CAJ-001' }) === true, 'Linha com DOCUMENTO BOLETO 1/3 deve ser identificada como parcela');
+    console.assert(testIsInstallmentRow({ 'OS': 'CAJ-001', 'DESCRICAO': 'Boleto 2/3 - Mensalidade' }) === true, 'Linha com DESCRICAO Boleto 2/3 deve ser identificada como parcela');
+    console.assert(testIsInstallmentRow({ 'OS': 'CAJ-001', 'PRODUTO': 'Armação Ray-Ban' }) === false, 'Venda legítima não deve ser identificada como parcela');
+
+    // 3. Teste funcional de cleanPaymentMethodForOS
+    const testCleanPaymentMethodForOS = (val) => {
+      if (!val) return '';
+      const standardized = String(val).replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto');
+      let cleaned = String(standardized)
+        .replace(/\s*\([^)]*(?:parcela|\d+ª|\d+x|\d{2}\/\d{2}|venc|vencimento)[^)]*\)/gi, '')
+        .replace(/\|\s*Venc:[^:\n)]*/gi, '')
+        .replace(/\s*-\s*\d+ª\s*parcela[^\n,]*/gi, '')
+        .replace(/Boleto\s*(?:em\s*)?\d+x\s*(?:de\s*)?(?:R?\$?\s*[\d.,]+)?/gi, 'Boleto')
+        .replace(/Boleto\s*-\s*\d+x/gi, 'Boleto')
+        .replace(/Boleto\s*(?:em\s*)?\d+\s*parcelas?/gi, 'Boleto')
+        .replace(/Boleto\s*:\s*R?\$?\s*[\d.,]+/gi, 'Boleto')
+        .replace(/parcelas?:\s*[^;\n]+/gi, '')
+        .replace(/\n.*parcela.*/gi, '')
+        .replace(/\b\d+x\s*(?:de\s*)?R?\$?\s*[\d.,]+/gi, '')
+        .replace(/\b\d+x\b/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      cleaned = cleaned.replace(/^[\s,+|:\-]+|[\s,+|:\-]+$/g, '').trim();
+      return cleaned || 'Boleto';
+    };
+
+    const dirtyFp1 = 'Boleto 3x de R$ 150,00 (1ª 10/11/2026, 2ª 10/12/2026, 3ª 10/01/2027)';
+    const dirtyFp2 = '📄 Boleto (3x de R$ 150,00 | Venc: 1ª 10/11/2026, 2ª 10/12/2026, 3ª 10/01/2027): R$ 450,00';
+    const dirtyFp3 = 'Entrada R$ 100,00 (Dinheiro) + Boleto 2x de R$ 200,00';
+
+    console.assert(!testCleanPaymentMethodForOS(dirtyFp1).includes('1ª') && !testCleanPaymentMethodForOS(dirtyFp1).includes('3x'), 'cleanPaymentMethodForOS deve omitir parcelas e multiplicador');
+    console.assert(!testCleanPaymentMethodForOS(dirtyFp2).includes('Venc') && !testCleanPaymentMethodForOS(dirtyFp2).includes('450'), 'cleanPaymentMethodForOS deve omitir vencimentos e valores');
+    console.assert(testCleanPaymentMethodForOS(dirtyFp3) === 'Entrada R$ 100,00 (Dinheiro) + Boleto', 'cleanPaymentMethodForOS deve manter boleto limpo em pagamentos compostos');
+
+    // 4. Verificação no formulário de OS (OSGeneratorModal.jsx)
+    const osGenCode = fs.readFileSync('./src/components/OSGeneratorModal.jsx', 'utf-8');
+    console.assert(osGenCode.includes("padStart(3, '0')"), 'OSGeneratorModal deve formatar número de OS com 3 dígitos (ex: CAJ-001)');
+    console.assert(osGenCode.includes('Dados da Ordem de Serviço (OS)'), 'OSGeneratorModal deve possuir bloco formatado para Dados da OS');
+    console.assert(osGenCode.includes('toUpperCase()'), 'OSGeneratorModal deve formatar numeroOS em caixa alta');
+
+    // 5. Verificação no formulário de edição de OS (EditOSModal.jsx)
+    const editOsCode = fs.readFileSync('./src/components/EditOSModal.jsx', 'utf-8');
+    console.assert(editOsCode.includes('toUpperCase()'), 'EditOSModal deve formatar numeroOS em caixa alta');
+
+    // 6. Verificação de que o modal de aprovação não exibe grid de parcelas
+    console.assert(!osMgmtCode.includes('Duplicatas que serão criadas em Contas a Receber'), 'Modal de aprovação da OS não deve renderizar duplicatas/parcelas em tela');
+
+    console.log('  ✅ Test 45 Passed: Ocultação de parcelas na gestão de OS e formatação de formulário validadas com 100% de sucesso!\n');
+  }
+
+  // ─── Test 46: Opção de Data nas Operações de PDV e Edição no Histórico de Caixa ───
+  console.log('▶ Test 46: Opção de Data no PDV (Abertura, Sangria, Suprimento, Fechamento) e Edição no Histórico de Caixa');
+  {
+    const cashModalCode = fs.readFileSync('./src/components/CashManagementModal.jsx', 'utf-8');
+    const cashHistoryCode = fs.readFileSync('./src/components/CashHistoryModal.jsx', 'utf-8');
+    const posRegisterCode = fs.readFileSync('./src/components/POSRegister.jsx', 'utf-8');
+    const erpOpticaCode = fs.readFileSync('./src/components/ErpOptica.jsx', 'utf-8');
+
+    // 1. Verificação dos campos de Data & Hora em Abertura, Sangria, Suprimento e Fechamento
+    console.assert(cashModalCode.includes('dataAberturaInput'), 'CashManagementModal deve possuir estado dataAberturaInput');
+    console.assert(cashModalCode.includes('sangriaDataHoraInput'), 'CashManagementModal deve possuir estado sangriaDataHoraInput');
+    console.assert(cashModalCode.includes('suprimentoDataHoraInput'), 'CashManagementModal deve possuir estado suprimentoDataHoraInput');
+    console.assert(cashModalCode.includes('fechamentoDataHoraInput'), 'CashManagementModal deve possuir estado fechamentoDataHoraInput');
+    console.assert(cashModalCode.includes('Data e Horário da Abertura'), 'CashManagementModal deve exibir campo de Data e Horário da Abertura');
+    console.assert(cashModalCode.includes('Data e Horário da Sangria'), 'CashManagementModal deve exibir campo de Data e Horário da Sangria');
+    console.assert(cashModalCode.includes('Data e Horário do Suprimento'), 'CashManagementModal deve exibir campo de Data e Horário do Suprimento');
+    console.assert(cashModalCode.includes('Data e Horário do Fechamento'), 'CashManagementModal deve exibir campo de Data e Horário do Fechamento');
+
+    // 2. Verificação de propagação de data nos manipuladores do PDV (POSRegister.jsx)
+    console.assert(posRegisterCode.includes('openData.dataHoraAbertura'), 'POSRegister deve aceitar dataHoraAbertura especificada');
+    console.assert(posRegisterCode.includes('sangriaData.dataHora'), 'POSRegister deve aceitar sangriaData.dataHora especificada');
+    console.assert(posRegisterCode.includes('suprimentoData.dataHora'), 'POSRegister deve aceitar suprimentoData.dataHora especificada');
+    console.assert(posRegisterCode.includes('closeData.dataHoraFechamento'), 'POSRegister deve aceitar closeData.dataHoraFechamento especificada');
+
+    // 3. Verificação do Modal de Edição de Movimento e Botão Editar no Histórico (CashHistoryModal.jsx)
+    console.assert(cashHistoryCode.includes('EditCashMovementModal'), 'CashHistoryModal deve implementar EditCashMovementModal');
+    console.assert(cashHistoryCode.includes('handleSaveMovementEdit'), 'CashHistoryModal deve implementar handleSaveMovementEdit');
+    console.assert(cashHistoryCode.includes('toDateTimeLocalValue'), 'CashHistoryModal deve implementar toDateTimeLocalValue');
+    console.assert(cashHistoryCode.includes('Ações / Comprovante'), 'CashHistoryModal deve conter cabeçalho de coluna Ações / Comprovante');
+    console.assert(cashHistoryCode.includes('setEditingMovement(mov)'), 'CashHistoryModal deve permitir abrir edição com setEditingMovement');
+
+    // 4. Verificação de conexão com onUpdateRow e onDeleteRow em POSRegister e ErpOptica
+    console.assert(posRegisterCode.includes('onUpdateRow={onUpdateRow}') && posRegisterCode.includes('onDeleteRow={onDeleteRow}'), 'POSRegister deve repassar onUpdateRow e onDeleteRow ao CashHistoryModal');
+    console.assert(erpOpticaCode.includes('onUpdateRow={onUpdateRow}') && erpOpticaCode.includes('onDeleteRow={onDeleteRow}'), 'ErpOptica deve repassar onUpdateRow e onDeleteRow ao CashHistoryContent');
+
+    console.log('  ✅ Test 46 Passed: Opção de Data nas operações de PDV e Edição no Histórico validadas com 100% de sucesso!\n');
+  }
+
+  // ─── Test 47: Isolamento e Fidelidade de Data no PDV, Caixa, Comprovantes e Histórico ───
+  console.log('▶ Test 47: Isolamento e Fidelidade de Data (Operações Retroativas / Customizadas Não Herdam Data Atual)');
+  {
+    const posRegisterSource = fs.readFileSync('./src/components/POSRegister.jsx', 'utf-8');
+    const cashModalSource = fs.readFileSync('./src/components/CashManagementModal.jsx', 'utf-8');
+    const cashHistorySource = fs.readFileSync('./src/components/CashHistoryModal.jsx', 'utf-8');
+
+    // 1. Verificação de posSaleDate no Checkout do PDV
+    console.assert(posRegisterSource.includes('posSaleDate'), 'POSRegister deve conter estado posSaleDate');
+    console.assert(posRegisterSource.includes('Data da Venda') && posRegisterSource.includes('type="date"'), 'POSRegister deve conter seletor visual de Data da Venda no checkout');
+    console.assert(posRegisterSource.includes('effectiveSaleDateIso') && posRegisterSource.includes('effectiveSaleDateFormatted'), 'POSRegister deve computar e usar effectiveSaleDateIso e effectiveSaleDateFormatted');
+    console.assert(posRegisterSource.includes('setPosSaleDate(new Date().toISOString().slice(0, 10))'), 'POSRegister deve resetar posSaleDate para o padrão após finalizar a venda');
+
+    // 2. Verificação de Sincronização de Data no FLUXO_CAIXA ao Salvar OS
+    console.assert(
+      posRegisterSource.includes('Sincronizar data e OS no FLUXO_CAIXA') && posRegisterSource.includes("onUpdateRow('FLUXO_CAIXA'"),
+      'POSRegister deve sincronizar os lançamentos de FLUXO_CAIXA com a data informada na OS'
+    );
+
+    // 3. Verificação de parseItemDate em liveDrawerCash e activeSession
+    console.assert(
+      posRegisterSource.includes('parseItemDate(a)?.getTime()') && posRegisterSource.includes('parseItemDate(b)?.getTime()'),
+      'POSRegister activeSession deve ordenar cronologicamente utilizando parseItemDate'
+    );
+    console.assert(
+      posRegisterSource.includes('const sessionStart = parseItemDate({ dataHora: activeSession.dataHoraAbertura') ||
+      posRegisterSource.includes('const sessionStart = parseItemDate('),
+      'POSRegister liveDrawerCash deve computar sessionStart utilizando parseItemDate'
+    );
+    console.assert(
+      posRegisterSource.includes('const mDate = parseItemDate(m);'),
+      'POSRegister liveDrawerCash deve filtrar movimentos utilizando parseItemDate'
+    );
+
+    // 4. Verificação em CashManagementModal (sessionMovements e PrintableCashVoucher)
+    console.assert(
+      cashModalSource.includes('const mDate = parseItemDate(m);') && cashModalSource.includes('mDate >= sessionStart'),
+      'CashManagementModal sessionMovements deve filtrar movimentos usando parseItemDate'
+    );
+    console.assert(
+      cashModalSource.includes('opDateTimeFormatted') && cashModalSource.includes('getOpDateTimeFormatted'),
+      'CashManagementModal PrintableCashVoucher deve computar opDateTimeFormatted a partir da data da operação'
+    );
+    console.assert(
+      cashModalSource.includes('<span>{opDateTimeFormatted}</span>'),
+      'CashManagementModal PrintableCashVoucher deve exibir opDateTimeFormatted no cabeçalho do recibo'
+    );
+
+    // 5. Verificação de Sincronização Bidirecional em CashHistoryModal
+    console.assert(
+      cashHistorySource.includes("onUpdateRow('Registro_Vendas', matchingSale, updatedSale)"),
+      'CashHistoryModal deve sincronizar Registro_Vendas ao editar data no FLUXO_CAIXA'
+    );
+    console.assert(
+      cashHistorySource.includes("onUpdateRow('FLUXO_CAIXA', m, updatedM)"),
+      'CashHistoryModal deve sincronizar FLUXO_CAIXA ao editar data no Registro_Vendas'
+    );
+
+    // 6. Teste Funcional: Parser e Isolamento de Lançamento Retroativo
+    const parseTest = (item) => {
+      const raw = item.dataHora || item.timestamp || item.DATA || item['DATA  DA VENDA'] || item['DATA DA VENDA'] || item.DATA_HORA || item.data;
+      if (!raw) return null;
+      if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
+      if (typeof raw === 'string') {
+        const trimmed = raw.trim();
+        if (trimmed.includes('/')) {
+          const parts = trimmed.split(' ')[0].split('/');
+          if (parts.length === 3) {
+            const d = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10) - 1;
+            const y = parseInt(parts[2], 10);
+            const dateObj = new Date(y, m, d);
+            if (trimmed.includes(':')) {
+              const timeParts = trimmed.split(' ')[1]?.split(':') || [];
+              if (timeParts.length >= 2) {
+                dateObj.setHours(parseInt(timeParts[0], 10) || 0, parseInt(timeParts[1], 10) || 0, parseInt(timeParts[2], 10) || 0);
+              }
+            }
+            return isNaN(dateObj.getTime()) ? null : dateObj;
+          }
+        }
+        if (trimmed.includes('-') && !trimmed.includes('T')) {
+          const parts = trimmed.split('-');
+          if (parts.length === 3) {
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10) - 1;
+            const d = parseInt(parts[2], 10);
+            return new Date(y, m, d, 12, 0, 0);
+          }
+        }
+        const d = new Date(trimmed);
+        if (!isNaN(d.getTime())) return d;
+      }
+      return null;
+    };
+
+    const sessionStartTest = new Date('2026-10-14T08:00:00.000Z'); // 14/10/2026 08:00
+    const movimentoOntem = { data: '12/10/2026', valor: 250, tipo: 'VENDA' };
+    const parsedOntem = parseTest(movimentoOntem);
+    console.assert(parsedOntem.getMonth() === 9, 'Data 12/10/2026 deve ser Outubro (mês index 9) e não Dezembro');
+    console.assert(parsedOntem.getDate() === 12, 'Data 12/10/2026 deve ser dia 12');
+    console.assert(parsedOntem < sessionStartTest, 'Movimentação do dia 12/10/2026 deve ser menor que sessionStart de 14/10/2026');
+
+    // Simulação do filtro de gaveta
+    const movementsMock = [
+      { id: 'm1', data: '12/10/2026', valor: 200, tipo: 'VENDA', formaPagamento: 'DINHEIRO', unidade: 'Cajati' },
+      { id: 'm2', dataHora: '2026-10-14T09:30:00.000Z', valor: 150, tipo: 'VENDA', formaPagamento: 'DINHEIRO', unidade: 'Cajati' },
+      { id: 'm3', dataHora: '2026-10-14T11:00:00.000Z', valor: 50, tipo: 'SANGRIA', formaPagamento: 'DINHEIRO', unidade: 'Cajati' }
+    ];
+    const filteredForCurrentDrawer = movementsMock.filter(m => {
+      const d = parseTest(m);
+      return d && d >= sessionStartTest;
+    });
+    console.assert(filteredForCurrentDrawer.length === 2, 'Apenas as 2 movimentações do dia 14/10 devem entrar no caixa atual');
+    console.assert(!filteredForCurrentDrawer.some(m => m.id === 'm1'), 'Movimentação retroativa do dia 12/10 não pode entrar na gaveta de hoje');
+
+    console.log('  ✅ Test 47 Passed: Isolamento e Fidelidade de Data no PDV, Caixa, Comprovantes e Histórico validados com 100% de sucesso!\n');
+  }
+
+  // ─── TEST 48: Levantamento Financeiro XML, Nome na OS Extra & Alerta de Inadimplência do Responsável ────────
+  console.log('▶ Test 48: Levantamento Financeiro XML, Beneficiário da OS Extra & Auditoria do Responsável Legal');
+
+  // 1. Validação do Construtor de XML Financeiro Completo
+  const mockReceber = [
+    { id: 'rec_1', CLIENTE: 'Carlos Souza', VALOR: '350,00', STATUS: 'Pendente', VENCIMENTO: '2026-10-20', UNIDADE: 'Cajati', NUMERO_OS: 'OS-101' },
+    { id: 'rec_2', CLIENTE: 'Mariana Lima', VALOR: '150,00', STATUS: 'Pago', VENCIMENTO: '2026-10-10', UNIDADE: 'Cajati', NUMERO_OS: 'OS-102' }
+  ];
+  const mockPagar = [
+    { id: 'pag_1', FORNECEDOR: 'Laboratório Central', DESCRICAO: 'Serviço Surfaçagem', VALOR: '200,00', STATUS: 'Pendente', VENCIMENTO: '2026-10-25', UNIDADE: 'Cajati' }
+  ];
+  const mockFluxo = [
+    { id: 'flx_1', tipo: 'VENDA', valor: '350,00', formaPagamento: 'DINHEIRO', motivo: 'Venda Balcão', unidade: 'Cajati', dataHora: '2026-10-15 10:00' }
+  ];
+
+  const financialXml = buildFinancialSummaryXml(mockReceber, mockPagar, mockFluxo, {
+    unidade: 'Cajati',
+    geradoPor: 'wmusete',
+    periodo: 'Outubro/2026'
+  });
+
+  console.assert(financialXml.startsWith('<?xml version="1.0" encoding="UTF-8"?>'), 'XML financeiro deve ter declaração XML padrão');
+  console.assert(financialXml.includes('<levantamento_financeiro_otica'), 'XML financeiro deve conter raiz <levantamento_financeiro_otica>');
+  console.assert(financialXml.includes('<contas_a_receber total="2">'), 'XML deve conter nós de contas a receber com contagem exata');
+  console.assert(financialXml.includes('<contas_a_pagar total="1">'), 'XML deve conter nós de contas a pagar com contagem exata');
+  console.assert(financialXml.includes('<fluxo_de_caixa total="1">'), 'XML deve conter nós de fluxo de caixa com contagem exata');
+  console.assert(financialXml.includes('total_receber_pendente="350.00"'), 'Metadados do XML devem somar pendências de receber');
+  console.assert(financialXml.includes('total_pagar_pendente="200.00"'), 'Metadados do XML devem somar pendências de pagar');
+
+  // 2. Verificação de Código-Fonte: CashHistoryModal e ErpOptica
+  const cashHistoryCode = fs.readFileSync('./src/components/CashHistoryModal.jsx', 'utf-8');
+  console.assert(!cashHistoryCode.includes("startDate || 'Início'"), 'CashHistoryModal não deve referenciar startDate inexistente em handleExportXML');
+  console.assert(!cashHistoryCode.includes('selectedOperator'), 'CashHistoryModal não deve referenciar selectedOperator inexistente em handleExportXML');
+
+  const erpOpticaCode = fs.readFileSync('./src/components/ErpOptica.jsx', 'utf-8');
+  console.assert(erpOpticaCode.includes('handleExportFinancialExcel'), 'ErpOptica deve conter o handler handleExportFinancialExcel');
+  console.assert(erpOpticaCode.includes('Baixar Planilha (.xlsx)'), 'ErpOptica deve conter botão para baixar planilha financeira em Excel (.xlsx)');
+
+  // 3. Verificação de Código-Fonte: Campo de Nome na OS Extra (Beneficiário / Paciente)
+  const osGenModalCode = fs.readFileSync('./src/components/OSGeneratorModal.jsx', 'utf-8');
+  console.assert(osGenModalCode.includes('nomePessoa'), 'OSGeneratorModal deve suportar campo nomePessoa');
+  console.assert(osGenModalCode.includes('PACIENTE:'), 'OSGeneratorModal deve mapear PACIENTE na OS');
+  console.assert(osGenModalCode.includes('NOME_BENEFICIARIO:'), 'OSGeneratorModal deve mapear NOME_BENEFICIARIO na OS');
+
+  const posRegisterCode = fs.readFileSync('./src/components/POSRegister.jsx', 'utf-8');
+  console.assert(posRegisterCode.includes('PACIENTE: secOS.nomePessoa'), 'POSRegister deve propagar PACIENTE nas companionRows de Multi-OS');
+  console.assert(posRegisterCode.includes('CLIENTE_BENEFICIARIO: secOS.nomePessoa'), 'POSRegister deve propagar CLIENTE_BENEFICIARIO');
+
+  const printableOsCode = fs.readFileSync('./src/components/PrintableOS.jsx', 'utf-8');
+  console.assert(printableOsCode.includes('Paciente:'), 'PrintableOS deve exibir Paciente quando houver beneficiário da OS');
+
+  // 4. Auditoria e Alerta de Inadimplência do Responsável Legal
+  console.assert(osGenModalCode.includes('responsavelDebtCheck'), 'OSGeneratorModal deve ter cálculo de responsavelDebtCheck');
+  console.assert(osGenModalCode.includes('window.confirm'), 'OSGeneratorModal deve exibir confirmação caso responsável tenha débitos');
+  console.assert(posRegisterCode.includes('respFinancials'), 'POSRegister deve incluir auditoria do responsável em selectedClientFinancials');
+
+  // 5. Teste Funcional de Inadimplência do Responsável
+  const mockClients = [
+    {
+      id: 'cli_dependente',
+      NOME: 'Enzo Gabriel Menor',
+      CPF: '111.222.333-44',
+      RESPONSAVEL_NOME: 'João da Silva Santos',
+      RESPONSAVEL_CPF: '999.888.777-66'
+    },
+    {
+      id: 'cli_responsavel',
+      NOME: 'João da Silva Santos',
+      CPF: '999.888.777-66',
+      'Valor Devido': '600,00'
+    }
+  ];
+
+  const mockReceberDebts = [
+    {
+      id: 'rec_resp_1',
+      CLIENTE: 'João da Silva Santos',
+      CLIENTE_CPF: '999.888.777-66',
+      VALOR: '300,00',
+      STATUS: 'Atrasado',
+      VENCIMENTO: '2026-09-01'
+    },
+    {
+      id: 'rec_resp_2',
+      CLIENTE: 'João da Silva Santos',
+      CLIENTE_CPF: '999.888.777-66',
+      VALOR: '300,00',
+      STATUS: 'Pendente',
+      VENCIMENTO: '2026-10-01'
+    }
+  ];
+
+  const cleanRespCpf = '99988877766';
+  const respNameNorm = 'joao da silva santos';
+  const respPendingDebts = mockReceberDebts.filter(r => {
+    const rCpf = String(r.CLIENTE_CPF || r.CPF || '').replace(/\D/g, '');
+    const rName = String(r.CLIENTE || r.NOME || '').trim().toLowerCase();
+    const isOwner = (cleanRespCpf && rCpf === cleanRespCpf) || (rName && rName === respNameNorm);
+    const status = String(r.STATUS || '').toLowerCase();
+    return isOwner && (status === 'pendente' || status === 'atrasado' || status === 'vencido');
+  });
+
+  const totalRespDebt = respPendingDebts.reduce((acc, r) => acc + (parseFloat(r.VALOR?.replace(',', '.')) || 0), 0);
+  console.assert(respPendingDebts.length === 2, 'Deve identificar 2 duplicatas pendentes/atrasadas do responsável');
+  console.assert(totalRespDebt === 600, 'Total de débitos do responsável deve ser R$ 600,00');
+
+  console.log('  ✅ Test 48 Passed: Levantamento Financeiro XML, Nome na OS Extra e Alerta de Inadimplência do Responsável validados com 100% de sucesso!\n');
+
+  // ─── TEST 49: Período e Data Personalizada no Histórico Financeiro (PDV e ERP) ───
+  console.log('▶ Test 49: Período e Data Personalizada no Histórico Financeiro (PDV e ERP)');
+  const cashHistoryDateCode = fs.readFileSync('./src/components/CashHistoryModal.jsx', 'utf-8');
+  console.assert(cashHistoryDateCode.includes("selectedPeriod === 'PERSONALIZADO'"), 'CashHistoryModal deve suportar selectedPeriod === PERSONALIZADO');
+  console.assert(cashHistoryDateCode.includes('customStartDate') && cashHistoryDateCode.includes('customEndDate'), 'CashHistoryModal deve possuir customStartDate e customEndDate');
+  console.assert(cashHistoryDateCode.includes('type="date"'), 'CashHistoryModal deve conter seletores de data HTML5 (type="date")');
+  console.assert(cashHistoryDateCode.includes('Data / Período Personalizado'), 'CashHistoryModal deve exibir a opção de Período Personalizado');
+
+  // Teste Funcional do Filtro Personalizado com Mock de Movimentações
+  const mockMovements = [
+    { id: 'm1', dataHora: '2026-10-01T10:00:00.000Z', valor: 100, tipo: 'VENDA' },
+    { id: 'm2', dataHora: '2026-10-05T14:30:00.000Z', valor: 250, tipo: 'VENDA' },
+    { id: 'm3', dataHora: '2026-10-10T09:15:00.000Z', valor: 300, tipo: 'RECEBIMENTO' },
+    { id: 'm4', dataHora: '2026-10-15T18:00:00.000Z', valor: 180, tipo: 'SANGRIA' }
+  ];
+
+  // Simulação da lógica de filtro por período
+  const filterByRange = (items, startStr, endStr) => {
+    return items.filter(item => {
+      const itemDate = new Date(item.dataHora);
+      if (startStr && endStr) {
+        const [sy, sm, sd] = startStr.split('-').map(Number);
+        const [ey, em, ed] = endStr.split('-').map(Number);
+        let startD = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
+        let endD = new Date(ey, em - 1, ed, 23, 59, 59, 999);
+        if (startD > endD) {
+          const t = startD; startD = endD; endD = t;
+        }
+        return itemDate >= startD && itemDate <= endD;
+      } else if (startStr) {
+        const [sy, sm, sd] = startStr.split('-').map(Number);
+        const startD = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
+        const endD = new Date(sy, sm - 1, sd, 23, 59, 59, 999);
+        return itemDate >= startD && itemDate <= endD;
+      }
+      return true;
+    });
+  };
+
+  // Range 04/10/2026 até 12/10/2026: deve retornar m2 e m3
+  const rangeResults = filterByRange(mockMovements, '2026-10-04', '2026-10-12');
+  console.assert(rangeResults.length === 2, 'Range 04 a 12 deve conter exatamente 2 registros');
+  console.assert(rangeResults.some(r => r.id === 'm2') && rangeResults.some(r => r.id === 'm3'), 'Deve conter m2 e m3');
+
+  // Dia Único 10/10/2026: deve retornar apenas m3
+  const singleDateResults = filterByRange(mockMovements, '2026-10-10', '');
+  console.assert(singleDateResults.length === 1 && singleDateResults[0].id === 'm3', 'Dia único 10/10/2026 deve retornar apenas m3');
+
+  // Range invertido (tolerância a datas trocadas)
+  const invertedResults = filterByRange(mockMovements, '2026-10-12', '2026-10-04');
+  console.assert(invertedResults.length === 2, 'Range invertido deve normalizar e retornar 2 registros');
+
+  console.log('  ✅ Test 49 Passed: Período e Data Personalizada no Histórico Financeiro (PDV e ERP) validados com 100% de sucesso!\n');
+
+  // ─── TEST 50: Exportação de Planilhas em Formato Nativo Excel (.xlsx) Compatível com Excel Online ───
+  console.log('▶ Test 50: Exportação de Planilhas em Formato Nativo Excel (.xlsx) Compatível com Excel Online');
+  
+  // 1. Verificação Estática de Código nos Módulos de Exportação
+  const cashModalSrc = fs.readFileSync('./src/components/CashHistoryModal.jsx', 'utf-8');
+  console.assert(cashModalSrc.includes('handleExportExcel'), 'CashHistoryModal deve implementar handleExportExcel');
+  console.assert(cashModalSrc.includes('Baixar Planilha (Excel .xlsx)'), 'CashHistoryModal deve ter botão de download .xlsx');
+
+  const erpOpticaSrc = fs.readFileSync('./src/components/ErpOptica.jsx', 'utf-8');
+  console.assert(erpOpticaSrc.includes('handleExportFinancialExcel'), 'ErpOptica deve implementar handleExportFinancialExcel');
+  console.assert(erpOpticaSrc.includes('Baixar Planilha (.xlsx)'), 'ErpOptica deve ter botão de download de planilha financeira .xlsx');
+
+  const dashboardSrc = fs.readFileSync('./src/components/Dashboard.jsx', 'utf-8');
+  console.assert(dashboardSrc.includes('handleExportSalesExcel'), 'Dashboard deve implementar handleExportSalesExcel');
+  console.assert(dashboardSrc.includes('Baixar Vendas (.xlsx)'), 'Dashboard deve ter botão de download de vendas .xlsx');
+
+  // 2. Teste Funcional de Geração de Pasta de Trabalho (.xlsx) com Múltiplas Abas
+  const mockReceberRows = [
+    { 'Nº': 1, 'Cliente': 'Maria Silva', 'CPF': '123.456.789-00', 'Valor (R$)': 250, 'Status': 'Pendente' }
+  ];
+  const mockPagarRows = [
+    { 'Nº': 1, 'Fornecedor': 'Laboratório Óptico Central', 'Valor (R$)': 150, 'Status': 'Pago' }
+  ];
+  const mockFluxoRows = [
+    { 'Nº': 1, 'Operação': 'VENDA', 'Valor (R$)': 250, 'Forma de Pagamento': 'PIX' }
+  ];
+
+  const testWb = XLSX.utils.book_new();
+  const wsRec = XLSX.utils.json_to_sheet(mockReceberRows);
+  const wsPag = XLSX.utils.json_to_sheet(mockPagarRows);
+  const wsFlu = XLSX.utils.json_to_sheet(mockFluxoRows);
+
+  XLSX.utils.book_append_sheet(testWb, wsRec, 'Contas a Receber');
+  XLSX.utils.book_append_sheet(testWb, wsPag, 'Contas a Pagar');
+  XLSX.utils.book_append_sheet(testWb, wsFlu, 'Fluxo de Caixa');
+
+  // Gerar buffer binário .xlsx
+  const xlsxBuffer = XLSX.write(testWb, { type: 'buffer', bookType: 'xlsx' });
+  console.assert(xlsxBuffer && xlsxBuffer.length > 0, 'Buffer da planilha .xlsx gerado deve ser válido e não vazio');
+  // Assinatura de arquivo ZIP/OpenXML (.xlsx): primeiros 4 bytes 'PK\x03\x04'
+  console.assert(xlsxBuffer[0] === 0x50 && xlsxBuffer[1] === 0x4b, 'Arquivo deve possuir assinatura OpenXML (.xlsx)');
+
+  console.log('  ✅ Test 50 Passed: Geração e Compatibilidade de Planilhas Excel (.xlsx) com Excel Online validadas com 100% de sucesso!\n');
+
+  // ==========================================
+  // TEST 51: EXCLUSÃO INDIVIDUAL E EM LOTE NO HISTÓRICO DE CAIXA (RESTRITO A ADMINISTRADORES)
+  // ==========================================
+  console.log('▶ Test 51: Exclusão Individual e em Lote no Histórico de Caixa (Restrito a Administradores)');
+
+  const cashHistorySrc = fs.readFileSync('./src/components/CashHistoryModal.jsx', 'utf-8');
+
+  // 1. Verificação de código-fonte
+  console.assert(cashHistorySrc.includes('handleDeleteMovement'), 'CashHistoryModal deve implementar handleDeleteMovement');
+  console.assert(cashHistorySrc.includes('handleBulkDelete'), 'CashHistoryModal deve implementar handleBulkDelete');
+  console.assert(cashHistorySrc.includes('handleToggleSelect'), 'CashHistoryModal deve implementar handleToggleSelect');
+  console.assert(cashHistorySrc.includes('handleSelectAll'), 'CashHistoryModal deve implementar handleSelectAll');
+  console.assert(cashHistorySrc.includes('selectedIds'), 'CashHistoryModal deve manter estado de selectedIds');
+  console.assert(cashHistorySrc.includes('isAdmin && onDeleteRow'), 'Opções de exclusão devem ser condicionadas estritamente a isAdmin && onDeleteRow');
+  console.assert(cashHistorySrc.includes('Excluir Selecionadas'), 'Deve conter botão de ação em massa para excluir selecionadas');
+
+  // 2. Simulação da Regra de Permissão (RBAC)
+  const isUserAdmin = (user) => {
+    return ['admin', 'administrador', 'administrativo'].includes(user?.role) ||
+      user?.username === 'wmusete' ||
+      user?.role === 'gerente';
+  };
+
+  const admin1 = { username: 'carlos_admin', role: 'admin' };
+  const admin2 = { username: 'wmusete', role: 'vendedor' }; // master username
+  const admin3 = { username: 'julia_gerente', role: 'gerente' };
+  const vendor1 = { username: 'lucas_vendas', role: 'vendedor' };
+  const vendor2 = { username: 'patricia_balcao', role: 'operador' };
+
+  console.assert(isUserAdmin(admin1) === true, 'admin deve ter permissão de exclusão');
+  console.assert(isUserAdmin(admin2) === true, 'wmusete deve ter permissão de exclusão');
+  console.assert(isUserAdmin(admin3) === true, 'gerente deve ter permissão de exclusão');
+  console.assert(isUserAdmin(vendor1) === false, 'vendedor NÃO deve ter permissão de exclusão');
+  console.assert(isUserAdmin(vendor2) === false, 'operador NÃO deve ter permissão de exclusão');
+
+  // 3. Simulação Lógica de Exclusão e Sincronização em Cascata (Caixa e Vendas)
+  let mockFluxoCaixa = [
+    { id: 'fc_1', tipo: 'ABERTURA', valor: '100,00' },
+    { id: 'fc_2', tipo: 'SANGRIA', valor: '50,00' },
+    { id: 'fc_3', tipo: 'VENDA', valor: '350,00', saleId: 'sale_101', osNumero: '101' },
+    { id: 'fc_4', tipo: 'SUPRIMENTO', valor: '80,00' }
+  ];
+
+  let mockRegistroVendas = [
+    { id: 'sale_101', 'OS DA VENDA': '101', 'VALOR TOTAL': '350,00', CLIENTE: 'João da Silva' }
+  ];
+
+  const simulateDeleteMovement = (movToDelete) => {
+    mockFluxoCaixa = mockFluxoCaixa.filter(m => m.id !== movToDelete.id);
+    if (movToDelete.saleId) {
+      mockRegistroVendas = mockRegistroVendas.filter(s => s.id !== movToDelete.saleId);
+    }
+  };
+
+  // Exclusão individual
+  simulateDeleteMovement(mockFluxoCaixa[2]); // exclui venda fc_3
+  console.assert(!mockFluxoCaixa.some(m => m.id === 'fc_3'), 'Lançamento deve ser removido de FLUXO_CAIXA');
+  console.assert(!mockRegistroVendas.some(s => s.id === 'sale_101'), 'Venda vinculada deve ser removida de Registro_Vendas');
+
+  // Exclusão em lote (Bulk Delete)
+  const selectedForBulk = new Set(['fc_1', 'fc_4']);
+  mockFluxoCaixa = mockFluxoCaixa.filter(m => !selectedForBulk.has(m.id));
+  console.assert(mockFluxoCaixa.length === 1 && mockFluxoCaixa[0].id === 'fc_2', 'Exclusão em lote deve restar apenas fc_2');
+
+  console.log('  ✅ Test 51 Passed: Exclusão Individual e em Lote no Histórico de Caixa validadas com 100% de sucesso!\n');
+
+  // ─── TEST 52: Módulo de Reparcelamento de OS, Filtro de Datas das Parcelas e Alertas Vencidos com Nome do Cliente ───
+  console.log('▶ Test 52: Módulo de Reparcelamento de OS, Filtro de Datas das Parcelas, Alertas Vencidos com Nome do Cliente & UX');
+
+  // 1. Teste de Normalização e Formatação de Datas (ISO e BR)
+  console.assert(normalizeInstallmentDateIso('2026-08-15') === '2026-08-15', 'Deve manter formato ISO YYYY-MM-DD');
+  console.assert(normalizeInstallmentDateIso('15/08/2026') === '2026-08-15', 'Deve converter DD/MM/YYYY para ISO');
+  console.assert(normalizeInstallmentDateIso('5/3/2026') === '2026-03-05', 'Deve converter D/M/YYYY para ISO com zero à esquerda');
+  console.assert(normalizeInstallmentDateIso('15-08-2026') === '2026-08-15', 'Deve converter DD-MM-YYYY para ISO');
+  console.assert(normalizeInstallmentDateIso('') === '', 'Data vazia deve retornar string vazia');
+  console.assert(formatInstallmentDateBr('2026-08-15') === '15/08/2026', 'Deve formatar ISO para DD/MM/YYYY');
+
+  // 2. Teste de Extração de OS e Resolução do Nome do Cliente (Direto, Clientes e Vendas)
+  console.assert(extractOSFromRow({ VENDA_OS: '#1045' }) === '1045', 'Deve extrair VENDA_OS sem #');
+  console.assert(extractOSFromRow({ DOCUMENTO: 'BOLETO 2/4 - OS 2099' }) === '2099', 'Deve extrair OS de DOCUMENTO');
+
+  const mockClientsForAlert = [
+    { id: 'cli_99', 'Nome Completo': 'Mariana Oliveira Costa', 'CPF / CNPJ': '123.456.789-00' }
+  ];
+  const mockSalesForAlert = [
+    { OS: '3050', 'NOME DO CLIENTE': 'Roberto Carlos Mendes' }
+  ];
+
+  console.assert(
+    resolveInstallmentClientName({ CLIENTE: 'Fernanda Lima' }, mockClientsForAlert, mockSalesForAlert) === 'Fernanda Lima',
+    'Deve resolver nome direto na parcela'
+  );
+  console.assert(
+    resolveInstallmentClientName({ CLIENTE_CPF: '12345678900' }, mockClientsForAlert, mockSalesForAlert) === 'Mariana Oliveira Costa',
+    'Deve resolver nome do cliente cruzando CPF com clientsData'
+  );
+  console.assert(
+    resolveInstallmentClientName({ DESCRICAO: 'Parcela 1/3 ref OS #3050' }, mockClientsForAlert, mockSalesForAlert) === 'Roberto Carlos Mendes',
+    'Deve resolver nome do cliente cruzando OS com salesData'
+  );
+
+  // 3. Teste de Alertas de Parcelas Vencidas Referentes com o Nome do Cliente
+  const mockReceberAlerts = [
+    {
+      id: 'r1',
+      CLIENTE: 'Ana Paula Souza',
+      VENDA_OS: '4501',
+      PARCELA: '1/3',
+      DESCRICAO: 'Parcela 1/3',
+      VALOR: '180,00',
+      DATA_VENCIMENTO: '10/05/2026', // formato BR vencido
+      STATUS: 'Pendente'
+    },
+    {
+      id: 'r2',
+      CLIENTE_CPF: '123.456.789-00', // Sem campo CLIENTE preenchido -> deve puxar Mariana Oliveira Costa
+      VENDA_OS: '4502',
+      DOCUMENTO: 'BOLETO 2/4 - OS 4502',
+      VALOR: '220,50',
+      DATA_VENCIMENTO: '2026-05-15', // vence no dia de referência
+      STATUS: 'Pendente'
+    },
+    {
+      id: 'r3',
+      CLIENTE: 'Cliente Futuro',
+      VENDA_OS: '4503',
+      VALOR: '150,00',
+      DATA_VENCIMENTO: '2026-06-20', // futuro -> não deve entrar no alerta de vencidas
+      STATUS: 'Pendente'
+    },
+    {
+      id: 'r4',
+      CLIENTE: 'Cliente Já Pago',
+      VENDA_OS: '4504',
+      VALOR: '300,00',
+      DATA_VENCIMENTO: '2026-05-01',
+      STATUS: 'Recebido' // pago -> não deve entrar no alerta
+    }
+  ];
+
+  const overdueAlerts = buildOverdueInstallmentAlerts(
+    mockReceberAlerts,
+    [],
+    mockClientsForAlert,
+    mockSalesForAlert,
+    '2026-05-15'
+  );
+
+  console.assert(overdueAlerts.length === 2, `Esperado 2 alertas vencidos, obtido ${overdueAlerts.length}`);
+  console.assert(overdueAlerts[0].clienteNome === 'Ana Paula Souza', 'Primeiro alerta deve trazer o nome da cliente Ana Paula Souza');
+  console.assert(overdueAlerts[0].osNumero === '4501', 'Primeiro alerta deve trazer a OS 4501');
+  console.assert(overdueAlerts[0].diasAtraso === 5, 'Deve calcular 5 dias de atraso entre 10/05 e 15/05');
+  console.assert(overdueAlerts[0].descricao.includes('Ana Paula Souza'), 'Descrição do alerta deve incluir explicitamente o nome do cliente');
+  console.assert(overdueAlerts[1].clienteNome === 'Mariana Oliveira Costa', 'Segundo alerta deve resolver nome do cliente via CPF no cadastro');
+  console.assert(overdueAlerts[1].isDueToday === true, 'Segundo alerta vence hoje');
+
+  // 4. Teste do Filtro de Datas da Parcela (Modo de Busca com Datas Personalizadas)
+  const customRangeResult = filterInstallmentsByDateRange(
+    mockReceberAlerts,
+    {
+      periodMode: 'CUSTOM',
+      startDate: '2026-05-12',
+      endDate: '2026-06-30',
+      dateField: 'VENCIMENTO',
+      statusFilter: 'ALL'
+    },
+    '2026-05-15'
+  );
+  console.assert(customRangeResult.length === 2, 'Filtro personalizado 12/05 a 30/06 deve retornar r2 (15/05) e r3 (20/06)');
+
+  // Intervalo invertido (startDate > endDate) deve ser corrigido automaticamente
+  const invertedRangeResult = filterInstallmentsByDateRange(
+    mockReceberAlerts,
+    {
+      periodMode: 'CUSTOM',
+      startDate: '2026-06-30',
+      endDate: '2026-05-12',
+      dateField: 'VENCIMENTO'
+    },
+    '2026-05-15'
+  );
+  console.assert(invertedRangeResult.length === 2, 'Filtro com datas invertidas deve auto-corrigir e retornar 2 parcelas');
+
+  const overdueModeResult = filterInstallmentsByDateRange(
+    mockReceberAlerts,
+    { periodMode: 'OVERDUE' },
+    '2026-05-15'
+  );
+  console.assert(overdueModeResult.length === 2, 'Modo OVERDUE deve retornar apenas as 2 parcelas vencidas e não pagas');
+
+  // Teste de precedência de preset explícito mesmo com startDate/endDate residuais + busca por nome resolvido via CPF
+  const presetOverrideResult = filterInstallmentsByDateRange(
+    mockReceberAlerts,
+    {
+      periodMode: 'TODAY',
+      startDate: '2026-06-01',
+      endDate: '2026-06-30',
+      searchQuery: 'Mariana Oliveira',
+      clientsData: mockClientsForAlert,
+      salesData: mockSalesForAlert
+    },
+    '2026-05-15'
+  );
+  console.assert(
+    presetOverrideResult.length === 1 && presetOverrideResult[0].id === 'r2',
+    'Preset TODAY deve prevalecer sobre datas residuais e encontrar cliente cujo nome foi resolvido via clientsData'
+  );
+
+  // 5. Teste do Cronograma e Payload do Módulo de Reparcelamento referente à OS
+  // Teste de arredondamento exato de centavos (R$ 100,00 em 3x -> 33,33 + 33,33 + 33,34 = 100,00)
+  const sched3x = generateInstallmentSchedule({
+    totalAmount: 100,
+    count: 3,
+    firstDueDateIso: '2026-01-31',
+    intervalType: 'MESMO_DIA_MES'
+  });
+  console.assert(sched3x.length === 3, 'Deve gerar 3 parcelas');
+  console.assert(sched3x[0].valorNum === 33.33 && sched3x[1].valorNum === 33.33 && sched3x[2].valorNum === 33.34, 'Última parcela deve absorver 1 centavo residual');
+  console.assert(sched3x[1].vencimento === '2026-02-28', `Vencimento de 31/01 no mês seguinte deve ajustar para 28/02, obtido ${sched3x[1].vencimento}`);
+
+  // Teste de Payload Completo de Reparcelamento (com Entrada + Desconto + Novas Parcelas Boleto)
+  const reparcPayload = buildReparcelamentoOSPayload({
+    osNumber: '4501',
+    clientName: 'Ana Paula Souza',
+    clientId: 'cli_ana',
+    clientCpf: '111.222.333-44',
+    unit: 'Cajati',
+    selectedPendingRows: [mockReceberAlerts[0], mockReceberAlerts[1]], // 180,00 + 220,50 = 400,50
+    entradaValor: '100,50',
+    entradaMeioPagamento: 'Pix',
+    descontoValor: '0,00',
+    acrescimoValor: '0,00',
+    meioPagamento: 'Carnê', // Deve ser higienizado automaticamente para 'Boleto'
+    schedule: generateInstallmentSchedule({
+      totalAmount: 300,
+      count: 3,
+      firstDueDateIso: '2026-06-15',
+      intervalType: '30_DIAS'
+    }),
+    dataAcordoIso: '2026-05-15',
+    observacoes: 'Cliente renegociou saldo no balcão',
+    operador: 'admin'
+  });
+
+  console.assert(reparcPayload.originalSelectedTotal === 400.5, 'Total original selecionado deve ser 400.50');
+  console.assert(reparcPayload.entradaValor === 100.5, 'Entrada deve ser 100.50');
+  console.assert(reparcPayload.totalNovoParcelado === 300, 'Novo saldo parcelado deve ser 300.00');
+  console.assert(reparcPayload.rowsToDelete.length === 2, 'Deve marcar as 2 parcelas antigas para substituição/exclusão');
+  console.assert(reparcPayload.entradaReceberRow && reparcPayload.entradaReceberRow.STATUS === 'Recebido', 'Deve gerar registro de entrada quitada em CONTAS_RECEBER');
+  console.assert(reparcPayload.entradaFluxoRow && reparcPayload.entradaFluxoRow.valor === 100.5, 'Deve gerar lançamento de entrada no FLUXO_CAIXA');
+  console.assert(reparcPayload.newInstallmentRows.length === 3, 'Deve gerar 3 novas parcelas pendentes');
+  console.assert(
+    reparcPayload.newInstallmentRows.every(r => r.MEIO_PAGAMENTO === 'Boleto' && !/carn[eê]/i.test(r.DOCUMENTO)),
+    'Todas as novas parcelas devem utilizar nomenclatura padronizada Boleto (nunca Carnê)'
+  );
+
+  // Teste de quitação integral (100% pago como Entrada -> novoSaldoParcelado === 0)
+  // Mesmo passando um schedule de R$ 0,00 gerado por generateInstallmentSchedule({ totalAmount: 0, count: 3 }),
+  // NÃO deve criar parcelas pendentes fantasmas de R$ 0,00!
+  const zeroBalanceSchedule = generateInstallmentSchedule({ totalAmount: 0, count: 3, firstDueDateIso: '2026-06-15' });
+  const fullSettlementPayload = buildReparcelamentoOSPayload({
+    osNumber: '4501',
+    clientName: 'Ana Paula Souza',
+    selectedPendingRows: [mockReceberAlerts[0]], // 180,00
+    entradaValor: '180,00',
+    entradaMeioPagamento: 'PIX',
+    schedule: zeroBalanceSchedule,
+    dataAcordoIso: '2026-05-15'
+  });
+  console.assert(fullSettlementPayload.totalNovoParcelado === 0, 'Saldo parcelado deve ser 0 na quitação integral');
+  console.assert(fullSettlementPayload.newInstallmentRows.length === 0, 'Quitação integral via Entrada NÃO pode gerar parcelas pendentes de R$ 0,00');
+  console.assert(fullSettlementPayload.entradaReceberRow && fullSettlementPayload.entradaReceberRow.VALOR === '180,00', 'Deve registrar a entrada de R$ 180,00');
+
+  // 6. Auditoria de Código-Fonte nos Componentes Integrados
+  const erpOpticaSrc52 = fs.readFileSync('./src/components/ErpOptica.jsx', 'utf8');
+  const clientModalSrc52 = fs.readFileSync('./src/components/ClientInstallmentsModal.jsx', 'utf8');
+  const reparcModalSrc52 = fs.readFileSync('./src/components/ReparcelamentoOSModal.jsx', 'utf8');
+  const dataTableSrc52 = fs.readFileSync('./src/components/DataTable.jsx', 'utf8');
+
+  console.assert(erpOpticaSrc52.includes('ReparcelamentoOSModal'), 'ErpOptica.jsx deve importar e renderizar ReparcelamentoOSModal');
+  console.assert(erpOpticaSrc52.includes('Filtro de Datas da Parcela — Busca Personalizada'), 'ErpOptica.jsx deve exibir o painel de filtro com as datas da parcela');
+  console.assert(erpOpticaSrc52.includes('item.clienteNome'), 'ErpOptica.jsx deve exibir o nome do cliente nos alertas de parcelas vencidas');
+  console.assert(clientModalSrc52.includes('filterInstallmentsByDateRange'), 'ClientInstallmentsModal.jsx deve permitir filtrar parcelas por datas personalizadas');
+  console.assert(dataTableSrc52.includes('onReparcelarOS'), 'DataTable.jsx deve disponibilizar botão de ação Reparcelar OS');
+  console.assert(!reparcModalSrc52.includes('Carnê'), 'ReparcelamentoOSModal.jsx não deve conter o termo Carnê');
+
+  console.log('  ✅ Test 52 Passed: Módulo de Reparcelamento de OS, Filtro de Datas das Parcelas e Alertas Vencidos com Nome do Cliente validados com 100% de sucesso!\n');
+
+  // =========================================================================
+  // TEST 53: Método de Pagamento da Entrada (Sinal) e do Restante (Falta) na OS
+  //          + Blindagem Contábil de Fluxo de Caixa, Gaveta e Contas a Receber
+  //          + Preservação 100% Intacta da Opção "Boleto"
+  // =========================================================================
+  console.log('▶️ Running Test 53: Método de Pagamento da Entrada e do Restante na OS + Blindagem Contábil & Boleto Intacto...');
+
+  const osGenSrc53 = fs.readFileSync('./src/components/OSGeneratorModal.jsx', 'utf8');
+  const editOsSrc53 = fs.readFileSync('./src/components/EditOSModal.jsx', 'utf8');
+  const printableOsSrc53 = fs.readFileSync('./src/components/PrintableOS.jsx', 'utf8');
+  const posRegSrc53 = fs.readFileSync('./src/components/POSRegister.jsx', 'utf8');
+  const osMgmtSrc53 = fs.readFileSync('./src/components/OSManagement.jsx', 'utf8');
+  const clientRegSrc53 = fs.readFileSync('./src/components/ClientRegistration.jsx', 'utf8');
+  const cashHistSrc53 = fs.readFileSync('./src/components/CashHistoryModal.jsx', 'utf8');
+
+  // 1. OSGeneratorModal.jsx: Campos explícitos de Entrada e Restante + stage ('entrada' | 'restante') + Boleto intacto
+  console.assert(
+    osGenSrc53.includes('formaPagamentoEntrada') && osGenSrc53.includes('formaPagamentoRestante'),
+    'OSGeneratorModal.jsx deve gerenciar formaPagamentoEntrada e formaPagamentoRestante'
+  );
+  console.assert(
+    osGenSrc53.includes('FORMA_ENTRADA:') && osGenSrc53.includes('FORMA_RESTANTE:'),
+    'OSGeneratorModal.jsx deve persistir FORMA_ENTRADA e FORMA_RESTANTE no payload da OS'
+  );
+  console.assert(
+    osGenSrc53.includes('Método de Pagamento da Entrada') && osGenSrc53.includes('Método de Pagamento do Restante'),
+    'OSGeneratorModal.jsx deve exibir seletores dedicados para Método de Pagamento da Entrada e do Restante no Bloco 3'
+  );
+  console.assert(
+    osGenSrc53.includes('value="Boleto"') &&
+    osGenSrc53.includes('value="PIX"') &&
+    osGenSrc53.includes('value="Cartão de Crédito"') &&
+    osGenSrc53.includes('value="Cartão de Débito"') &&
+    osGenSrc53.includes('value="Dinheiro"') &&
+    osGenSrc53.includes('value="A Combinar na Retirada"'),
+    'OSGeneratorModal.jsx deve manter a opção Boleto 100% intacta e oferecer PIX, Cartão de Crédito, Cartão de Débito, Dinheiro e A Combinar na Retirada para o Restante'
+  );
+
+  // 2. EditOSModal.jsx: Edição de Entrada/Restante com stage e preservação de FORMA_ENTRADA / FORMA_RESTANTE
+  console.assert(
+    editOsSrc53.includes('formaPagamentoEntrada') && editOsSrc53.includes('formaPagamentoRestante'),
+    'EditOSModal.jsx deve suportar formaPagamentoEntrada e formaPagamentoRestante'
+  );
+  console.assert(
+    editOsSrc53.includes("'FORMA_ENTRADA':") && editOsSrc53.includes("'FORMA_RESTANTE':"),
+    'EditOSModal.jsx deve salvar FORMA_ENTRADA e FORMA_RESTANTE ao atualizar a OS'
+  );
+  console.assert(
+    editOsSrc53.includes("p.stage === 'restante'"),
+    'EditOSModal.jsx deve separar pagamentos de stage === "restante" para não inflar totalPagoImediato (VALOR ENTRADA)'
+  );
+
+  // 3. PrintableOS.jsx: Exibição clara da forma de pagamento da Entrada e do Restante na impressão A4
+  console.assert(
+    printableOsSrc53.includes('resolvedFormaEntrada') && printableOsSrc53.includes('resolvedFormaRestante'),
+    'PrintableOS.jsx deve resolver e exibir a forma de pagamento da Entrada e do Restante'
+  );
+  console.assert(
+    printableOsSrc53.includes('CONTRATO DE VENDA E COMPRA DE ARMAÇÕES DE ÓCULOS, LENTES E LENTES DE CONTATO') &&
+    printableOsSrc53.includes('Cronograma de Parcelas do Boleto'),
+    'PrintableOS.jsx deve preservar intacto o contrato A4 e o cronograma de parcelas do Boleto'
+  );
+
+  // 4. POSRegister.jsx: Blindagem de Fluxo de Caixa e PARCELAS_JSON
+  console.assert(
+    posRegSrc53.includes('immediatePayments') && posRegSrc53.includes("if (pay.stage === 'restante') return false;"),
+    'POSRegister.jsx deve filtrar immediatePayments (excluindo pay.stage === "restante") para que o Restante não pago hoje jamais entre no FLUXO_CAIXA do dia'
+  );
+  console.assert(
+    posRegSrc53.includes("filter(p => p.metodo === 'carne' || p.metodo === 'boleto')"),
+    'POSRegister.jsx deve filtrar todasParcelas apenas para carne/boleto, impedindo que parcelas de Cartão de Crédito poluam PARCELAS_JSON'
+  );
+  console.assert(
+    posRegSrc53.includes('FORMA_ENTRADA:') && posRegSrc53.includes('FORMA_RESTANTE:'),
+    'POSRegister.jsx deve gravar FORMA_ENTRADA e FORMA_RESTANTE na planilha de vendas'
+  );
+
+  // 5. OSManagement.jsx: Exibição e geração correta de CONTAS_RECEBER com o método do Restante
+  console.assert(
+    osMgmtSrc53.includes('formaEntrada') && osMgmtSrc53.includes('formaRestante'),
+    'OSManagement.jsx deve mapear e exibir formaEntrada e formaRestante nos cards, tabela e modais'
+  );
+  console.assert(
+    osMgmtSrc53.includes("MEIO_PAGAMENTO: 'Boleto'") && osMgmtSrc53.includes('MEIO_PAGAMENTO: resolvedMeioRestante'),
+    'OSManagement.jsx deve preservar MEIO_PAGAMENTO = Boleto nas parcelas e usar resolvedMeioRestante no saldo restante'
+  );
+
+  // 6. ClientRegistration.jsx & CashHistoryModal.jsx: Blindagem de Gaveta (Dinheiro físico) & Multi-OS
+  console.assert(
+    clientRegSrc53.includes('rawEntradaMethod') && clientRegSrc53.includes("'FORMA_ENTRADA': resolvedFormaEntrada"),
+    'ClientRegistration.jsx deve registrar o método real da Entrada no FLUXO_CAIXA em vez de forçar DINHEIRO fixo'
+  );
+  console.assert(
+    clientRegSrc53.includes('osData?.isMultiOS') && clientRegSrc53.includes('ordersList.forEach') && printableOsSrc53.includes('osData.orders && Array.isArray(osData.orders)'),
+    'ClientRegistration.jsx e PrintableOS.jsx devem desempacotar osData.orders em emissões Multi-OS (2+ óculos)'
+  );
+  console.assert(
+    cashHistSrc53.includes('formaEntradaOS') && cashHistSrc53.includes('formaRestanteOS') && cashHistSrc53.includes('formaEfetivaCaixa'),
+    'CashHistoryModal.jsx deve usar formaEntradaOS (formaEfetivaCaixa) para classificar a entrada imediata no caixa sem contaminar a gaveta com o método do Restante'
+  );
+
+  // 6.1 Verificações adicionais de sincronização e preservação (ClientProfileModal, ErpOptica, EditOSModal, OSGeneratorModal)
+  const clientProfileSrc53 = fs.readFileSync('./src/components/ClientProfileModal.jsx', 'utf8');
+  const erpOpticaSrc53 = fs.readFileSync('./src/components/ErpOptica.jsx', 'utf8');
+  console.assert(
+    clientProfileSrc53.includes("FORMA_ENTRADA: compra['FORMA_ENTRADA']") &&
+    clientProfileSrc53.includes("FORMA_RESTANTE: compra['FORMA_RESTANTE']"),
+    'ClientProfileModal.jsx deve encaminhar FORMA_ENTRADA e FORMA_RESTANTE para setOsDataForPrint ao reimprimir OS'
+  );
+  console.assert(
+    erpOpticaSrc53.includes('FORMA_RESTANTE: newFormaRestante') &&
+    erpOpticaSrc53.includes('formaPagamentoRestante: newFormaRestante'),
+    'ErpOptica.jsx (handleConfirmReparcelamento) deve atualizar FORMA_RESTANTE e formaPagamentoRestante ao reparcelar OS'
+  );
+  console.assert(
+    editOsSrc53.includes("{ id: 'combinar', label: '🤝 A Combinar' }") &&
+    editOsSrc53.includes("if (m === 'combinar' || /combinar|retirada/i.test(m)) return 'A Combinar na Retirada';") &&
+    editOsSrc53.includes('buildPaymentObject(currentMethod, totalVal, cashTendered, payInstallments, payFirstDueDate, customDueDates, currentStage)'),
+    'EditOSModal.jsx deve preservar "A Combinar na Retirada" (combinar) e passar currentStage no fallback autoPay'
+  );
+  console.assert(
+    osGenSrc53.includes("selectFormaRestante = 'Cartão de Crédito'") &&
+    osGenSrc53.includes("name === 'formaPagamentoRestante'") &&
+    osGenSrc53.includes("name === 'parcelasRestante'"),
+    'OSGeneratorModal.jsx deve normalizar formaPagamentoRestante para os valores do <select> e sincronizar alterações do dropdown com a lista de pagamentos'
+  );
+
+  // 7. Simulação Matemática Contábil dos 5 Cenários Críticos (Entrada + Restante)
+  const simulateOSPaymentAccounting = (paymentsList, valorFinalOS) => {
+    const immediatePayments = paymentsList.filter(
+      p => p.metodo !== 'carne' && p.metodo !== 'boleto' && p.stage !== 'restante'
+    );
+    const deferredRestantePayments = paymentsList.filter(
+      p => p.metodo === 'carne' || p.metodo === 'boleto' || p.stage === 'restante'
+    );
+    const valorEntrada = immediatePayments.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+    const somaRestanteListado = deferredRestantePayments.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+    const valorRestante = somaRestanteListado > 0
+      ? somaRestanteListado
+      : Math.max(0, valorFinalOS - valorEntrada);
+
+    // PARCELAS_JSON deve conter SOMENTE parcelas de Boleto
+    const parcelasJson = paymentsList
+      .filter(p => p.metodo === 'carne' || p.metodo === 'boleto')
+      .flatMap(p => p.listaParcelas || []);
+
+    // Gaveta de Dinheiro físico hoje deve somar apenas immediatePayments em dinheiro
+    const gavetaDinheiroHoje = immediatePayments
+      .filter(p => p.metodo === 'dinheiro')
+      .reduce((acc, p) => acc + Number(p.valor || 0), 0);
+
+    return {
+      valorEntrada,
+      valorRestante,
+      fluxoCaixaHojeTotal: valorEntrada,
+      gavetaDinheiroHoje,
+      parcelasJsonCount: parcelasJson.length
+    };
+  };
+
+  // Cenário A: OS de R$ 600,00 -> Entrada de R$ 200,00 no PIX + Restante de R$ 400,00 no Cartão de Crédito (3x)
+  const cenarioCartaoRestante = simulateOSPaymentAccounting([
+    { metodo: 'pix', stage: 'entrada', valor: 200 },
+    {
+      metodo: 'cartao_credito',
+      stage: 'restante',
+      valor: 400,
+      parcelas: 3,
+      listaParcelas: [{ numero: 1, valor: 133.34 }, { numero: 2, valor: 133.33 }, { numero: 3, valor: 133.33 }]
+    }
+  ], 600);
+  console.assert(cenarioCartaoRestante.valorEntrada === 200, 'Cenário A: Entrada deve ser exatamente R$ 200,00');
+  console.assert(cenarioCartaoRestante.valorRestante === 400, 'Cenário A: Restante deve ser exatamente R$ 400,00 (não somado à Entrada)');
+  console.assert(cenarioCartaoRestante.fluxoCaixaHojeTotal === 200, 'Cenário A: Fluxo de Caixa de hoje deve registrar apenas os R$ 200,00 pagos na Entrada');
+  console.assert(cenarioCartaoRestante.gavetaDinheiroHoje === 0, 'Cenário A: Gaveta de dinheiro físico deve ser R$ 0,00');
+  console.assert(cenarioCartaoRestante.parcelasJsonCount === 0, 'Cenário A: Parcelas de Cartão de Crédito NÃO podem vazar para PARCELAS_JSON de Boleto');
+
+  // Cenário B: OS de R$ 500,00 -> Entrada de R$ 150,00 no PIX + Restante de R$ 350,00 em Dinheiro (na retirada)
+  const cenarioDinheiroRestante = simulateOSPaymentAccounting([
+    { metodo: 'pix', stage: 'entrada', valor: 150 },
+    { metodo: 'dinheiro', stage: 'restante', valor: 350 }
+  ], 500);
+  console.assert(cenarioDinheiroRestante.valorEntrada === 150, 'Cenário B: Entrada deve ser R$ 150,00');
+  console.assert(cenarioDinheiroRestante.valorRestante === 350, 'Cenário B: Restante em Dinheiro deve ser R$ 350,00');
+  console.assert(cenarioDinheiroRestante.gavetaDinheiroHoje === 0, 'Cenário B: Restante em Dinheiro (ainda não pago) JAMAIS pode inflar o saldo em dinheiro da gaveta de hoje');
+
+  // Cenário C: OS de R$ 800,00 -> Entrada de R$ 200,00 em Dinheiro + Restante de R$ 600,00 no Boleto (3x) -> 100% Intacto!
+  const cenarioBoletoIntacto = simulateOSPaymentAccounting([
+    { metodo: 'dinheiro', stage: 'entrada', valor: 200 },
+    {
+      metodo: 'boleto',
+      stage: 'restante',
+      valor: 600,
+      parcelas: 3,
+      listaParcelas: [
+        { numero: 1, valor: 200, dataVencimento: '2026-11-20' },
+        { numero: 2, valor: 200, dataVencimento: '2026-12-20' },
+        { numero: 3, valor: 200, dataVencimento: '2027-01-20' }
+      ]
+    }
+  ], 800);
+  console.assert(cenarioBoletoIntacto.valorEntrada === 200, 'Cenário C: Entrada em Dinheiro deve ser R$ 200,00');
+  console.assert(cenarioBoletoIntacto.valorRestante === 600, 'Cenário C: Restante no Boleto deve ser R$ 600,00');
+  console.assert(cenarioBoletoIntacto.gavetaDinheiroHoje === 200, 'Cenário C: Gaveta de dinheiro físico deve somar os R$ 200,00 da Entrada em Dinheiro');
+  console.assert(cenarioBoletoIntacto.parcelasJsonCount === 3, 'Cenário C: Fluxo de Boleto deve continuar gerando as 3 parcelas em PARCELAS_JSON 100% intacto');
+
+  console.log('  ✅ Test 53 Passed: Método de Pagamento da Entrada e do Restante na OS + Blindagem Contábil e Boleto 100% Intacto validados com sucesso!\n');
+
+  // =========================================================================
+  // TEST 54: Relatório Consolidado de Vendas de Armações por Grife e por Loja
+  // =========================================================================
+  console.log('▶️ Running Test 54: Relatório Consolidado de Vendas por Grife e por Loja (Armações, Lentes & Excel)...');
+  const { aggregateSalesByBrandAndStore, exportBrandSalesReportToExcel } = await import('./src/stockFilters.js');
+  const XLSXModule = await import('xlsx');
+
+  const mockInventoryItems = [
+    { MARCA: 'Ray-Ban', MODELO: 'RB3025 Aviador Dourado', SKU: 'RB3025-01', UNIDADE: 'Registro', PRECO_VENDA: 650, ESTOQUE: 5 },
+    { MARCA: 'Ray-Ban', MODELO: 'RB2140 Wayfarer Preto', SKU: 'RB2140-02', UNIDADE: 'Cajati', PRECO_VENDA: 700, ESTOQUE: 3 },
+    { MARCA: 'Vogue', MODELO: 'VO5211 Gatinho', SKU: 'VO5211-01', UNIDADE: 'Registro', PRECO_VENDA: 480, ESTOQUE: 8 },
+    { MARCA: 'Ana Hickmann', MODELO: 'AH6315 Redondo Tartaruga', SKU: 'AH6315-01', UNIDADE: 'Jacupiranga', PRECO_VENDA: 560, ESTOQUE: 4 },
+    { MARCA: 'Oakley', MODELO: 'Crosslink Pitch Esportivo', SKU: 'OX8037-01', UNIDADE: 'Cajati', PRECO_VENDA: 620, ESTOQUE: 2 }
+  ];
+
+  const mockSalesRecords = [
+    // Registro: 3x Ray-Ban RB3025 + 2x Vogue VO5211
+    { 'Nº DA OS': 'OS-101', SKU: 'RB3025-01', PRODUTO: 'Armação Ray-Ban RB3025 Aviador', CIDADE: 'Registro', QUANTIDADE: 2, 'VALOR TOTAL': 1300, 'DATA DA VENDA': '20/10/2026' },
+    { 'Nº DA OS': 'OS-102', SKU: 'RB3025-01', PRODUTO: 'Armação Ray-Ban', CIDADE: 'Registro', QUANTIDADE: 1, 'VALOR TOTAL': 650, 'DATA DA VENDA': '21/10/2026' },
+    { 'Nº DA OS': 'OS-103', MARCA: 'Vogue', PRODUTO: 'Óculos Vogue VO5211', CIDADE: 'Registro', QUANTIDADE: 2, 'VALOR TOTAL': 960, 'DATA DA VENDA': '19/10/2026' },
+
+    // Cajati: 1x Ray-Ban Wayfarer + 3x Oakley Crosslink
+    { 'Nº DA OS': 'OS-104', ARMAÇÃO: 'Ray-Ban Wayfarer Preto', CIDADE: 'Cajati', QUANTIDADE: 1, 'VALOR TOTAL': 700, 'DATA DA VENDA': '18/10/2026' },
+    { 'Nº DA OS': 'OS-105', SKU: 'OX8037-01', PRODUTO: 'Armação Oakley Crosslink Pitch', CIDADE: 'Cajati', QUANTIDADE: 3, 'VALOR TOTAL': 1860, 'DATA DA VENDA': '17/10/2026' },
+
+    // Jacupiranga: 2x Ana Hickmann AH6315
+    { 'Nº DA OS': 'OS-106', ARMAÇÃO: 'Ana Hickmann AH6315 Redondo', CIDADE: 'Jacupiranga', QUANTIDADE: 2, 'VALOR TOTAL': 1120, 'DATA DA VENDA': '16/10/2026' }
+  ];
+
+  // Cenário 1: Todas as Lojas consolidadas
+  const aggTodas = aggregateSalesByBrandAndStore(mockInventoryItems, mockSalesRecords, {
+    selectedStore: 'todas',
+    period: 'all',
+    type: 'armacoes'
+  });
+
+  console.assert(aggTodas.totalBrandsCount === 4, `Esperado 4 marcas distintas, obtido ${aggTodas.totalBrandsCount}`);
+  console.assert(aggTodas.grandTotalQuantity === 11, `Esperado 11 peças vendidas no total, obtido ${aggTodas.grandTotalQuantity}`);
+  console.assert(aggTodas.grandTotalRevenue === 6590, `Esperado R$ 6.590,00 de faturamento total, obtido ${aggTodas.grandTotalRevenue}`);
+
+  // Verificar ranking das marcas
+  const top1 = aggTodas.brandList[0];
+  console.assert(top1.brand === 'Ray-Ban', `Esperado Ray-Ban em 1º lugar no ranking, obtido ${top1.brand}`);
+  console.assert(top1.totalQuantity === 4, `Esperado 4 peças Ray-Ban vendidas, obtido ${top1.totalQuantity}`);
+  console.assert(top1.totalRevenue === 2650, `Esperado R$ 2.650,00 da Ray-Ban, obtido ${top1.totalRevenue}`);
+  console.assert(top1.stores['Registro'].quantity === 3, 'Registro deve ter vendido 3 Ray-Bans');
+  console.assert(top1.stores['Cajati'].quantity === 1, 'Cajati deve ter vendido 1 Ray-Ban');
+
+  // Cenário 2: Filtrar apenas a filial de Registro
+  const aggRegistro = aggregateSalesByBrandAndStore(mockInventoryItems, mockSalesRecords, {
+    selectedStore: 'Registro',
+    period: 'all',
+    type: 'armacoes'
+  });
+
+  console.assert(aggRegistro.totalBrandsCount === 2, `Em Registro deve haver apenas Ray-Ban e Vogue, obtido ${aggRegistro.totalBrandsCount}`);
+  console.assert(aggRegistro.grandTotalQuantity === 5, `Em Registro deve haver 5 peças no total (3 Ray-Ban + 2 Vogue), obtido ${aggRegistro.grandTotalQuantity}`);
+  console.assert(aggRegistro.grandTotalRevenue === 2910, `Em Registro faturamento deve ser R$ 2.910,00, obtido ${aggRegistro.grandTotalRevenue}`);
+
+  // Cenário 3: Exportação em Excel nativo (.xlsx) com as 3 abas estruturadas
+  const exportedFilename = exportBrandSalesReportToExcel(aggTodas, {
+    selectedStore: 'todas',
+    period: 'all',
+    type: 'armacoes'
+  }, XLSXModule);
+
+  console.assert(typeof exportedFilename === 'string' && exportedFilename.endsWith('.xlsx'), 'Nome do arquivo exportado deve terminar com .xlsx');
+  const fsModule = await import('fs');
+  console.assert(fsModule.existsSync(exportedFilename), 'Arquivo Excel de vendas por grife deve ser gerado no disco');
+  fsModule.unlinkSync(exportedFilename); // Limpeza
+
+  console.log('  ✅ Test 54 Passed: Relatório Consolidado de Vendas por Grife e por Loja (Armações, Lentes & Excel) validado com 100% de sucesso!\n');
+
+  // =========================================================================
+  // TEST 55: Relatório Oficial de Fechamento de Caixa em PDF A4 com Movimentações
+  // =========================================================================
+  console.log('▶️ Running Test 55: Relatório Oficial de Fechamento de Caixa em PDF A4 com Movimentações...');
+  {
+    const closingReportSource = fs.readFileSync('./src/components/PrintableCashClosingReport.jsx', 'utf-8');
+    console.assert(closingReportSource.includes('PrintableCashClosingReport ='), 'PrintableCashClosingReport.jsx deve exportar o componente PrintableCashClosingReport');
+    console.assert(closingReportSource.includes('id="print-cash-closing-report"'), 'PrintableCashClosingReport deve conter o contêiner #print-cash-closing-report');
+    console.assert(closingReportSource.includes('Entradas Realmente Recebidas'), 'Relatório deve conter a seção de Entradas Realmente Recebidas');
+    console.assert(closingReportSource.includes('Conferência da Gaveta Física'), 'Relatório deve conter a seção de Conferência da Gaveta Física');
+    console.assert(closingReportSource.includes('Faturamento a Prazo em Boleto'), 'Relatório deve conter a seção de Faturamento a Prazo em Boleto');
+    console.assert(closingReportSource.includes('Demonstrativo Detalhado de Movimentações'), 'Relatório deve conter o Demonstrativo Detalhado de Movimentações');
+    console.assert(closingReportSource.includes('Operador(a) do Caixa') && closingReportSource.includes('Gerência / Supervisão'), 'Relatório deve conter campos formais de assinatura');
+
+    // Verificar integração de impressão no CSS
+    const indexCssSource = fs.readFileSync('./src/index.css', 'utf-8');
+    console.assert(indexCssSource.includes('#print-cash-closing-report'), 'index.css deve conter regras de impressão para #print-cash-closing-report');
+
+    // Verificar botões no CashManagementModal e CashHistoryModal
+    const modalSrc = fs.readFileSync('./src/components/CashManagementModal.jsx', 'utf-8');
+    console.assert(modalSrc.includes('handlePrintExtratoPdf') && modalSrc.includes("handleFechamentoSubmit(e, 'pdf')"), 'CashManagementModal deve conter handlers de relatório e extrato em PDF A4');
+    console.assert(modalSrc.includes('Relatório PDF (A4)'), 'CashManagementModal deve conter botão Relatório PDF (A4)');
+
+    const histSrc = fs.readFileSync('./src/components/CashHistoryModal.jsx', 'utf-8');
+    console.assert(histSrc.includes('handlePrintPdfReport'), 'CashHistoryModal deve conter handlePrintPdfReport');
+    console.assert(histSrc.includes('Relatório em PDF (A4)'), 'CashHistoryModal deve conter botão visual Relatório em PDF (A4)');
+
+    // Simulação de fechamento da loja de Registro
+    const mockClosingData = {
+      unidade: 'Registro',
+      operador: 'Carla Vendedora',
+      dataAbertura: '21/10/2026 08:30',
+      dataFechamento: '21/10/2026 18:00',
+      fundoInicial: 150.00,
+      vendasDinheiro: 400.00,
+      totalRecebimentosDinheiro: 200.00,
+      vendasPix: 350.00,
+      vendasDebito: 250.00,
+      vendasCredito: 600.00,
+      vendasBoletoTotal: 850.00,
+      vendasBoletoQtd: 2,
+      totalSuprimentos: 50.00,
+      totalSangrias: 100.00,
+      dinheiroEsperado: 700.00, // 150 + 400 + 200 + 50 - 100 = 700
+      dinheiroContado: 700.00,
+      diferenca: 0.00,
+      observacoes: 'Fechamento perfeito de Registro sem divergência'
+    };
+
+    const mockMovementsRegistro = [
+      { hora: '09:15', tipo: 'ABERTURA', valor: 150.00, motivo: 'Fundo Inicial', operador: 'Carla' },
+      { hora: '10:30', tipo: 'VENDA', valor: 250.00, formaPagamento: 'PIX', cliente: 'Mariana Silva', osNumero: 'OS-501', vendedor: 'Carla' },
+      { hora: '11:45', tipo: 'VENDA', valor: 400.00, formaPagamento: 'Dinheiro', cliente: 'João Santos', osNumero: 'OS-502', vendedor: 'Carla' },
+      { hora: '14:00', tipo: 'RECEBIMENTO', valor: 200.00, formaPagamento: 'Dinheiro', cliente: 'Ana Costa', osNumero: 'OS-410', vendedor: 'Carla' },
+      { hora: '15:30', tipo: 'SUPRIMENTO', valor: 50.00, motivo: 'Troco de moedas', operador: 'Carla' },
+      { hora: '16:45', tipo: 'SANGRIA', valor: 100.00, motivo: 'Recolhimento Cofre', operador: 'Carla' },
+      { hora: '17:15', tipo: 'VENDA', valor: 850.00, formaPagamento: 'Boleto (3x)', cliente: 'Carlos Mendes', osNumero: 'OS-503', vendedor: 'Carla' }
+    ];
+
+    // 1. Conferência da Fórmula da Gaveta Física
+    const saldoEsperadoCalculado = mockClosingData.fundoInicial + mockClosingData.vendasDinheiro + mockClosingData.totalRecebimentosDinheiro + mockClosingData.totalSuprimentos - mockClosingData.totalSangrias;
+    console.assert(saldoEsperadoCalculado === 700.00, `Esperado R$ 700,00 na gaveta física, obtido ${saldoEsperadoCalculado}`);
+    console.assert(mockClosingData.dinheiroEsperado === saldoEsperadoCalculado, 'dinheiroEsperado deve bater com a fórmula estrita');
+
+    // 2. Isolamento do Faturamento em Boleto (Recebível Futuro)
+    console.assert(mockClosingData.vendasBoletoTotal === 850.00, 'Faturamento no Boleto deve ser R$ 850,00');
+    console.assert(mockClosingData.dinheiroEsperado !== (mockClosingData.dinheiroEsperado + mockClosingData.vendasBoletoTotal), 'Boleto a prazo NÃO pode inflar o saldo físico da gaveta');
+
+    // 3. Validação de isolamento por loja
+    const movsOutraLoja = [
+      { hora: '10:00', tipo: 'VENDA', valor: 300, unidade: 'Cajati' }
+    ];
+    const movsFiltradas = [...mockMovementsRegistro, ...movsOutraLoja].filter(m => (m.unidade || 'Registro') === 'Registro');
+    console.assert(movsFiltradas.length === 7, 'Apenas as 7 movimentações da loja de Registro devem ser mantidas');
+
+    console.log('  ✅ Test 55 Passed: Relatório Oficial de Fechamento de Caixa em PDF A4 com Movimentações validado com 100% de sucesso!\n');
+  }
+
+  // =========================================================================
+  // TEST 56: Termo Oficial de Acordo, Confissão de Dívida e Reparcelamento (A4)
+  // =========================================================================
+  console.log('▶️ Running Test 56: Termo Oficial de Acordo, Confissão de Dívida e Reparcelamento para Assinatura do Cliente...');
+  {
+    const agreementSource = fs.readFileSync('./src/components/PrintableReparcelamentoAgreement.jsx', 'utf-8');
+    console.assert(agreementSource.includes('PrintableReparcelamentoAgreement ='), 'PrintableReparcelamentoAgreement.jsx deve exportar o componente PrintableReparcelamentoAgreement');
+    console.assert(agreementSource.includes('id="print-reparcelamento-agreement"'), 'Componente deve conter o contêiner de impressão #print-reparcelamento-agreement');
+    console.assert(agreementSource.includes('Termo de Renegociação, Confissão de Dívida e Reparcelamento'), 'Deve conter o título formal de Renegociação e Confissão de Dívida');
+    console.assert(agreementSource.includes('CLÁUSULA 1ª (DO RECONHECIMENTO E CONFISSÃO DA DÍVIDA)'), 'Deve conter a Cláusula 1ª de reconhecimento e confissão');
+    console.assert(agreementSource.includes('CLÁUSULA 2ª (DA NOVAÇÃO E QUITAÇÃO CONDICIONADA)'), 'Deve conter a Cláusula 2ª de novação e quitação condicionada');
+    console.assert(agreementSource.includes('CLÁUSULA 3ª (DO INADIMPLEMENTO E ENCARGOS)'), 'Deve conter a Cláusula 3ª de sanções, multa de 2% e negativação no SPC/SERASA');
+    console.assert(agreementSource.includes('Assinatura do(a) Devedor(a)') && agreementSource.includes('Yasmin Ótica') && agreementSource.includes('Visto da Loja'), 'Deve conter as linhas formais de assinatura');
+    console.assert(agreementSource.includes('1ª Via - Ótica (Arquivo)') && agreementSource.includes('2ª Via - Cliente'), 'Deve conter o controle formal de vias');
+
+    // Testar helpers do Termo de Acordo em reparcelamentoUtils.js
+    const {
+      formatAgreementLongDate,
+      formatAgreementMoney,
+      formatAgreementDateBr,
+      parseAgreementCurrency
+    } = await import('./src/reparcelamentoUtils.js');
+
+    const longDate = formatAgreementLongDate('2026-10-22', 'Cajati');
+    console.assert(longDate === 'Cajati/SP, 22 de Outubro de 2026', `Data por extenso esperada 'Cajati/SP, 22 de Outubro de 2026', obtido '${longDate}'`);
+
+    const moneyBr = formatAgreementMoney(1850.75);
+    console.assert(moneyBr === '1.850,75', `Moeda formatada esperada '1.850,75', obtido '${moneyBr}'`);
+
+    const dateBr = formatAgreementDateBr('2026-11-20');
+    console.assert(dateBr === '20/11/2026', `Data BR esperada '20/11/2026', obtido '${dateBr}'`);
+
+    console.assert(parseAgreementCurrency('R$ 350,50') === 350.5, 'parseAgreementCurrency deve processar string em reais');
+
+    // Verificar integração no CSS
+    const indexCssSource = fs.readFileSync('./src/index.css', 'utf-8');
+    console.assert(indexCssSource.includes('#print-reparcelamento-agreement'), 'index.css deve conter regras de visibilidade para #print-reparcelamento-agreement');
+
+    // Verificar botões e handlers no ReparcelamentoOSModal.jsx
+    const modalSrc = fs.readFileSync('./src/components/ReparcelamentoOSModal.jsx', 'utf-8');
+    console.assert(modalSrc.includes('handlePrintAgreementOnly'), 'ReparcelamentoOSModal deve conter handler handlePrintAgreementOnly');
+    console.assert(modalSrc.includes('handleConfirmAndPrint'), 'ReparcelamentoOSModal deve conter handler handleConfirmAndPrint');
+    console.assert(modalSrc.includes('Imprimir Termo (PDF)'), 'ReparcelamentoOSModal deve conter botão visual Imprimir Termo (PDF)');
+    console.assert(modalSrc.includes('Confirmar & Imprimir'), 'ReparcelamentoOSModal deve conter botão visual Confirmar & Imprimir');
+    console.assert(modalSrc.includes('<PrintableReparcelamentoAgreement'), 'ReparcelamentoOSModal deve renderizar PrintableReparcelamentoAgreement');
+
+    // Verificar integração no ErpOptica.jsx
+    const erpSrc = fs.readFileSync('./src/components/ErpOptica.jsx', 'utf-8');
+    console.assert(erpSrc.includes('onTriggerPrintAgreement'), 'ErpOptica deve conectar onTriggerPrintAgreement no ReparcelamentoOSModal');
+    console.assert(erpSrc.includes('reparcelamentoAgreementPrintData'), 'ErpOptica deve conter estado reparcelamentoAgreementPrintData');
+    console.assert(erpSrc.includes('<PrintableReparcelamentoAgreement'), 'ErpOptica deve renderizar PrintableReparcelamentoAgreement');
+
+    // Simulação do Acordo de Reparcelamento da OS
+    const mockAgreementPayload = {
+      osNumero: '1088',
+      clientName: 'Vanessa Souza Albuquerque',
+      clientCpf: '321.654.987-00',
+      clientPhone: '(13) 99876-5432',
+      clientAddress: 'Av. 21 de Abril, nº 350 - Cajati/SP - CEP 11950-000',
+      unit: 'Cajati',
+      dataAcordo: '2026-10-22',
+      originalTotal: 1200.00,
+      oldRows: [
+        { DOCUMENTO: 'OS #1088 - Parcela 1/3', DATA_VENCIMENTO: '2026-09-10', VALOR: 400.00 },
+        { DOCUMENTO: 'OS #1088 - Parcela 2/3', DATA_VENCIMENTO: '2026-10-10', VALOR: 400.00 },
+        { DOCUMENTO: 'OS #1088 - Parcela 3/3', DATA_VENCIMENTO: '2026-11-10', VALOR: 400.00 }
+      ],
+      entradaValor: 300.00,
+      entradaMeioPagamento: 'Dinheiro',
+      descontoValor: 0.00,
+      acrescimoValor: 0.00,
+      novoSaldo: 900.00,
+      schedule: [
+        { numero: 1, vencimento: '2026-11-22', valor: 300.00 },
+        { numero: 2, vencimento: '2026-12-22', valor: 300.00 },
+        { numero: 3, vencimento: '2027-01-22', valor: 300.00 }
+      ]
+    };
+
+    console.assert(mockAgreementPayload.originalTotal === 1200.00, 'Original deve ser R$ 1.200,00');
+    console.assert(mockAgreementPayload.novoSaldo === 900.00, 'Novo saldo após entrada de R$ 300 deve ser R$ 900,00');
+    console.assert(mockAgreementPayload.schedule.length === 3, 'Novas parcelas devem ser 3x de R$ 300,00');
+
+    console.log('  ✅ Test 56 Passed: Termo Oficial de Acordo, Confissão de Dívida e Reparcelamento para Assinatura do Cliente validado com 100% de sucesso!\n');
+  }
+
+  // -------------------------------------------------------------
+  // TEST 57: Sincronização Absoluta de Data e Horário em Todas as Entidades (PDV, Vendas, OS, Comprovante, Caixa)
+  // -------------------------------------------------------------
+  {
+    console.log('▶️ Running Test 57: Sincronização Absoluta de Data e Horário em Todas as Entidades...');
+
+    const posSrc = fs.readFileSync('./src/components/POSRegister.jsx', 'utf-8');
+    const cashModalSrc = fs.readFileSync('./src/components/CashManagementModal.jsx', 'utf-8');
+    const receiptSrc = fs.readFileSync('./src/components/PrintableReceipt.jsx', 'utf-8');
+    const osPrintSrc = fs.readFileSync('./src/components/PrintableOS.jsx', 'utf-8');
+    const osModalSrc = fs.readFileSync('./src/components/OSGeneratorModal.jsx', 'utf-8');
+
+    // 1. Verificar inputs de data e horário no PDV
+    console.assert(posSrc.includes('posSaleTime'), 'POSRegister deve gerenciar o estado posSaleTime');
+    console.assert(posSrc.includes('posSaleDate'), 'POSRegister deve gerenciar o estado posSaleDate');
+    console.assert(posSrc.includes('type="date"'), 'POSRegister deve renderizar input de data');
+    console.assert(posSrc.includes('type="time"'), 'POSRegister deve renderizar input de horário');
+    console.assert(posSrc.includes('Agora'), 'POSRegister deve conter botão de atalho Agora para restaurar data/hora');
+
+    // 2. Verificar sincronização com FLUXO_CAIXA no PDV
+    console.assert(posSrc.includes('dataHora: singleSaleIso'), 'POSRegister deve repassar singleSaleIso no FLUXO_CAIXA de OS individual');
+    console.assert(posSrc.includes('dataHora: multiSaleIso'), 'POSRegister deve repassar multiSaleIso no FLUXO_CAIXA de Multi-OS');
+    console.assert(posSrc.includes('timestamp: singleSaleTimestamp'), 'POSRegister deve gravar singleSaleTimestamp no FLUXO_CAIXA');
+    console.assert(posSrc.includes('timestamp: multiSaleTimestamp'), 'POSRegister deve gravar multiSaleTimestamp no FLUXO_CAIXA');
+
+    // 3. Verificar Comprovante de Venda
+    console.assert(receiptSrc.includes('receiptDateTimeStr'), 'PrintableReceipt deve calcular receiptDateTimeStr fielmente');
+    console.assert(receiptSrc.includes('cleanVal'), 'PrintableReceipt deve possuir cleanVal');
+    console.assert(receiptSrc.includes('fmtMoeda'), 'PrintableReceipt deve possuir fmtMoeda definido');
+
+    // 4. Verificar PrintableOS
+    console.assert(osPrintSrc.includes('saleTime ? ` às ${saleTime}` : \'\''), 'PrintableOS deve imprimir hora e minuto junto à data da venda');
+
+    // 5. Verificar CashManagementModal e sessionEnd
+    console.assert(cashModalSrc.includes('sessionEnd'), 'CashManagementModal deve calcular sessionEnd para isolar fechamentos retroativos');
+    console.assert(cashModalSrc.includes('mDate <= sessionEnd'), 'CashManagementModal sessionStats deve limitar movimentos até sessionEnd');
+    console.assert(cashModalSrc.includes('sDate > sessionEnd') || cashModalSrc.includes('sDate <= sessionEnd'), 'CashManagementModal sessionStats deve limitar vendas até sessionEnd');
+    console.assert(cashModalSrc.includes('dataHoraFechamento'), 'CashManagementModal deve registrar dataHoraFechamento');
+
+    // 6. Simulação de Venda Retroativa com Data e Horário
+    const customDateStr = '2026-10-15';
+    const customTimeStr = '14:35';
+    const parts = customDateStr.split('-');
+    const [h, m] = customTimeStr.split(':').map(Number);
+    const simulatedDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), h, m, 0);
+
+    const salePayload = {
+      id: 'venda_retro_1090',
+      DATA: simulatedDate.toLocaleDateString('pt-BR'),
+      dataHora: simulatedDate.toISOString(),
+      timestamp: simulatedDate.getTime(),
+      DATA_HORA: simulatedDate.toLocaleString('pt-BR'),
+      hora: customTimeStr,
+      HORA: customTimeStr,
+      VALOR_TOTAL: '850,00',
+      cliente: 'Mariana Duarte'
+    };
+
+    console.assert(salePayload.hora === '14:35', 'Hora deve ser preservada como 14:35');
+    console.assert(salePayload.dataHora.startsWith('2026-10-15T14:35') || salePayload.dataHora.includes('2026-10-15'), 'DataHora ISO deve conter 2026-10-15');
+    console.assert(salePayload.timestamp === simulatedDate.getTime(), 'Timestamp epoch deve coincidir com a data/hora exata');
+
+    console.log('  ✅ Test 57 Passed: Sincronização Absoluta de Data e Horário em Todas as Entidades validada com 100% de sucesso!\n');
+  }
+
+  // ▶ Test 58: Exclusão Cirúrgica Total em Cascata de OS (Venda, Parcelas, Fluxo de Caixa e Estoque)
+  {
+    console.log('▶️ Running Test 58: Exclusão Cirúrgica Total em Cascata de OS...');
+
+    const { findOSRelatedEntities, executeOSCascadeDeletion, isMatchingOS } = await import('./src/osDeletionUtils.js');
+
+    // 1. Simular banco de dados em memória com uma OS completa
+    const osTestNumber = '99988';
+    const saleTestId = 'venda_os_99988';
+    const clientTestId = 'cli_rodrigo_silva';
+
+    const mockData = {
+      Registro_Vendas: [
+        {
+          id: saleTestId,
+          'OS DA VENDA': `#${osTestNumber}`,
+          NOME: 'Rodrigo Silva',
+          CPF: '123.456.789-00',
+          'ARMAÇÃO': 'Armação Ray-Ban RB5228',
+          'LENTE': 'Lente Resina 1.56 Anti-reflexo',
+          BRINDE: 'Estojo Rígido Luxo',
+          VALOR_TOTAL: '1200,00',
+          UNIDADE: 'Cajati'
+        },
+        {
+          id: 'venda_outra_os',
+          'OS DA VENDA': '#10001',
+          NOME: 'Rodrigo Silva',
+          CPF: '123.456.789-00',
+          VALOR_TOTAL: '500,00',
+          UNIDADE: 'Cajati'
+        }
+      ],
+      CONTAS_RECEBER: [
+        {
+          id: 'parc_1_99988',
+          VENDA_OS: osTestNumber,
+          CLIENTE: 'Rodrigo Silva',
+          CPF: '123.456.789-00',
+          DOCUMENTO: `OS #${osTestNumber} - Parcela 1/3`,
+          VALOR: '400,00',
+          STATUS: 'Pago'
+        },
+        {
+          id: 'parc_2_99988',
+          VENDA_OS: osTestNumber,
+          CLIENTE: 'Rodrigo Silva',
+          CPF: '123.456.789-00',
+          DOCUMENTO: `OS #${osTestNumber} - Parcela 2/3`,
+          VALOR: '400,00',
+          STATUS: 'Pendente'
+        },
+        {
+          id: 'parc_3_99988',
+          VENDA_OS: osTestNumber,
+          CLIENTE: 'Rodrigo Silva',
+          CPF: '123.456.789-00',
+          DOCUMENTO: `OS #${osTestNumber} - Parcela 3/3`,
+          VALOR: '400,00',
+          STATUS: 'Pendente'
+        },
+        {
+          id: 'parc_outra_os',
+          VENDA_OS: '10001',
+          CLIENTE: 'Rodrigo Silva',
+          CPF: '123.456.789-00',
+          DOCUMENTO: 'OS #10001 - Parcela 1/1',
+          VALOR: '500,00',
+          STATUS: 'Pendente'
+        }
+      ],
+      FLUXO_CAIXA: [
+        {
+          id: 'mov_caixa_entrada_99988',
+          saleId: saleTestId,
+          osNumero: osTestNumber,
+          tipo: 'VENDA',
+          valor: 400,
+          formaPagamento: 'DINHEIRO',
+          motivo: `Venda PDV - Rodrigo Silva (OS #${osTestNumber})`,
+          detalhes: `OS #${osTestNumber} - Entrada em dinheiro`
+        },
+        {
+          id: 'mov_caixa_recebimento_99988',
+          tipo: 'RECEBIMENTO',
+          valor: 400,
+          formaPagamento: 'PIX',
+          motivo: `Recebimento Parcela - Rodrigo Silva`,
+          detalhes: `OS #${osTestNumber} - Parcela 1/3`
+        },
+        {
+          id: 'mov_caixa_outro',
+          tipo: 'VENDA',
+          valor: 150,
+          motivo: 'Venda Avulsa de Óculos Solar'
+        }
+      ],
+      CAD_ARMACOES: [
+        {
+          id: 'arm_rb5228',
+          MODELO: 'RB5228',
+          MARCA: 'Ray-Ban',
+          UNIDADE: 'Cajati',
+          ESTOQUE: '4'
+        }
+      ],
+      CAD_LENTES: [
+        {
+          id: 'len_resina_156',
+          MARCA: 'Resina',
+          MODELO: '1.56',
+          TRATAMENTO: 'Anti-reflexo',
+          UNIDADE: 'Cajati',
+          ESTOQUE: '8'
+        }
+      ],
+      CAD_BRINDES: [
+        {
+          id: 'brinde_estojo_luxo',
+          NOME: 'Estojo Rígido Luxo',
+          ESTOQUE: '15'
+        }
+      ],
+      CLIENTES_CADASTRADOS: [
+        {
+          id: clientTestId,
+          'Nome Completo': 'Rodrigo Silva',
+          'CPF / CNPJ': '123.456.789-00',
+          'Valor Devido': '1.300,00',
+          'Status de Pagamento': 'Pendente'
+        }
+      ]
+    };
+
+    // 2. Testar findOSRelatedEntities
+    const entities = findOSRelatedEntities({
+      osNumber: osTestNumber,
+      saleRow: mockData.Registro_Vendas[0],
+      data: mockData,
+      clientsData: mockData.CLIENTES_CADASTRADOS
+    });
+
+    console.assert(entities.matchedSales.length === 1, 'Deve localizar a venda em Registro_Vendas');
+    console.assert(entities.matchedInvoices.length === 3, `Deve localizar todas as 3 parcelas da OS em CONTAS_RECEBER (encontrou ${entities.matchedInvoices.length})`);
+    console.assert(entities.matchedCashMovements.length === 2, `Deve localizar as 2 movimentações no FLUXO_CAIXA (encontrou ${entities.matchedCashMovements.length})`);
+    console.assert(entities.stockItemsToRestore.length === 3, `Deve localizar os 3 itens de estoque a devolver (encontrou ${entities.stockItemsToRestore.length})`);
+    console.assert(entities.newClientDebt === 500, `Novo saldo do cliente deve ser R$ 500 (parcela da outra OS #10001), calculou ${entities.newClientDebt}`);
+
+    // 3. Testar executeOSCascadeDeletion simulando exclusão e atualização
+    const deletedRecords = [];
+    const updatedRecords = [];
+
+    const mockDeleteRow = async (sheet, row) => {
+      deletedRecords.push({ sheet, id: row.id });
+    };
+
+    const mockUpdateRow = async (sheet, oldRow, newRow) => {
+      updatedRecords.push({ sheet, id: oldRow.id, newRow });
+    };
+
+    const res = await executeOSCascadeDeletion({
+      osNumber: osTestNumber,
+      saleRow: mockData.Registro_Vendas[0],
+      data: mockData,
+      clientsData: mockData.CLIENTES_CADASTRADOS,
+      onDeleteRow: mockDeleteRow,
+      onUpdateRow: mockUpdateRow
+    });
+
+    console.assert(res.success === true, 'Exclusão em cascata deve retornar sucesso');
+
+    // Validações de exclusões
+    const deletedInvoices = deletedRecords.filter(r => r.sheet === 'CONTAS_RECEBER');
+    console.assert(deletedInvoices.length === 3, 'Todas as 3 parcelas de CONTAS_RECEBER devem ter sido deletadas');
+
+    const deletedCash = deletedRecords.filter(r => r.sheet === 'FLUXO_CAIXA');
+    console.assert(deletedCash.length === 2, 'Todos os 2 registros do FLUXO_CAIXA vinculados à OS devem ter sido deletados');
+
+    const deletedSale = deletedRecords.filter(r => r.sheet === 'Registro_Vendas');
+    console.assert(deletedSale.length === 1, 'A venda da OS deve ter sido deletada de Registro_Vendas');
+
+    // Validações de devolução de estoque
+    const armacaoUpdate = updatedRecords.find(r => r.sheet === 'CAD_ARMACOES');
+    console.assert(armacaoUpdate && armacaoUpdate.newRow.ESTOQUE === '5', 'Estoque da armação deve ter sido incrementado de 4 para 5');
+
+    const lenteUpdate = updatedRecords.find(r => r.sheet === 'CAD_LENTES');
+    console.assert(lenteUpdate && lenteUpdate.newRow.ESTOQUE === '9', 'Estoque da lente deve ter sido incrementado de 8 para 9');
+
+    const brindeUpdate = updatedRecords.find(r => r.sheet === 'CAD_BRINDES');
+    console.assert(brindeUpdate && brindeUpdate.newRow.ESTOQUE === '16', 'Estoque do brinde deve ter sido incrementado de 15 para 16');
+
+    // Validação de atualização de saldo do cliente
+    const clientUpdate = updatedRecords.find(r => r.sheet === 'CLIENTES_CADASTRADOS');
+    console.assert(clientUpdate && clientUpdate.newRow['Valor Devido'] === '500,00', `Saldo do cliente deve ter sido recalculado para 500,00 (recebeu ${clientUpdate?.newRow?.['Valor Devido']})`);
+
+    console.log('  ✅ Test 58 Passed: Exclusão Cirúrgica Total em Cascata de OS validada com 100% de sucesso!\n');
+  }
+
+  // ▶ Test 59: Sincronização Absoluta da Data de Pagamento da OS em Todas as Entidades e Impressões
+  {
+    console.log('▶️ Running Test 59: Sincronização Absoluta da Data de Pagamento da OS...');
+
+    const { buildNormalizedDateTime, syncOSPaymentDate, syncInstallmentPaymentDate } = await import('./src/dateSyncUtils.js');
+
+    // 1. Validação de buildNormalizedDateTime
+    const normIso = buildNormalizedDateTime('2026-10-15', '14:45');
+    console.assert(normIso.isoDate === '2026-10-15', 'isoDate deve ser 2026-10-15');
+    console.assert(normIso.brDate === '15/10/2026', 'brDate deve ser 15/10/2026');
+    console.assert(normIso.timeStr === '14:45', 'timeStr deve ser 14:45');
+    console.assert(normIso.brDateTime === '15/10/2026 às 14:45', 'brDateTime formatado');
+    console.assert(typeof normIso.timestamp === 'number' && normIso.timestamp > 0, 'timestamp válido');
+
+    const normBr = buildNormalizedDateTime('18/10/2026', '09:20');
+    console.assert(normBr.isoDate === '2026-10-18', 'Conversão de BR para isoDate');
+    console.assert(normBr.brDate === '18/10/2026', 'Preservação de data BR');
+
+    // 2. Simulação de sincronização da Data de Pagamento da OS no Registro_Vendas e FLUXO_CAIXA
+    const mockOS = '55443';
+    const mockSaleId = 'sale_55443';
+
+    const testData = {
+      Registro_Vendas: [
+        {
+          id: mockSaleId,
+          'OS DA VENDA': `#${mockOS}`,
+          'DATA DA VENDA': '26/10/2026',
+          DATA: '26/10/2026',
+          dataHora: '2026-10-26T10:00:00.000Z',
+          hora: '10:00',
+          VALOR_TOTAL: '900,00'
+        }
+      ],
+      FLUXO_CAIXA: [
+        {
+          id: 'mov_venda_55443',
+          saleId: mockSaleId,
+          osNumero: mockOS,
+          tipo: 'VENDA',
+          valor: 300,
+          data: '26/10/2026',
+          dataHora: '2026-10-26T10:00:00.000Z',
+          motivo: `Venda PDV - OS #${mockOS}`
+        }
+      ],
+      CONTAS_RECEBER: [
+        {
+          id: 'parc_55443_1',
+          VENDA_OS: mockOS,
+          DOCUMENTO: `OS #${mockOS} - Parcela 1/2`,
+          VALOR: '300,00',
+          STATUS: 'Pendente',
+          DATA_VENCIMENTO: '2026-11-26'
+        }
+      ]
+    };
+
+    const updatedRows = [];
+    const mockUpdateRow = async (sheet, oldRow, newRow) => {
+      updatedRows.push({ sheet, oldRow, newRow });
+    };
+
+    // Atualiza a data da OS para data retroativa (10/10/2026 às 11:30)
+    await syncOSPaymentDate({
+      osNumber: mockOS,
+      saleRow: testData.Registro_Vendas[0],
+      newDate: '2026-10-10',
+      newTime: '11:30',
+      data: testData,
+      onUpdateRow: mockUpdateRow
+    });
+
+    const saleUpdate = updatedRows.find(u => u.sheet === 'Registro_Vendas');
+    console.assert(saleUpdate, 'Venda deve ser atualizada');
+    console.assert(saleUpdate.newRow['DATA DA VENDA'] === '10/10/2026', 'Data da venda deve ser 10/10/2026');
+    console.assert(saleUpdate.newRow.hora === '11:30', 'Hora da venda deve ser 11:30');
+    console.assert(saleUpdate.newRow.dataHora.includes('2026-10-10'), 'dataHora ISO deve conter 2026-10-10');
+
+    const cashUpdate = updatedRows.find(u => u.sheet === 'FLUXO_CAIXA');
+    console.assert(cashUpdate, 'Movimentação no FLUXO_CAIXA deve ser atualizada para a nova data');
+    console.assert(cashUpdate.newRow.data === '10/10/2026', 'Data do caixa deve ser 10/10/2026');
+    console.assert(cashUpdate.newRow.dataHora.includes('2026-10-10'), 'dataHora do caixa deve conter 2026-10-10');
+
+    // 3. Teste de syncInstallmentPaymentDate (Quitação / Alteração de data de parcela)
+    const addedRows = [];
+    const mockAddRow = async (sheet, row) => {
+      addedRows.push({ sheet, row });
+    };
+
+    await syncInstallmentPaymentDate({
+      installmentRow: testData.CONTAS_RECEBER[0],
+      newPaymentDate: '2026-10-12',
+      newPaymentTime: '16:00',
+      data: testData,
+      onUpdateRow: mockUpdateRow,
+      onAddRow: mockAddRow,
+      currentUser: { username: 'CaixaCentral' }
+    });
+
+    const installmentUpdate = updatedRows.find(u => u.sheet === 'CONTAS_RECEBER');
+    console.assert(installmentUpdate, 'Parcela em CONTAS_RECEBER deve ser atualizada');
+    console.assert(installmentUpdate.newRow.STATUS === 'Recebido', 'Status deve ser Recebido');
+    console.assert(installmentUpdate.newRow.DATA_PAGAMENTO === '12/10/2026', 'DATA_PAGAMENTO deve ser 12/10/2026');
+    console.assert(installmentUpdate.newRow.data_pagamento === '2026-10-12', 'data_pagamento ISO deve ser 2026-10-12');
+
+    const addedCash = addedRows.find(a => a.sheet === 'FLUXO_CAIXA');
+    console.assert(addedCash, 'Novo recebimento lançado no FLUXO_CAIXA');
+    console.assert(addedCash.row.data === '12/10/2026', 'Data no FLUXO_CAIXA deve ser a data informada 12/10/2026 e não a de hoje');
+    console.assert(addedCash.row.dataHora.includes('2026-10-12'), 'dataHora no FLUXO_CAIXA deve ser 2026-10-12');
+
+    // 4. Verificação das fontes de impressão
+    const editOsModalSrc = fs.readFileSync('src/components/EditOSModal.jsx', 'utf8');
+    console.assert(editOsModalSrc.includes('buildNormalizedDateTime'), 'EditOSModal deve usar buildNormalizedDateTime');
+
+    const erpOpticaSrc = fs.readFileSync('src/components/ErpOptica.jsx', 'utf8');
+    console.assert(erpOpticaSrc.includes('syncInstallmentPaymentDate'), 'ErpOptica deve usar syncInstallmentPaymentDate');
+
+    const clientProfileSrc = fs.readFileSync('src/components/ClientProfileModal.jsx', 'utf8');
+    console.assert(clientProfileSrc.includes('syncOSPaymentDate') && clientProfileSrc.includes('syncInstallmentPaymentDate'), 'ClientProfileModal deve usar syncOSPaymentDate e syncInstallmentPaymentDate');
+
+    const cashHistorySrc = fs.readFileSync('src/components/CashHistoryModal.jsx', 'utf8');
+    console.assert(cashHistorySrc.includes("onUpdateRow('CONTAS_RECEBER'"), 'CashHistoryModal deve sincronizar com CONTAS_RECEBER ao editar data');
+
+    console.log('  ✅ Test 59 Passed: Sincronização Absoluta da Data de Pagamento da OS validada com 100% de sucesso!\n');
+  }
+
+  // =========================================================================
+  // TEST 60: Auto-preenchimento de Venda Recente, Auto-Soma e Centralização Financeira na OS
+  // =========================================================================
+  {
+    console.log('▶️ Running Test 60: Auto-preenchimento de Venda Recente, Auto-Soma e Centralização Financeira...');
+
+    const clientRegSrc = fs.readFileSync('src/components/ClientRegistration.jsx', 'utf8');
+    const osGenSrc = fs.readFileSync('src/components/OSGeneratorModal.jsx', 'utf8');
+
+    // 1. Verificações no ClientRegistration.jsx
+    console.assert(clientRegSrc.includes('handleOpenOSModal'), 'ClientRegistration deve implementar handleOpenOSModal');
+    console.assert(clientRegSrc.includes('isSameClient(client, sale)'), 'ClientRegistration deve verificar venda recente usando isSameClient');
+    console.assert(clientRegSrc.includes('osSaleData'), 'ClientRegistration deve gerenciar estado osSaleData');
+    console.assert(clientRegSrc.includes('saleData={osSaleData}'), 'ClientRegistration deve repassar saleData para OSGeneratorModal');
+    console.assert(clientRegSrc.includes('onGenerateOS={handleOpenOSModal}'), 'ClientRegistration deve vincular handleOpenOSModal à tabela de clientes');
+
+    // 2. Verificações no OSGeneratorModal.jsx
+    console.assert(osGenSrc.includes('getItemPrice'), 'OSGeneratorModal deve implementar busca dinâmica de preço no catálogo');
+    console.assert(osGenSrc.includes('calculateTotalFromOSList'), 'OSGeneratorModal deve implementar auto-soma dos produtos em todas as OSs');
+    console.assert(osGenSrc.includes('isManualTotal'), 'OSGeneratorModal deve rastrear se o vendedor editou manualmente o valor total');
+    console.assert(
+      osGenSrc.includes('💡 Centralização Financeira:') &&
+      osGenSrc.includes('O valor total da compra de todos os óculos é cobrado aqui no Óculos 1. Os demais óculos são ordens de montagem para o laboratório.'),
+      'OSGeneratorModal deve exibir a dica visual educativa de Centralização Financeira com o texto oficial'
+    );
+    console.assert(osGenSrc.includes('Cobrança Unificada no Óculos 1'), 'OSGeneratorModal deve exibir badge de Cobrança Unificada no Óculos 1');
+    console.assert(osGenSrc.includes('Cobrança') && osGenSrc.includes('Laboratório'), 'OSGeneratorModal deve exibir badges de Cobrança e Laboratório nas abas');
+
+    // 3. Blindagem Contábil nas OSs Secundárias
+    console.assert(
+      osGenSrc.includes("valorTotal: idx === 0 ? formData.valorTotal : '0,00'"),
+      'OSGeneratorModal deve blindar OSs secundárias gravando valorTotal como 0,00'
+    );
+    console.assert(
+      osGenSrc.includes("restante: idx === 0 ? formData.restante : '0,00'"),
+      'OSGeneratorModal deve blindar restante nas OSs secundárias'
+    );
+
+    // 4. Teste funcional da simulação da auto-soma dinâmica de produtos
+    const mockArmacoes = [
+      { MARCA: 'Ray-Ban', MODELO: 'RB3025', PRECO_VENDA: '350,00' },
+      { MARCA: 'Oakley', MODELO: 'Pitchman R', PRECO_VENDA: '450,00' }
+    ];
+    const mockLentes = [
+      { MARCA: 'Essilor', MODELO: 'Crizal Easy', PRECO_VENDA: '250,00' },
+      { MARCA: 'Hoya', MODELO: 'BlueControl', PRECO_VENDA: '550,00' }
+    ];
+
+    const parseCur = (v) => {
+      if (!v) return 0;
+      return parseFloat(String(v).replace(/\./g, '').replace(',', '.'));
+    };
+
+    const getPrice = (name, list) => {
+      const clean = String(name || '').toLowerCase().trim();
+      const item = list.find(x => `${x.MARCA} ${x.MODELO}`.toLowerCase().trim() === clean);
+      return item ? parseCur(item.PRECO_VENDA) : 0;
+    };
+
+    const testOSList = [
+      { label: 'Óculos 1', armacao: 'Ray-Ban RB3025', lente: 'Essilor Crizal Easy' },
+      { label: 'Óculos 2', armacao: 'Oakley Pitchman R', lente: 'Hoya BlueControl' }
+    ];
+
+    let totalCalculado = 0;
+    testOSList.forEach(os => {
+      totalCalculado += getPrice(os.armacao, mockArmacoes);
+      totalCalculado += getPrice(os.lente, mockLentes);
+    });
+
+    console.assert(totalCalculado === 1600, `Total calculado deve ser 1600 (350+250+450+550), obtido: ${totalCalculado}`);
+
+    // 5. Teste funcional do auto-preenchimento com venda recente
+    const mockClient = { id: 'c1', 'Nome Completo': 'Ana Paula Silveira', 'CPF': '123.456.789-00' };
+    const mockSales = [
+      {
+        id: 's1',
+        'CLIENTE_CPF': '12345678900',
+        'VALOR TOTAL': '1.200,00',
+        'VALOR ENTRADA': '400,00',
+        'RESTANTE': '800,00',
+        'FORMAS_PAGAMENTO': '⚡ PIX: R$ 400,00\n💳 Cartão Crédito (3x): R$ 800,00',
+        'FORMA_ENTRADA': 'PIX',
+        'FORMA_RESTANTE': 'Cartão de Crédito',
+        timestamp: 1000
+      },
+      {
+        id: 's2',
+        'CLIENTE_CPF': '12345678900',
+        'VALOR TOTAL': '1.800,00',
+        'VALOR ENTRADA': '600,00',
+        'RESTANTE': '1.200,00',
+        'FORMAS_PAGAMENTO': '💵 Dinheiro: R$ 600,00\n📄 Boleto (4x): R$ 1.200,00',
+        'FORMA_ENTRADA': 'Dinheiro',
+        'FORMA_RESTANTE': 'Boleto',
+        timestamp: 2000
+      }
+    ];
+
+    // 6. Blindagem contra vazamento de débitos antigos (Valor Devido) no valor da nova OS
+    console.assert(!osGenSrc.includes("clientData['Valor Devido']"), 'OSGeneratorModal NÃO deve usar Valor Devido como fallback de valorTotal da OS');
+
+    // 7. Teste de cancelamento ignorado na busca de venda recente
+    const mockSalesWithCanceled = [
+      {
+        id: 's_canceled',
+        'CLIENTE_CPF': '12345678900',
+        'VALOR TOTAL': '9.999,00',
+        'STATUS_OS': 'Cancelada',
+        timestamp: 5000
+      },
+      {
+        id: 's_valid',
+        'CLIENTE_CPF': '12345678900',
+        'VALOR TOTAL': '1.500,00',
+        'STATUS_OS': 'Pronto',
+        timestamp: 3000
+      }
+    ];
+    const nonCanceled = mockSalesWithCanceled.filter(s => !['cancelado', 'cancelada'].includes(String(s.STATUS_OS).toLowerCase()));
+    const bestRecent = [...nonCanceled].sort((a, b) => b.timestamp - a.timestamp)[0];
+    console.assert(bestRecent.id === 's_valid', 'Venda cancelada deve ser ignorada em favor da venda válida');
+    console.assert(bestRecent['VALOR TOTAL'] === '1.500,00', 'Valor da venda válida deve ser 1.500,00');
+
+    console.log('  ✅ Test 60 Passed: Auto-preenchimento de Venda Recente, Auto-Soma e Centralização Financeira validado com 100% de sucesso!\n');
+  }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);

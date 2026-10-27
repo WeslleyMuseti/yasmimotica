@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Filter, X, Download, Eye, Trophy, Sparkles, AlertTriangle,
   Wallet, Store, Tag, Package, Check, CheckCircle2, Search,
-  ArrowUpDown, TrendingUp, Layers, RefreshCw, ChevronDown
+  ArrowUpDown, TrendingUp, Layers, RefreshCw, ChevronDown, FileCode,
+  Building2, BarChart3, ChevronRight, Award
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import StockPieChart from './StockPieChart';
@@ -12,8 +13,11 @@ import {
   formatCurrency,
   filterAndSortStock,
   extractStockFacets,
-  sanitizeFormula
+  sanitizeFormula,
+  aggregateSalesByBrandAndStore,
+  exportBrandSalesReportToExcel
 } from '../stockFilters';
+import { buildStockXml, downloadXmlFile } from '../xmlUtils';
 
 const PRESETS = [
   {
@@ -89,8 +93,10 @@ export default function StockFilterModal({
   salesData = [],
   activeFilter = null,
   onApplyFilter,
-  currentUser = null
+  currentUser = null,
+  initialModalTab = 'stock'
 }) {
+  const [activeModalTab, setActiveModalTab] = useState(initialModalTab || 'stock'); // 'stock' | 'brand_sales'
   const [selectedPreset, setSelectedPreset] = useState(activeFilter?.preset || 'todos');
   const [selectedStore, setSelectedStore] = useState(activeFilter?.store || 'todas');
   const [selectedBrand, setSelectedBrand] = useState(activeFilter?.brand || 'todas');
@@ -98,10 +104,20 @@ export default function StockFilterModal({
   const [searchQuery, setSearchQuery] = useState(activeFilter?.searchQuery || '');
   const [chartMetric, setChartMetric] = useState('saude'); // 'saude' | 'loja' | 'marca'
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [downloadSuccessMsg, setDownloadSuccessMsg] = useState('');
+
+  // Estados dedicados para o Módulo de Vendas por Grife & Loja
+  const [brandSalesStore, setBrandSalesStore] = useState('todas');
+  const [brandSalesPeriod, setBrandSalesPeriod] = useState('all'); // 'all' | 'today' | '30days' | '90days' | 'month' | 'year'
+  const [brandSalesSearch, setBrandSalesSearch] = useState('');
+  const [expandedBrand, setExpandedBrand] = useState(null);
 
   // Sincronizar quando activeFilter mudar externamente
   useEffect(() => {
     if (isOpen) {
+      if (initialModalTab) {
+        setActiveModalTab(initialModalTab);
+      }
       if (activeFilter) {
         setSelectedPreset(activeFilter.preset || 'todos');
         setSelectedStore(activeFilter.store || 'todas');
@@ -120,8 +136,9 @@ export default function StockFilterModal({
         setChartMetric('saude');
       }
       setDownloadSuccess(false);
+      setDownloadSuccessMsg('');
     }
-  }, [isOpen, activeFilter]);
+  }, [isOpen, activeFilter, initialModalTab]);
 
   const handleSelectPreset = (presetId) => {
     setSelectedPreset(presetId);
@@ -131,6 +148,37 @@ export default function StockFilterModal({
       setChartMetric('marca');
     } else if (presetId === 'critico') {
       setChartMetric('saude');
+    }
+  };
+
+  // Agregação de Vendas por Grife e Loja
+  const brandAggregation = useMemo(() => {
+    return aggregateSalesByBrandAndStore(items, salesData, {
+      selectedStore: brandSalesStore,
+      period: brandSalesPeriod,
+      searchQuery: brandSalesSearch,
+      type
+    });
+  }, [items, salesData, brandSalesStore, brandSalesPeriod, brandSalesSearch, type]);
+
+  // Download do Relatório de Vendas por Grife em Excel (.xlsx)
+  const handleDownloadBrandExcel = () => {
+    try {
+      if (!brandAggregation || brandAggregation.brandList.length === 0) {
+        alert('Nenhuma venda de grife identificada para os filtros selecionados.');
+        return;
+      }
+      const fname = exportBrandSalesReportToExcel(brandAggregation, {
+        selectedStore: brandSalesStore,
+        period: brandSalesPeriod,
+        type
+      }, XLSX);
+      setDownloadSuccessMsg(`Relatório de Vendas por Grife baixado com sucesso: ${fname}`);
+      setDownloadSuccess(true);
+      setTimeout(() => setDownloadSuccess(false), 4000);
+    } catch (err) {
+      console.error('Erro ao exportar vendas por grife:', err);
+      alert('Erro ao exportar planilha de grifes: ' + (err.message || 'Erro desconhecido'));
     }
   };
 
@@ -199,9 +247,10 @@ export default function StockFilterModal({
       }
       const isArmacao = type === 'armacoes';
       const isBrinde = type === 'brindes';
+      const isAcessorio = type === 'acessorios';
       const todayStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
       const presetName = selectedPreset.toUpperCase().replace(/\s+/g, '_');
-      const filename = `Estoque_${isArmacao ? 'Armacoes' : isBrinde ? 'Brindes' : 'Lentes'}_${presetName}_${todayStr}.xlsx`;
+      const filename = `Estoque_${isArmacao ? 'Armacoes' : isBrinde ? 'Brindes' : isAcessorio ? 'Acessorios' : 'Lentes'}_${presetName}_${todayStr}.xlsx`;
 
       const formatted = filteredItems.map((item, idx) => {
         const base = {
@@ -224,7 +273,7 @@ export default function StockFilterModal({
         if (isArmacao) {
           base['Cor'] = sanitizeFormula(item.COR || item.cor || '');
           base['Tamanho'] = sanitizeFormula(item.TAMANHO || item.tamanho || '');
-        } else if (isBrinde) {
+        } else if (isBrinde || isAcessorio) {
           base['Categoria'] = sanitizeFormula(item.CATEGORIA || item.categoria || '');
           base['Cor'] = sanitizeFormula(item.COR || item.cor || '');
         } else {
@@ -260,6 +309,36 @@ export default function StockFilterModal({
     } catch (err) {
       console.error('Erro ao baixar planilha do estoque:', err);
       alert('Erro ao gerar arquivo Excel do estoque.');
+    }
+  };
+
+  // Download do Estoque em formato XML estruturado
+  const handleDownloadXML = () => {
+    try {
+      if (filteredItems.length === 0) {
+        alert('Nenhum item filtrado para exportar.');
+        return;
+      }
+      const isArmacao = type === 'armacoes';
+      const isBrinde = type === 'brindes';
+      const isAcessorio = type === 'acessorios';
+      const todayStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+      const presetName = selectedPreset.toUpperCase().replace(/\s+/g, '_');
+      const tipoNome = isArmacao ? 'Armacoes' : isBrinde ? 'Brindes' : isAcessorio ? 'Acessorios' : 'Lentes';
+      const filename = `Estoque_${tipoNome}_${presetName}_${todayStr}.xml`;
+
+      const xmlContent = buildStockXml(filteredItems, {
+        tipo: tipoNome,
+        filtro: selectedPreset,
+        unidade: selectedStore !== 'todas' ? selectedStore : 'Todas'
+      });
+
+      downloadXmlFile(xmlContent, filename);
+      setDownloadSuccess(true);
+      setTimeout(() => setDownloadSuccess(false), 3500);
+    } catch (err) {
+      console.error('Erro ao baixar XML do estoque:', err);
+      alert('Erro ao gerar arquivo XML do estoque.');
     }
   };
 
@@ -325,7 +404,7 @@ export default function StockFilterModal({
                   Filtros &amp; Relatórios de Estoque
                 </h2>
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-black uppercase tracking-wider shrink-0">
-                  {type === 'armacoes' ? 'Armações' : type === 'brindes' ? 'Brindes' : 'Lentes'}
+                  {type === 'armacoes' ? 'Armações' : type === 'brindes' ? 'Brindes' : type === 'acessorios' ? 'Acessórios' : 'Lentes'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-semibold">
@@ -343,8 +422,381 @@ export default function StockFilterModal({
           </button>
         </div>
 
+        {/* SELETOR DE MODO: ESTOQUE & FILTROS vs. VENDAS POR GRIFE & LOJA */}
+        <div className="flex items-center gap-2 px-4 sm:px-6 pt-3 pb-2.5 border-b border-white/10 bg-slate-950/60 shrink-0">
+          <button
+            type="button"
+            onClick={() => setActiveModalTab('stock')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-black transition-all ${
+              activeModalTab === 'stock'
+                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            <Package size={14} />
+            <span>Estoque &amp; Inteligência</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveModalTab('brand_sales')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-black transition-all ${
+              activeModalTab === 'brand_sales'
+                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md shadow-purple-500/25 ring-2 ring-purple-400/30'
+                : 'bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:text-white hover:bg-purple-500/20'
+            }`}
+          >
+            <Trophy size={14} className={activeModalTab === 'brand_sales' ? 'text-amber-300' : 'text-purple-400'} />
+            <span>{type === 'armacoes' ? '📊 Vendas por Grife & Loja' : type === 'lentes' ? '📊 Vendas por Fabricante & Loja' : '📊 Vendas por Marca & Loja'}</span>
+            <span className="px-1.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-[9px] font-black uppercase tracking-wider">Novo</span>
+          </button>
+        </div>
+
         {/* ÁREA DE ROLAGEM COM FILTROS E GRÁFICOS */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-6 flex-1 pr-2 sm:pr-4 erp-scroll">
+          {activeModalTab === 'brand_sales' ? (
+            /* ==============================================================
+               VISÃO DEDICADA: VENDAS POR GRIFE & LOJA (ANALÍTICO COMPLETO)
+               ============================================================== */
+            <div className="space-y-5">
+              {/* FILTROS DE SEGMENTAÇÃO: FILIAL/LOJA, PERÍODO, BUSCA POR GRIFE */}
+              <div className="p-4 bg-slate-950/70 border border-white/5 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                    <Filter size={14} className="text-purple-400" />
+                    Filtros de Vendas por Grife &amp; Loja
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBrandSalesStore('todas');
+                      setBrandSalesPeriod('all');
+                      setBrandSalesSearch('');
+                    }}
+                    className="text-xs font-bold text-slate-400 hover:text-white flex items-center gap-1 transition-colors"
+                  >
+                    <RefreshCw size={12} />
+                    Limpar Filtros
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Filial / Loja */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">
+                      Filial / Loja
+                    </label>
+                    <select
+                      value={brandSalesStore}
+                      onChange={(e) => setBrandSalesStore(e.target.value)}
+                      className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-purple-500"
+                    >
+                      <option value="todas">Todas as Lojas</option>
+                      {brandAggregation.availableStores.map((st) => (
+                        <option key={st} value={st}>{st}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Período */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">
+                      Período de Venda
+                    </label>
+                    <select
+                      value={brandSalesPeriod}
+                      onChange={(e) => setBrandSalesPeriod(e.target.value)}
+                      className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-purple-500"
+                    >
+                      <option value="all">Todo o Histórico</option>
+                      <option value="today">Vendas de Hoje</option>
+                      <option value="month">Este Mês</option>
+                      <option value="30days">Últimos 30 Dias</option>
+                      <option value="90days">Últimos 90 Dias</option>
+                      <option value="year">Este Ano</option>
+                    </select>
+                  </div>
+
+                  {/* Busca por Grife */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">
+                      Buscar Grife / Marca
+                    </label>
+                    <div className="relative">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={brandSalesSearch}
+                        onChange={(e) => setBrandSalesSearch(e.target.value)}
+                        placeholder="Ex: Ray-Ban, Vogue, Oakley..."
+                        className="w-full bg-slate-900 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                      />
+                      {brandSalesSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setBrandSalesSearch('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CARDS DE KPIS CONSOLIDADOS */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-purple-400">
+                    Grifes Vendidas
+                  </span>
+                  <p className="text-2xl font-black text-white">
+                    {brandAggregation.totalBrandsCount}
+                  </p>
+                  <span className="text-[10px] text-slate-400 font-bold">
+                    marcas com saída
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-sky-400">
+                    Peças Vendidas
+                  </span>
+                  <p className="text-2xl font-black text-sky-300">
+                    {brandAggregation.grandTotalQuantity} <span className="text-xs font-bold text-slate-400">un</span>
+                  </p>
+                  <span className="text-[10px] text-slate-400 font-bold">
+                    {type === 'armacoes' ? 'armações no período' : 'itens no período'}
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                    Faturamento Total
+                  </span>
+                  <p className="text-lg sm:text-xl font-black text-emerald-300 truncate">
+                    {formatCurrency(brandAggregation.grandTotalRevenue)}
+                  </p>
+                  <span className="text-[10px] text-slate-400 font-bold">
+                    total bruto gerado
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-400">
+                    Ticket Médio
+                  </span>
+                  <p className="text-lg sm:text-xl font-black text-amber-300 truncate">
+                    {formatCurrency(brandAggregation.averageTicket)}
+                  </p>
+                  <span className="text-[10px] text-slate-400 font-bold">
+                    média por peça
+                  </span>
+                </div>
+              </div>
+
+              {/* TOP GRIFES LEADERBOARD & VISUALIZAÇÃO */}
+              {brandAggregation.brandList.length > 0 && (
+                <div className="p-4 bg-slate-950/80 border border-white/10 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                      <Trophy size={14} className="text-amber-400" />
+                      Top Grifes Mais Vendidas (% do Faturamento)
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-bold">
+                      Loja: {brandSalesStore === 'todas' ? 'Todas as Filiais' : brandSalesStore}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {brandAggregation.brandList.slice(0, 5).map((b, idx) => {
+                      const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+                      return (
+                        <div key={b.brand} className="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors">
+                          <div className="flex items-center justify-between text-xs mb-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-amber-400">{medal}</span>
+                              <span className="font-black text-white">{b.brand}</span>
+                              <span className="text-[10px] text-slate-400 font-semibold">
+                                ({b.totalQuantity} un vendidas)
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-emerald-400">{formatCurrency(b.totalRevenue)}</span>
+                              <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-black">
+                                {b.sharePercent.toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+                          <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className="bg-gradient-to-r from-purple-500 to-pink-500 h-1.5 rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, Math.max(5, b.sharePercent))}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* TABELA ANALÍTICA DE VENDAS POR GRIFE & LOJA */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                    <Eye size={14} className="text-purple-400" />
+                    Ranking Completo de Grifes ({brandAggregation.brandList.length} marcas)
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-bold">
+                    Clique em &quot;Modelos&quot; para abrir os itens vendidos
+                  </span>
+                </div>
+
+                <div className="bg-black/40 border border-white/10 rounded-2xl overflow-hidden shadow-xl">
+                  {brandAggregation.brandList.length === 0 ? (
+                    <div className="p-8 text-center text-slate-500 text-xs font-bold">
+                      Nenhuma venda registrada para esta combinação de loja, período ou busca.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto erp-scroll">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-900/90 border-b border-white/10 text-slate-400 font-black uppercase tracking-wider text-[10px]">
+                            <th className="py-3 px-3 w-12 text-center">#</th>
+                            <th className="py-3 px-3">Grife / Marca</th>
+                            <th className="py-3 px-3">Vendas por Filial / Loja</th>
+                            <th className="py-3 px-3 text-center">Modelos</th>
+                            <th className="py-3 px-3 text-right">Qtd Vendida</th>
+                            <th className="py-3 px-3 text-right">Faturamento</th>
+                            <th className="py-3 px-3 text-right">Ticket Médio</th>
+                            <th className="py-3 px-3 text-center">Part. %</th>
+                            <th className="py-3 px-3 text-center">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {brandAggregation.brandList.map((b, idx) => {
+                            const isExpanded = expandedBrand === b.brand;
+                            const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+                            return (
+                              <React.Fragment key={b.brand}>
+                                <tr className="hover:bg-white/[0.03] transition-colors">
+                                  <td className="py-3 px-3 text-center font-black text-slate-400">
+                                    {medal}
+                                  </td>
+                                  <td className="py-3 px-3 font-black text-white">
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
+                                      <span>{b.brand}</span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-3">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      {Object.entries(b.stores).map(([st, data]) => {
+                                        if (data.quantity <= 0) return null;
+                                        return (
+                                          <span
+                                            key={st}
+                                            className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] font-bold text-slate-300"
+                                          >
+                                            <strong className="text-sky-300">{st}:</strong> {data.quantity} un ({formatCurrency(data.revenue)})
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-3 text-center font-bold text-slate-300">
+                                    {b.distinctModelsCount} mod.
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-black text-white">
+                                    <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300">
+                                      {b.totalQuantity} un
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-black text-emerald-400">
+                                    {formatCurrency(b.totalRevenue)}
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-bold text-slate-300">
+                                    {formatCurrency(b.averageTicket)}
+                                  </td>
+                                  <td className="py-3 px-3 text-center font-black text-purple-300">
+                                    {b.sharePercent.toFixed(1)}%
+                                  </td>
+                                  <td className="py-3 px-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedBrand(isExpanded ? null : b.brand)}
+                                      className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white text-[11px] font-bold transition-colors inline-flex items-center gap-1"
+                                    >
+                                      <Eye size={12} />
+                                      <span>{isExpanded ? 'Recolher' : 'Modelos'}</span>
+                                    </button>
+                                  </td>
+                                </tr>
+
+                                {/* ACORDION DE MODELOS DA GRIFE */}
+                                {isExpanded && (
+                                  <tr className="bg-slate-950/80">
+                                    <td colSpan={9} className="p-4 border-t border-b border-purple-500/20">
+                                      <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-xs font-black uppercase text-purple-300 flex items-center gap-1.5">
+                                            <Tag size={13} />
+                                            Modelos e Peças Vendidas da Grife &quot;{b.brand}&quot;
+                                          </span>
+                                          <span className="text-[10px] text-slate-400 font-bold">
+                                            {b.models.length} modelos identificados nas vendas
+                                          </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                                          {b.models.map((m, mIdx) => (
+                                            <div
+                                              key={mIdx}
+                                              className="p-3 rounded-xl bg-slate-900 border border-white/5 flex flex-col justify-between space-y-1.5"
+                                            >
+                                              <div>
+                                                <p className="font-black text-white text-xs line-clamp-1">
+                                                  {m.model}
+                                                </p>
+                                                {m.sku && (
+                                                  <p className="text-[10px] text-slate-400 font-mono">
+                                                    SKU: {m.sku}
+                                                  </p>
+                                                )}
+                                              </div>
+                                              <div className="flex items-center justify-between text-[11px] pt-1 border-t border-white/5">
+                                                <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 text-[10px] font-bold">
+                                                  {m.store}
+                                                </span>
+                                                <div className="text-right">
+                                                  <span className="font-black text-white">{m.quantity} un</span>
+                                                  <span className="text-slate-400 font-bold ml-1.5">({formatCurrency(m.revenue)})</span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* ==============================================================
+               VISÃO PADRÃO: ESTOQUE & FILTROS INTELIGENTES (PRESETS)
+               ============================================================== */
+            <>
           {/* PRESETS INTELIGENTES RÁPIDOS */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -751,6 +1203,8 @@ export default function StockFilterModal({
               )}
             </div>
           </div>
+          </>
+        )}
         </div>
 
         {/* FEEDBACK DE DOWNLOAD COM SUCESSO */}
@@ -764,7 +1218,7 @@ export default function StockFilterModal({
             >
               <div className="flex items-center gap-2">
                 <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-                <span>Planilha Excel (.xlsx) exportada com sucesso contendo {filteredItems.length} registros!</span>
+                <span>{downloadSuccessMsg || `Planilha Excel (.xlsx) exportada com sucesso contendo ${filteredItems.length} registros!`}</span>
               </div>
               <button
                 type="button"
@@ -780,35 +1234,81 @@ export default function StockFilterModal({
         {/* RODAPÉ DO MODAL COM AS AÇÕES REQUISITADAS */}
         <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-white/10 bg-slate-800/40 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2 text-xs text-slate-400 font-semibold">
-            <span>{filteredItems.length} de {items.length} itens selecionados</span>
-            {isFiltered && (
-              <span className="text-sky-400 font-bold">• Filtro personalizado ativo</span>
+            {activeModalTab === 'brand_sales' ? (
+              <span>
+                <strong className="text-white">{brandAggregation.brandList.length}</strong> grifes •{' '}
+                <strong className="text-white">{brandAggregation.grandTotalQuantity}</strong> peças vendidas • Total{' '}
+                <strong className="text-emerald-400">{formatCurrency(brandAggregation.grandTotalRevenue)}</strong>
+              </span>
+            ) : (
+              <>
+                <span>{filteredItems.length} de {items.length} itens selecionados</span>
+                {isFiltered && (
+                  <span className="text-sky-400 font-bold">• Filtro personalizado ativo</span>
+                )}
+              </>
             )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
-            {/* AÇÃO 1: BAIXAR PLANILHA EXCEL */}
-            <button
-              type="button"
-              onClick={handleDownloadExcel}
-              disabled={filteredItems.length === 0}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 active:scale-95 border border-emerald-500/40 text-emerald-300 hover:text-white font-black rounded-xl shadow-lg transition-all text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Exportar registros filtrados para arquivo Excel (.xlsx)"
-            >
-              <Download size={16} className="text-emerald-400" />
-              <span>Baixar Planilha (.xlsx)</span>
-            </button>
+            {activeModalTab === 'brand_sales' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveModalTab('stock')}
+                  className="flex-1 sm:flex-none px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white font-black rounded-xl transition-all text-xs"
+                >
+                  Voltar ao Estoque
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadBrandExcel}
+                  disabled={brandAggregation.brandList.length === 0}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 active:scale-95 text-white font-black rounded-xl shadow-lg shadow-purple-500/25 transition-all text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Baixar Relatório Completo de Vendas por Grife e Loja em Excel (.xlsx)"
+                >
+                  <Download size={16} />
+                  <span>Baixar Relatório de Grifes (.xlsx)</span>
+                </button>
+              </>
+            ) : (
+              <>
+                {/* AÇÃO 1: BAIXAR ESTOQUE EM XML */}
+                <button
+                  type="button"
+                  onClick={handleDownloadXML}
+                  disabled={filteredItems.length === 0}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 active:scale-95 border border-amber-500/40 text-amber-300 hover:text-white font-black rounded-xl shadow-lg transition-all text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Exportar registros filtrados de estoque para arquivo XML estruturado"
+                >
+                  <FileCode size={16} className="text-amber-400" />
+                  <span>Baixar XML</span>
+                </button>
 
-            {/* AÇÃO 2: APLICAR FILTRO NA TABELA DO ERP */}
-            <button
-              type="button"
-              onClick={handleApplyFilter}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 active:scale-95 text-white font-black rounded-xl shadow-lg shadow-sky-500/25 transition-all text-xs"
-              title="Exibir apenas esses itens na tabela principal do ERP"
-            >
-              <Eye size={16} />
-              <span>Aplicar Filtro na Tabela ({filteredItems.length})</span>
-            </button>
+                {/* AÇÃO 2: BAIXAR PLANILHA EXCEL */}
+                <button
+                  type="button"
+                  onClick={handleDownloadExcel}
+                  disabled={filteredItems.length === 0}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 active:scale-95 border border-emerald-500/40 text-emerald-300 hover:text-white font-black rounded-xl shadow-lg transition-all text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Exportar registros filtrados para arquivo Excel (.xlsx)"
+                >
+                  <Download size={16} className="text-emerald-400" />
+                  <span>Baixar Planilha (.xlsx)</span>
+                </button>
+
+                {/* AÇÃO 3: APLICAR FILTRO NA TABELA DO ERP */}
+                <button
+                  type="button"
+                  onClick={handleApplyFilter}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 active:scale-95 text-white font-black rounded-xl shadow-lg shadow-sky-500/25 transition-all text-xs"
+                  title="Exibir apenas esses itens na tabela principal do ERP"
+                >
+                  <Eye size={16} />
+                  <span>Aplicar Filtro na Tabela ({filteredItems.length})</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       </motion.div>

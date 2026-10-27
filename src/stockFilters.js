@@ -322,3 +322,402 @@ export function extractStockFacets(items = []) {
     materials: Array.from(materials).sort((a, b) => a.localeCompare(b, 'pt-BR'))
   };
 }
+
+/**
+ * Converte qualquer representação de data de venda (BR, ISO, timestamp) em Date válida
+ */
+export function parseSaleDate(sale) {
+  if (!sale) return null;
+  const raw = sale['DATA  DA VENDA'] || sale['DATA DA VENDA'] || sale['DATA_VENDA'] || sale['Data da Venda'] || sale['data_venda'] || sale['DATA'] || sale['data'] || sale['timestamp'] || sale['dataHora'] || sale['DATA_HORA'];
+  if (!raw) return null;
+  if (raw instanceof Date && !isNaN(raw)) return raw;
+  if (typeof raw === 'number') {
+    const d = new Date(raw);
+    return isNaN(d) ? null : d;
+  }
+  const s = String(raw).trim();
+  // Formato brasileiro DD/MM/YYYY
+  const brMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (brMatch) {
+    const [, d, m, y] = brMatch;
+    return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+  }
+  // Formato ISO YYYY-MM-DD
+  const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const [, y, m, d] = isoMatch;
+    return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+  }
+  const parsed = new Date(s);
+  return isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * Valida se uma data de venda cai dentro do período selecionado
+ */
+export function isSaleInPeriod(dateObj, period = 'all') {
+  if (!period || period === 'all') return true;
+  if (!dateObj) return true;
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  if (period === 'today') {
+    return dateObj >= todayStart;
+  }
+  if (period === '30days') {
+    const d30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return dateObj >= d30;
+  }
+  if (period === '90days') {
+    const d90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    return dateObj >= d90;
+  }
+  if (period === 'month') {
+    return dateObj.getFullYear() === now.getFullYear() && dateObj.getMonth() === now.getMonth();
+  }
+  if (period === 'year') {
+    return dateObj.getFullYear() === now.getFullYear();
+  }
+  return true;
+}
+
+/**
+ * Consolida e agrupa todas as vendas por Grife / Marca e por Loja / Filial
+ * Suporta Armações, Lentes e demais categorias.
+ */
+export function aggregateSalesByBrandAndStore(items = [], salesData = [], options = {}) {
+  const {
+    selectedStore = 'todas',
+    period = 'all',
+    searchQuery = '',
+    type = 'armacoes'
+  } = options || {};
+
+  // 1. Construir catálogo de referência para detecção inteligente de grifes e modelos
+  const knownBrands = new Map(); // lowercase -> original case
+  const skuToProduct = new Map();
+  const modelToBrand = new Map();
+
+  (items || []).forEach(it => {
+    if (!it) return;
+    const b = String(it.MARCA || it.marca || it.CATEGORIA || it.categoria || '').trim();
+    if (b) {
+      knownBrands.set(b.toLowerCase(), b);
+    }
+    const sku = String(it.REFERENCIA_SKU || it.referencia_sku || it.SKU || it.sku || it.CODIGO || '').trim().toLowerCase();
+    if (sku) {
+      skuToProduct.set(sku, it);
+    }
+    const m = String(it.MODELO || it.modelo || it.NOME || it.nome || '').trim().toLowerCase();
+    if (m && b) {
+      modelToBrand.set(m, b);
+    }
+  });
+
+  // Marcas conhecidas ordenadas por tamanho decrescente para priorizar nomes compostos
+  const sortedKnownBrands = Array.from(knownBrands.entries()).sort((a, b) => b[0].length - a[0].length);
+
+  // 2. Varrer transações de vendas
+  const brandMap = new Map();
+  let grandTotalQuantity = 0;
+  let grandTotalRevenue = 0;
+  const allStoresSet = new Set(['Cajati', 'Registro', 'Jacupiranga', 'Central']);
+
+  if (Array.isArray(salesData)) {
+    for (let i = 0; i < salesData.length; i++) {
+      const sale = salesData[i];
+      if (!sale) continue;
+
+      // Filtro de data / período
+      const saleDate = parseSaleDate(sale);
+      if (!isSaleInPeriod(saleDate, period)) continue;
+
+      // Loja / Filial
+      const rawStore = String(sale.CIDADE || sale.LOJA || sale.UNIDADE || sale.cidade || sale.loja || 'Central').trim();
+      const storeName = rawStore || 'Central';
+      allStoresSet.add(storeName);
+
+      if (selectedStore && selectedStore !== 'todas') {
+        if (storeName.toLowerCase() !== selectedStore.toLowerCase()) {
+          continue;
+        }
+      }
+
+      // Identificar a Grife / Marca
+      let identifiedBrand = '';
+      let identifiedModel = '';
+      let identifiedSku = '';
+
+      // Tentativa A: SKU direto na venda
+      const rawSku = String(sale.SKU || sale.sku || sale.REFERENCIA_SKU || sale.referencia_sku || sale.REFERENCIA || '').trim().toLowerCase();
+      if (rawSku && skuToProduct.has(rawSku)) {
+        const prod = skuToProduct.get(rawSku);
+        identifiedBrand = prod.MARCA || prod.marca || '';
+        identifiedModel = prod.MODELO || prod.modelo || prod.NOME || prod.nome || '';
+        identifiedSku = rawSku;
+      }
+
+      // Tentativa B: Campo MARCA explícito
+      if (!identifiedBrand && (sale.MARCA || sale.marca)) {
+        const m = String(sale.MARCA || sale.marca).trim();
+        identifiedBrand = knownBrands.get(m.toLowerCase()) || m;
+      }
+
+      // Tentativa C: Campo ARMAÇÃO
+      const armacaoText = String(sale.ARMAÇÃO || sale.armacao || sale['ARMAÇÃO'] || sale['Modelo de Armação'] || '').trim();
+      if (!identifiedBrand && armacaoText) {
+        for (const [bLower, origBrand] of sortedKnownBrands) {
+          if (armacaoText.toLowerCase().includes(bLower)) {
+            identifiedBrand = origBrand;
+            break;
+          }
+        }
+        if (!identifiedModel) identifiedModel = armacaoText;
+      }
+
+      // Tentativa D: Campo LENTE (se for categoria lentes)
+      const lenteText = String(sale.LENTE || sale.lente || sale['Marca de Lente'] || '').trim();
+      if (!identifiedBrand && lenteText && type === 'lentes') {
+        for (const [bLower, origBrand] of sortedKnownBrands) {
+          if (lenteText.toLowerCase().includes(bLower)) {
+            identifiedBrand = origBrand;
+            break;
+          }
+        }
+        if (!identifiedModel) identifiedModel = lenteText;
+      }
+
+      // Tentativa E: Campo PRODUTO / DESCRICAO
+      const prodText = String(sale.PRODUTO || sale.Produto || sale.produto || sale.DESCRICAO || '').trim();
+      if (!identifiedBrand && prodText) {
+        for (const [bLower, origBrand] of sortedKnownBrands) {
+          if (prodText.toLowerCase().includes(bLower)) {
+            identifiedBrand = origBrand;
+            break;
+          }
+        }
+        if (!identifiedModel) identifiedModel = prodText;
+      }
+
+      // Tratamento para armações sem grife explícita
+      if (!identifiedBrand) {
+        if (type === 'armacoes' && (armacaoText || /armação|óculos|solar|receituário|grau/i.test(prodText))) {
+          identifiedBrand = 'Outras Grifes / Diversas';
+          if (!identifiedModel) identifiedModel = armacaoText || prodText || 'Armação Não Especificada';
+        } else if (type === 'lentes' && (lenteText || /lente|antirreflexo|multifocal|visão simples/i.test(prodText))) {
+          identifiedBrand = 'Outros Fabricantes / Diversos';
+          if (!identifiedModel) identifiedModel = lenteText || prodText || 'Lente Não Especificada';
+        } else if (knownBrands.size > 0 && prodText) {
+          continue;
+        } else {
+          continue;
+        }
+      }
+
+      const qtd = parseInt(sale.QUANTIDADE || sale.quantidade || sale.QTD || sale.qtd || 1, 10) || 1;
+      const valor = parseCurrency(sale.VALOR || sale['VALOR TOTAL'] || sale['VALOR DA VENDA'] || 0);
+
+      grandTotalQuantity += qtd;
+      grandTotalRevenue += valor;
+
+      const brandKey = identifiedBrand.trim();
+      let record = brandMap.get(brandKey);
+      if (!record) {
+        record = {
+          brand: brandKey,
+          totalQuantity: 0,
+          totalRevenue: 0,
+          stores: {},
+          modelsMap: new Map(),
+          salesList: []
+        };
+        brandMap.set(brandKey, record);
+      }
+
+      record.totalQuantity += qtd;
+      record.totalRevenue += valor;
+
+      if (!record.stores[storeName]) {
+        record.stores[storeName] = { quantity: 0, revenue: 0 };
+      }
+      record.stores[storeName].quantity += qtd;
+      record.stores[storeName].revenue += valor;
+
+      const modelLabel = identifiedModel || (identifiedSku ? `SKU: ${identifiedSku}` : 'Modelo Geral');
+      const modelKey = `${storeName}|||${modelLabel}`;
+      let mRec = record.modelsMap.get(modelKey);
+      if (!mRec) {
+        mRec = {
+          model: modelLabel,
+          sku: identifiedSku,
+          store: storeName,
+          quantity: 0,
+          revenue: 0
+        };
+        record.modelsMap.set(modelKey, mRec);
+      }
+      mRec.quantity += qtd;
+      mRec.revenue += valor;
+
+      record.salesList.push({
+        os: sale['Nº DA OS'] || sale.OS || sale.id || '',
+        data: saleDate ? saleDate.toLocaleDateString('pt-BR') : (sale['DATA'] || ''),
+        cliente: sale.CLIENTE || sale.NOME || 'Cliente',
+        vendedor: sale.VENDEDOR || '',
+        loja: storeName,
+        modelo: modelLabel,
+        sku: identifiedSku,
+        quantidade: qtd,
+        valor: valor
+      });
+    }
+  }
+
+  // 3. Formatar lista agregada com percentuais e ordenação
+  let brandList = Array.from(brandMap.values()).map(rec => {
+    const avgTicket = rec.totalQuantity > 0 ? rec.totalRevenue / rec.totalQuantity : 0;
+    const sharePercent = grandTotalRevenue > 0 ? (rec.totalRevenue / grandTotalRevenue) * 100 : 0;
+    const models = Array.from(rec.modelsMap.values()).sort((a, b) => b.quantity - a.quantity || b.revenue - a.revenue);
+
+    return {
+      brand: rec.brand,
+      totalQuantity: rec.totalQuantity,
+      totalRevenue: rec.totalRevenue,
+      averageTicket: avgTicket,
+      sharePercent: sharePercent,
+      distinctModelsCount: models.length,
+      stores: rec.stores,
+      models: models,
+      salesList: rec.salesList
+    };
+  });
+
+  if (searchQuery && searchQuery.trim()) {
+    const q = searchQuery.toLowerCase().trim();
+    brandList = brandList.filter(b => b.brand.toLowerCase().includes(q));
+  }
+
+  brandList.sort((a, b) => b.totalQuantity - a.totalQuantity || b.totalRevenue - a.totalRevenue);
+
+  const availableStores = Array.from(allStoresSet).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+  return {
+    brandList,
+    grandTotalQuantity,
+    grandTotalRevenue,
+    averageTicket: grandTotalQuantity > 0 ? grandTotalRevenue / grandTotalQuantity : 0,
+    totalBrandsCount: brandList.length,
+    availableStores
+  };
+}
+
+/**
+ * Exporta o relatório analítico consolidado de Vendas por Grife e Loja para arquivo Excel (.xlsx) nativo
+ */
+export function exportBrandSalesReportToExcel(brandAggregation, options = {}, XLSXInstance = null) {
+  const xlsx = XLSXInstance || (typeof XLSX !== 'undefined' ? XLSX : null);
+  if (!xlsx) {
+    throw new Error('Biblioteca XLSX não disponível.');
+  }
+
+  const { brandList = [], grandTotalQuantity = 0, grandTotalRevenue = 0, availableStores = [] } = brandAggregation || {};
+  const { selectedStore = 'todas', period = 'all', type = 'armacoes' } = options || {};
+
+  const wb = xlsx.utils.book_new();
+
+  // 1. Aba Resumo por Grife / Marca
+  const summaryRows = brandList.map((b, idx) => {
+    const row = {
+      'Ranking': idx + 1,
+      'Grife / Marca': sanitizeFormula(b.brand),
+      'Qtd Vendida (Peças)': b.totalQuantity,
+      'Faturamento Total (R$)': Number(b.totalRevenue.toFixed(2)),
+      'Ticket Médio (R$)': Number(b.averageTicket.toFixed(2)),
+      'Participação (%)': Number(b.sharePercent.toFixed(1)),
+      'Modelos Distintos': b.distinctModelsCount
+    };
+
+    // Detalhar colunas por loja
+    availableStores.forEach(st => {
+      const stData = b.stores[st] || { quantity: 0, revenue: 0 };
+      row[`${st} (Qtd)`] = stData.quantity;
+      row[`${st} (R$)`] = Number(stData.revenue.toFixed(2));
+    });
+
+    return row;
+  });
+
+  // Linha de Total Geral no Resumo
+  if (summaryRows.length > 0) {
+    const totalRow = {
+      'Ranking': 'TOTAL',
+      'Grife / Marca': 'TODAS AS GRIFES CONSOLIDADAS',
+      'Qtd Vendida (Peças)': grandTotalQuantity,
+      'Faturamento Total (R$)': Number(grandTotalRevenue.toFixed(2)),
+      'Ticket Médio (R$)': grandTotalQuantity > 0 ? Number((grandTotalRevenue / grandTotalQuantity).toFixed(2)) : 0,
+      'Participação (%)': 100.0,
+      'Modelos Distintos': summaryRows.reduce((acc, r) => acc + (r['Modelos Distintos'] || 0), 0)
+    };
+    availableStores.forEach(st => {
+      totalRow[`${st} (Qtd)`] = summaryRows.reduce((acc, r) => acc + (r[`${st} (Qtd)`] || 0), 0);
+      totalRow[`${st} (R$)`] = Number(summaryRows.reduce((acc, r) => acc + (r[`${st} (R$)`] || 0), 0).toFixed(2));
+    });
+    summaryRows.push(totalRow);
+  }
+
+  const wsSummary = xlsx.utils.json_to_sheet(summaryRows);
+  xlsx.utils.book_append_sheet(wb, wsSummary, 'Vendas por Grife');
+
+  // 2. Aba Detalhamento por Modelo e Loja
+  const detailRows = [];
+  brandList.forEach(b => {
+    b.models.forEach(m => {
+      detailRows.push({
+        'Grife / Marca': sanitizeFormula(b.brand),
+        'Modelo / Descrição': sanitizeFormula(m.model),
+        'SKU': sanitizeFormula(m.sku || ''),
+        'Loja / Filial': sanitizeFormula(m.store),
+        'Qtd Vendida': m.quantity,
+        'Faturamento (R$)': Number(m.revenue.toFixed(2)),
+        'Preço Médio (R$)': m.quantity > 0 ? Number((m.revenue / m.quantity).toFixed(2)) : 0
+      });
+    });
+  });
+
+  if (detailRows.length > 0) {
+    const wsDetail = xlsx.utils.json_to_sheet(detailRows);
+    xlsx.utils.book_append_sheet(wb, wsDetail, 'Modelos por Loja');
+  }
+
+  // 3. Aba Histórico de Vendas Individualizadas
+  const txRows = [];
+  brandList.forEach(b => {
+    b.salesList.forEach(tx => {
+      txRows.push({
+        'Nº OS / Venda': sanitizeFormula(tx.os),
+        'Data': sanitizeFormula(tx.data),
+        'Loja / Filial': sanitizeFormula(tx.loja),
+        'Grife / Marca': sanitizeFormula(b.brand),
+        'Modelo': sanitizeFormula(tx.modelo),
+        'SKU': sanitizeFormula(tx.sku || ''),
+        'Cliente': sanitizeFormula(tx.cliente),
+        'Vendedor': sanitizeFormula(tx.vendedor),
+        'Qtd': tx.quantidade,
+        'Valor (R$)': Number(tx.valor.toFixed(2))
+      });
+    });
+  });
+
+  if (txRows.length > 0) {
+    const wsTx = xlsx.utils.json_to_sheet(txRows);
+    xlsx.utils.book_append_sheet(wb, wsTx, 'Histórico de Transações');
+  }
+
+  const todayStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+  const storeLabel = selectedStore.toUpperCase().replace(/\s+/g, '_');
+  const catLabel = type === 'armacoes' ? 'Armacoes' : type === 'lentes' ? 'Lentes' : 'Produtos';
+  const filename = `Relatorio_Vendas_Por_Grife_${catLabel}_${storeLabel}_${todayStr}.xlsx`;
+
+  xlsx.writeFile(wb, filename);
+  return filename;
+}

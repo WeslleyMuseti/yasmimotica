@@ -96,6 +96,7 @@ const RowDetailsModal = ({ isOpen, onClose, data, onEditClick }) => {
                       valorTotal: row['VALOR TOTAL'] || row['VALOR'] || '0,00',
                       valorEntrada: row['VALOR ENTRADA'] || '0,00',
                       restante: row['RESTANTE'] || '0,00',
+                      dataVenda: row['DATA  DA VENDA'] || row['DATA DA VENDA'] || row['DATA_VENDA'] || row['Data da Venda'] || row['data_venda'] || row['DATA'] || row['Data'] || '',
                       dataEntrega: row['DATA ENTREGA ÓCULOS'] || row['DATA_ENTREGA'] || '',
                       formasPagamento: row['FORMAS_PAGAMENTO'] || row['MEIO_PAGAMENTO'] || '',
                       observacoes: row['OBSERVACOES'] || '',

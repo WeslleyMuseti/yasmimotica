@@ -15,7 +15,7 @@ export default function ProductTransferModal({
   currentUser,
   onTransferComplete
 }) {
-  const [productType, setProductType] = useState('armacoes'); // 'armacoes' | 'lentes' | 'brindes'
+  const [productType, setProductType] = useState('armacoes'); // 'armacoes' | 'lentes' | 'acessorios' | 'brindes'
   const [searchQuery, setSearchQuery] = useState('');
   const [originStore, setOriginStore] = useState('Central');
   const [destStore, setDestStore] = useState('Cajati');
@@ -28,7 +28,7 @@ export default function ProductTransferModal({
 
   // Lista de produtos filtrada pela loja de origem selecionada
   const availableProducts = useMemo(() => {
-    const sheetKey = productType === 'armacoes' ? 'CAD_ARMACOES' : productType === 'brindes' ? 'CAD_BRINDES' : 'CAD_LENTES';
+    const sheetKey = productType === 'armacoes' ? 'CAD_ARMACOES' : productType === 'brindes' ? 'CAD_BRINDES' : productType === 'acessorios' ? 'CAD_ACESSORIOS' : 'CAD_LENTES';
     const list = data?.[sheetKey] || [];
     
     return list.filter(item => {
@@ -62,14 +62,14 @@ export default function ProductTransferModal({
   // Procura se o produto já existe na loja de destino
   const existingDestProduct = useMemo(() => {
     if (!selectedProduct) return null;
-    const sheetKey = productType === 'armacoes' ? 'CAD_ARMACOES' : productType === 'brindes' ? 'CAD_BRINDES' : 'CAD_LENTES';
+    const sheetKey = productType === 'armacoes' ? 'CAD_ARMACOES' : productType === 'brindes' ? 'CAD_BRINDES' : productType === 'acessorios' ? 'CAD_ACESSORIOS' : 'CAD_LENTES';
     const list = data?.[sheetKey] || [];
     
     return list.find(item => {
       const itemStore = (item.UNIDADE || item.CIDADE || item.LOJA || '').trim().toLowerCase();
       if (itemStore !== destStore.trim().toLowerCase()) return false;
 
-      if (productType === 'armacoes' || productType === 'brindes') {
+      if (productType === 'armacoes' || productType === 'brindes' || productType === 'acessorios') {
         const sku1 = (selectedProduct.REFERENCIA_SKU || selectedProduct.sku || selectedProduct.CODIGO || '').trim().toLowerCase();
         const sku2 = (item.REFERENCIA_SKU || item.sku || item.CODIGO || '').trim().toLowerCase();
         if (sku1 && sku2 && sku1 === sku2) return true;
@@ -145,12 +145,14 @@ export default function ProductTransferModal({
       ? `${selectedProduct.MARCA || ''} ${selectedProduct.MODELO || ''} ${selectedProduct.REFERENCIA_SKU ? `(SKU: ${selectedProduct.REFERENCIA_SKU})` : ''}`.trim()
       : productType === 'brindes'
       ? `${selectedProduct.NOME || selectedProduct.MODELO || 'Brinde'} ${selectedProduct.CATEGORIA ? `[${selectedProduct.CATEGORIA}]` : ''} ${selectedProduct.COR ? `(${selectedProduct.COR})` : ''}`.trim()
+      : productType === 'acessorios'
+      ? `${selectedProduct.NOME || selectedProduct.MODELO || 'Acessório'} ${selectedProduct.CATEGORIA ? `[${selectedProduct.CATEGORIA}]` : ''} ${selectedProduct.REFERENCIA_SKU ? `(SKU: ${selectedProduct.REFERENCIA_SKU})` : ''}`.trim()
       : `${selectedProduct.MARCA || ''} ${selectedProduct.MODELO || ''} ${selectedProduct.TRATAMENTO ? `(${selectedProduct.TRATAMENTO})` : ''}`.trim();
 
     const transferPayload = {
       id: transferId,
       productType,
-      sheetKey: productType === 'armacoes' ? 'CAD_ARMACOES' : productType === 'brindes' ? 'CAD_BRINDES' : 'CAD_LENTES',
+      sheetKey: productType === 'armacoes' ? 'CAD_ARMACOES' : productType === 'brindes' ? 'CAD_BRINDES' : productType === 'acessorios' ? 'CAD_ACESSORIOS' : 'CAD_LENTES',
       productName,
       originItem: selectedProduct,
       existingDestItem: existingDestProduct,
@@ -278,7 +280,7 @@ export default function ProductTransferModal({
                 <div className="p-4 rounded-xl bg-white/5 print:bg-slate-100 border border-white/10 print:border-slate-200 flex items-center justify-between">
                   <div>
                     <span className="text-xs font-bold text-indigo-400 print:text-indigo-700 uppercase">
-                      {completedTransfer.productType === 'armacoes' ? 'Armação' : completedTransfer.productType === 'brindes' ? 'Brinde' : 'Lente'}
+                      {completedTransfer.productType === 'armacoes' ? 'Armação' : completedTransfer.productType === 'brindes' ? 'Brinde' : completedTransfer.productType === 'acessorios' ? 'Acessório' : 'Lente'}
                     </span>
                     <p className="text-base font-black text-white print:text-black">{completedTransfer.productName}</p>
                     {completedTransfer.reason && (
@@ -340,7 +342,7 @@ export default function ProductTransferModal({
               {/* TIPO */}
               <div className="space-y-1.5">
                 <label className="text-[11px] font-black uppercase tracking-widest text-slate-400">Tipo de Produto</label>
-                <div className="grid grid-cols-3 gap-1.5 bg-slate-950/60 p-1 rounded-xl border border-white/10">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-slate-950/60 p-1 rounded-xl border border-white/10">
                   <button
                     type="button"
                     onClick={() => { setProductType('armacoes'); setSelectedProduct(null); }}
@@ -362,6 +364,17 @@ export default function ProductTransferModal({
                     }`}
                   >
                     <Eye size={15} /> Lentes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setProductType('acessorios'); setSelectedProduct(null); }}
+                    className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-black transition-all ${
+                      productType === 'acessorios'
+                        ? 'bg-amber-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Package size={15} /> Acessórios
                   </button>
                   <button
                     type="button"

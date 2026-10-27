@@ -198,7 +198,13 @@ section {
   #print-cash-voucher-section,
   #print-cash-voucher-section *,
   #print-label-section,
-  #print-label-section * {
+  #print-label-section *,
+  #print-client-profile,
+  #print-client-profile *,
+  #print-cash-closing-report,
+  #print-cash-closing-report *,
+  #print-reparcelamento-agreement,
+  #print-reparcelamento-agreement * {
     visibility: visible !important;
   }
 
@@ -320,19 +326,34 @@ section {
     break-after: avoid !important;
   }
 
-  #print-section {
+  #print-section,
+  #print-client-profile,
+  #print-cash-closing-report,
+  #print-reparcelamento-agreement {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
     width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
     margin: 0 !important;
     padding: 0 !important;
     background: #ffffff !important;
-    color: #000000 !important;
+    color: #0f172a !important;
     display: block !important;
+    z-index: 9999999 !important;
   }
 
-  #print-section > div {
+  #print-cash-closing-report table {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+  }
+
+  #print-section > div,
+  #print-client-profile > div,
+  #print-cash-closing-report .avoid-break {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }

@@ -58,6 +58,7 @@ function StockPieChart({
       let esgotado = 0, esgotadoUnits = 0;
 
       items.forEach(item => {
+        if (!item || typeof item !== 'object') return;
         const q = parseInt(item.ESTOQUE || item.estoque || item._qtdEstoque || 0, 10) || 0;
         if (q <= 0) {
           esgotado++;
@@ -82,7 +83,8 @@ function StockPieChart({
       const storeUnits = {};
       const standardStores = ['Central', 'Cajati', 'Registro', 'Jacupiranga', 'Venda Externa'];
       items.forEach(item => {
-        const rawStore = (item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim() || 'Central';
+        if (!item || typeof item !== 'object') return;
+        const rawStore = String(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim() || 'Central';
         const matched = standardStores.find(s => s.toLowerCase() === rawStore.toLowerCase());
         const store = matched || rawStore;
         const q = parseInt(item.ESTOQUE || item.estoque || item._qtdEstoque || 0, 10) || 0;
@@ -101,7 +103,8 @@ function StockPieChart({
       const brandMap = {};
       const brandUnits = {};
       items.forEach(item => {
-        const brand = (item.MARCA || item.marca || item.CATEGORIA || item.categoria || 'Sem Marca/Categoria').trim() || 'Sem Marca/Categoria';
+        if (!item || typeof item !== 'object') return;
+        const brand = String(item.MARCA || item.marca || item.CATEGORIA || item.categoria || 'Sem Marca/Categoria').trim() || 'Sem Marca/Categoria';
         const q = parseInt(item.ESTOQUE || item.estoque || item._qtdEstoque || 0, 10) || 0;
         brandMap[brand] = (brandMap[brand] || 0) + 1;
         brandUnits[brand] = (brandUnits[brand] || 0) + q;
@@ -209,15 +212,15 @@ function StockPieChart({
       {/* Container do Gráfico Donut + Legenda */}
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center bg-black/20 p-4 rounded-2xl border border-white/5">
         {/* Gráfico Donut */}
-        <div className="sm:col-span-6 relative h-[210px] min-w-0 min-h-[210px] w-full flex items-center justify-center">
-          <ResponsiveContainer width="100%" height={compact ? 190 : 210} minWidth={0} minHeight={compact ? 190 : 210}>
+        <div className={`sm:col-span-6 relative ${compact ? 'h-[175px] min-h-[175px]' : 'h-[210px] min-h-[210px]'} min-w-0 w-full flex items-center justify-center`}>
+          <ResponsiveContainer width="100%" height={compact ? 165 : 210} minWidth={0} minHeight={compact ? 165 : 210}>
             <PieChart>
               <Pie
                 data={chartData}
                 cx="50%"
                 cy="50%"
-                innerRadius={compact ? 45 : 55}
-                outerRadius={compact ? 70 : 85}
+                innerRadius={compact ? 40 : 55}
+                outerRadius={compact ? 65 : 85}
                 paddingAngle={3}
                 dataKey="value"
                 nameKey="name"

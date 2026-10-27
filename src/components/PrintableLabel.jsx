@@ -85,7 +85,7 @@ const fmtMoney = (val) => {
  */
 export const SingleLabelGlassesJewelry = ({ item = {}, storeName = 'YASMIN ÓTICA' }) => {
   const brand = item.MARCA || item.marca || item.brand || 'ÓTICA';
-  const model = item.MODELO || item.modelo || item.PRODUTO || item.produto || item.nome || item.DESCRICAO || 'Armação';
+  const model = item.NOME || item.nome || item.MODELO || item.modelo || item.PRODUTO || item.produto || item.DESCRICAO || 'Produto';
   const sku = item.REFERENCIA_SKU || item.referencia_sku || item.CODIGO || item.codigo || item.SKU || item.sku || `SKU-${Date.now().toString().slice(-6)}`;
   const color = item.COR || item.cor || '';
   const size = item.TAMANHO || item.tamanho || '';
@@ -243,7 +243,7 @@ export const SingleLabel50x30 = ({ item = {}, type = 'armacao', storeName = 'YAS
 
   // Modo: Armação / Produto / Geral
   const brand = item.MARCA || item.marca || item.brand || 'ÓTICA';
-  const model = item.MODELO || item.modelo || item.PRODUTO || item.produto || item.nome || item.DESCRICAO || 'Armação';
+  const model = item.NOME || item.nome || item.MODELO || item.modelo || item.PRODUTO || item.produto || item.DESCRICAO || 'Produto';
   const sku = item.REFERENCIA_SKU || item.referencia_sku || item.CODIGO || item.codigo || item.SKU || item.sku || `SKU-${Date.now().toString().slice(-6)}`;
   const color = item.COR || item.cor || '';
   const size = item.TAMANHO || item.tamanho || '';

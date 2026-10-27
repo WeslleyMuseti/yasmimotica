@@ -3,6 +3,7 @@ import { Upload, X, FileText, CheckCircle2, AlertCircle, Sparkles, Download, Lay
 import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
+import { parseXmlToObjects } from '../xmlUtils';
 
 const SHEET_CONFIG = {
   'BD MARKETING':           { label: 'BD Marketing',         color: 'sky'     },
@@ -31,7 +32,13 @@ const FileUploader = ({ onDataLoaded, onCancel }) => {
 
     reader.onload = (e) => {
       try {
-        if (ext === 'csv') {
+        if (ext === 'xml') {
+          const parsed = parseXmlToObjects(e.target.result);
+          const rawName = f.name.replace(/\.xml$/i, '').trim();
+          const cleanName = rawName ? rawName.replace(/[^a-zA-Z0-9_ -]/g, '_') : 'Importacao_XML';
+          const sheetData = { [cleanName]: parsed };
+          setTimeout(() => { setSheets(Object.keys(sheetData)); onDataLoaded(sheetData); setStatus('success'); }, 800);
+        } else if (ext === 'csv') {
           const parsed = Papa.parse(e.target.result, { header: true, dynamicTyping: true });
           const sheetData = { 'Planilha': parsed.data.filter(r => Object.values(r).some(v => v !== null && v !== undefined && String(v).trim() !== '')) };
           setTimeout(() => { setSheets(Object.keys(sheetData)); onDataLoaded(sheetData); setStatus('success'); }, 800);
@@ -75,7 +82,7 @@ const FileUploader = ({ onDataLoaded, onCancel }) => {
       }
     };
 
-    if (ext === 'csv') reader.readAsText(f, 'UTF-8');
+    if (ext === 'csv' || ext === 'xml') reader.readAsText(f, 'UTF-8');
     else reader.readAsArrayBuffer(f);
   };
 
@@ -100,7 +107,7 @@ const FileUploader = ({ onDataLoaded, onCancel }) => {
           )}
         </AnimatePresence>
 
-        <input type="file" id="file-upload" className="hidden" accept=".csv,.xlsx,.xls"
+        <input type="file" id="file-upload" className="hidden" accept=".xml,.csv,.xlsx,.xls"
           onChange={(e) => processFile(e.target.files[0])} />
 
         <motion.div
@@ -119,12 +126,12 @@ const FileUploader = ({ onDataLoaded, onCancel }) => {
 
         <div className="mt-10 text-center relative z-10">
           <h3 className="text-2xl font-black mb-3">
-            {status === 'success' ? `${sheets.length} abas carregadas!` : 'Conectar Planilha'}
+            {status === 'success' ? `${sheets.length} tabelas carregadas!` : 'Conectar Arquivo de Dados'}
           </h3>
           <p className="text-slate-400 max-w-xs mx-auto mb-10 text-sm leading-relaxed">
             {status === 'success'
               ? 'Todas as tabelas foram detectadas automaticamente.'
-              : 'Carregue seu arquivo Excel ou CSV. Todas as abas serão processadas individualmente.'
+              : 'Carregue seu arquivo XML ou Excel. Todas as abas e seções serão processadas individualmente.'
             }
           </p>
 

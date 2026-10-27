@@ -28,6 +28,8 @@ public/*.xlsx
 public/*.xls
 public/*.csv
 *.csv
+*.xlsx
+*.xls
 
 # Arquivos compactados e patches temporários
 *.zip

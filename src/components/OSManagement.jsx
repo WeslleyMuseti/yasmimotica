@@ -11,6 +11,7 @@ import PrintableOS from "./PrintableOS";
 import PrintableLabOS from "./PrintableLabOS";
 import { PrintableLabelModal } from "./PrintableLabel";
 import { isSameClient } from "../firebaseSync";
+import { findOSRelatedEntities, executeOSCascadeDeletion } from "../osDeletionUtils";
 
 // Cores dos status no Semáforo: Azul (Aguardando Confirmação Financeira), Vermelha, Amarela e Verde
 export const OS_STATUS_CONFIG = {
@@ -138,6 +139,95 @@ export const cleanBoletoDisplay = (val) => {
     .replace(/(?<!\p{L})Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, 'Boleto')
     .replace(/(?<!\p{L})Boleto\s+da\s+Loja(?!\p{L})/gui, 'Boleto')
     .replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto');
+};
+
+// Filtro estrito para garantir que parcelas de vendas, reparcelamentos ou duplicatas financeiras NÃO apareçam de jeito algum na área de Gestão de OS
+export const isInstallmentRow = (sale) => {
+  if (!sale) return false;
+  if (
+    sale['PARCELA'] || sale.parcela || sale['NUMERO_PARCELA'] ||
+    sale['PARCELA_NUM'] || sale['N_PARCELA'] || sale['NUM_PARCELA'] ||
+    sale['REPARCELADO_EM'] || sale['ORIGEM_REPARCELAMENTO'] ||
+    sale['DATA_VENCIMENTO'] || sale['DATA VENCIMENTO'] || sale['VENCIMENTO']
+  ) {
+    return true;
+  }
+  
+  const tipo = String(sale['TIPO'] || sale['Tipo'] || sale['TIPO_REGISTRO'] || sale['TIPO_OPERACAO'] || '').toUpperCase();
+  if (
+    tipo.includes('PARCELA') || tipo === 'DUPLICATA' || tipo === 'CARNE' ||
+    tipo === 'CARNÊ' || tipo === 'BOLETO' || tipo === 'RECEBIMENTO' ||
+    tipo.includes('REPARC')
+  ) {
+    return true;
+  }
+
+  const doc = String(sale['DOCUMENTO'] || sale['Documento'] || sale['DOC'] || '').toLowerCase();
+  if (
+    doc.includes('parcela') || doc.includes('duplicata') || doc.includes('reparc') ||
+    doc.includes('saldo a receber') || doc.includes('mensalidade') || doc.includes('boleto')
+  ) {
+    return true;
+  }
+  if (/boleto\s*\d+\s*(?:\/|de)\s*\d+/i.test(doc)) return true;
+  if (/\b\d+\s*\/\s*\d+\b/.test(doc)) return true;
+
+  const desc = String(sale['DESCRICAO'] || sale['Descricao'] || sale['HISTORICO'] || sale['DETALHES'] || '').toLowerCase();
+  if (
+    desc.includes('parcela') || desc.includes('duplicata') || desc.includes('reparc') ||
+    desc.includes('mensalidade') || desc.includes('quitação') || desc.includes('quitacao')
+  ) {
+    return true;
+  }
+  if (/boleto\s*\d+\s*(?:\/|de)\s*\d+/i.test(desc)) return true;
+
+  const prod = String(sale['PRODUTO'] || sale['Produto'] || '').toLowerCase();
+  if (
+    /^parcela\s*\d+/i.test(prod) || /^duplicata\s*\d+/i.test(prod) ||
+    /^boleto\s*\d+/i.test(prod) || prod.includes('reparcelamento') || prod.includes('mensalidade')
+  ) {
+    return true;
+  }
+  if (/boleto\s*\d+\s*(?:\/|de)\s*\d+/i.test(prod)) return true;
+
+  const fp = String(sale['FORMA DE PAGAMENTO'] || sale['FORMA'] || sale['FORMA_PAGTO'] || '').toLowerCase();
+  if (/^parcela\s*\d+/i.test(fp)) return true;
+
+  return false;
+};
+
+// Limpa formas de pagamento para exibição limpa na Gestão de OS (omitindo parcelas e datas de vencimento de boletos na área operacional)
+export const cleanPaymentMethodForOS = (val) => {
+  if (!val) return '';
+  const standardized = cleanBoletoDisplay(val);
+  let cleaned = String(standardized)
+    // Remove qualquer parênteses com vencimentos, parcelas ou datas (BR ou ISO): ex: (1ª 10/11/2026...), (6x de R$ 119,83 | Venc: 1ª 2026-11-08...)
+    .replace(/\s*\([^)]*(?:parcela|\d+ª|\d+x|\d{2}\/\d{2}|\d{4}-\d{2}-\d{2}|venc|vencimento)[^)]*\)/gi, '')
+    // Remove qualquer bloco de vencimentos solto pós-pipe: ex | Venc: ...
+    .replace(/\|\s*Venc:[^:\n)]*/gi, '')
+    // Remove listas de datas de parcelas soltas (ex: 1ª 2026-11-08, 2ª 10/12/2026)
+    .replace(/\b\d+ª\s*(?:\d{2}\/\d{2}(?:\/\d{2,4})?|\d{4}-\d{2}-\d{2})[,;\s]*/gi, '')
+    // Remove detalhamento pós-hífen de parcelas
+    .replace(/\s*-\s*\d+ª\s*parcela[^\n,]*/gi, '')
+    // Remove "3x de R$ 150,00", "3x", "4 parcelas" vinculados a Boleto
+    .replace(/Boleto\s*(?:em\s*)?\d+x\s*(?:de\s*)?(?:R?\$?\s*[\d.,]+)?/gi, 'Boleto')
+    .replace(/Boleto\s*-\s*\d+x/gi, 'Boleto')
+    .replace(/Boleto\s*(?:em\s*)?\d+\s*parcelas?/gi, 'Boleto')
+    // Remove valores extras anexados após dois pontos em Boleto: ex "Boleto: R$ 450,00" -> "Boleto"
+    .replace(/Boleto\s*:\s*R?\$?\s*[\d.,]+/gi, 'Boleto')
+    // Remove qualquer "parcelas: ..." ou quebras com parcela
+    .replace(/parcelas?:\s*[^;\n]+/gi, '')
+    .replace(/\n.*parcela.*/gi, '')
+    // Remove fragmentos soltos de multiplicador de parcelas
+    .replace(/\b\d+x\s*(?:de\s*)?R?\$?\s*[\d.,]+/gi, '')
+    .replace(/\b\d+x\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Limpa possíveis pontuações soltas nas extremidades
+  cleaned = cleaned.replace(/^[\s,+|:\-]+|[\s,+|:\-]+$/g, '').trim();
+
+  return cleaned || 'Boleto';
 };
 
 export const extractOrderInstallments = (order) => {
@@ -345,16 +435,31 @@ const OSManagement = ({
     });
   };
 
-  // Consolidação de todas as Ordens de Serviço
+  // Consolidação de todas as Ordens de Serviço (Filtra estritamente parcelas para não aparecerem na gestão de OS)
   const allOrders = useMemo(() => {
     const rawSales = salesData.length > 0 ? salesData : (data["Registro_Vendas"] || data["BD MARKETING"] || []);
     
-    // Mapeia todas as vendas que possuem número de OS
-    const list = rawSales.filter(sale => {
+    // 1. Filtrar registros que são parcelas individuais ou duplicatas financeiras
+    const validSales = rawSales.filter(sale => !isInstallmentRow(sale));
+
+    // 2. Mapeia vendas com número de OS e desduplica linhas repetidas de parcelas
+    const seenOSNumbers = new Set();
+    const list = [];
+
+    validSales.forEach((sale, idx) => {
       const osNum = sale["OS DA VENDA"] || sale["OS"] || sale["OS da COMPRA"] || sale["VENDA_OS"];
-      return !!osNum && String(osNum).trim() !== "" && String(osNum) !== "—";
-    }).map((sale, idx) => {
-      const osNumber = String(sale["OS DA VENDA"] || sale["OS"] || sale["VENDA_OS"] || "OS-" + (idx + 1)).trim();
+      if (!osNum || String(osNum).trim() === "" || String(osNum) === "—") return;
+
+      const osNumber = String(osNum).trim();
+      const upperOS = osNumber.toUpperCase();
+
+      // Se não for multi-OS legítima com sufixo (ex: -1, -2) e já foi mapeada, ignora linha duplicada
+      const isMultiSuffix = /-\d+$/.test(osNumber);
+      if (!isMultiSuffix && seenOSNumbers.has(upperOS)) {
+        return;
+      }
+      seenOSNumbers.add(upperOS);
+
       const clientName = (sale["NOME CLIENTE"] || sale["NOME"] || sale["Cliente"] || sale["Nome Completo"] || "Cliente").trim();
       
       // Localiza cliente no cadastro por ID/CPF único ou nome
@@ -377,7 +482,7 @@ const OSManagement = ({
         status = "No Laboratório";
       }
 
-      const dtVenda = sale["DATA  DA VENDA"] || sale["DATA"] || "";
+      const dtVenda = sale["DATA  DA VENDA"] || sale["DATA DA VENDA"] || sale["DATA_VENDA"] || sale["Data da Venda"] || sale["dataVenda"] || sale["data_venda"] || sale["DATA"] || sale["Data"] || "";
       const dtEntrega = sale["DATA ENTREGA ÓCULOS"] || sale["DATA_ENTREGA"] || sale["DATA VENCIMENTO"] || "";
       const dtEntregaReal = sale["DATA_ENTREGA_REAL"] || sale["DATA_BAIXA_ENTREGA"] || (status === "Entregue" ? (sale["DATA_RECEBIMENTO"] || sale["DATA ENTREGA ÓCULOS"] || sale["DATA_ENTREGA"] || "") : "");
       const quemRetirou = sale["QUEM_RETIROU"] || "";
@@ -413,6 +518,40 @@ const OSManagement = ({
           restante = valorTotal;
         } else {
           restante = "0,00";
+        }
+      }
+
+      // Resolução do método de pagamento da Entrada e do Restante
+      let formaEntrada = sale["FORMA_ENTRADA"] || sale["formaPagamentoEntrada"] || matchedClient?.["FORMA_ENTRADA"] || matchedClient?.["formaPagamentoEntrada"] || "";
+      let formaRestante = sale["FORMA_RESTANTE"] || sale["formaPagamentoRestante"] || matchedClient?.["FORMA_RESTANTE"] || matchedClient?.["formaPagamentoRestante"] || "";
+      if ((!formaEntrada || !formaRestante) && formasPagamento) {
+        const parts = String(formasPagamento).split(/\s*\+\s*|\n/).map(s => s.trim()).filter(Boolean);
+        const entParts = [];
+        const restParts = [];
+        parts.forEach(part => {
+          const isRest = /^\[Restante\]/i.test(part) || /restante|falta|boleto|carnê|carne/i.test(part);
+          let mName = '';
+          if (/boleto|carnê|carne/i.test(part)) mName = 'Boleto';
+          else if (/pix/i.test(part)) mName = 'PIX';
+          else if (/dinheiro|espécie/i.test(part)) mName = 'Dinheiro';
+          else if (/d[eé]bito/i.test(part)) mName = 'Cartão de Débito';
+          else if (/cr[eé]dito/i.test(part)) {
+            const mParc = part.match(/(\d+)\s*x/i);
+            mName = mParc && parseInt(mParc[1], 10) > 1 ? `Cartão de Crédito (${mParc[1]}x)` : 'Cartão de Crédito';
+          } else if (/combinar|retirada/i.test(part)) mName = 'A Combinar na Retirada';
+          if (mName) {
+            if (isRest) {
+              if (!restParts.includes(mName)) restParts.push(mName);
+            } else {
+              if (!entParts.includes(mName)) entParts.push(mName);
+            }
+          }
+        });
+        if (!formaEntrada && parseCurrency(valorEntrada) > 0 && entParts.length > 0) {
+          formaEntrada = entParts.join(' + ');
+        }
+        if (!formaRestante && parseCurrency(restante) > 0 && restParts.length > 0) {
+          formaRestante = restParts.join(' + ');
         }
       }
       const dioptria = sale["DIOPTRIA"] || "";
@@ -475,7 +614,7 @@ const OSManagement = ({
         isSecondaryOS
       );
 
-      return {
+      list.push({
         raw: sale,
         id: sale.id || ("os-" + idx),
         saleId,
@@ -489,6 +628,7 @@ const OSManagement = ({
         financeiroUnificado,
         osNumber,
         clientName,
+        pacienteNome: sale["PACIENTE"] || sale["NOME_BENEFICIARIO"] || sale["CLIENTE_BENEFICIARIO"] || sale["nomePessoa"] || "",
         clientPhone: matchedClient?.["WhatsApp"] || sale["TELEFONE CLIENTE"] || sale["TELEFONE"] || "",
         clientCPF,
         clientCity: matchedClient?.["Cidade"] || unit,
@@ -499,9 +639,12 @@ const OSManagement = ({
         valorTotal,
         valorEntrada,
         restante,
+        formaEntrada,
+        formaRestante,
         dioptria,
         medico,
         formasPagamento: cleanBoletoDisplay(formasPagamento),
+        formasPagamentoLimpa: cleanPaymentMethodForOS(formasPagamento),
         dtVenda,
         dtEntrega,
         dtEntregaReal,
@@ -529,7 +672,7 @@ const OSManagement = ({
         pagamentoConferido: sale["PAGAMENTO_CONFERIDO"] === true || sale["PAGAMENTO_CONFERIDO"] === "Sim",
         voucher: sale["VOUCHER"] || sale["voucher"] || sale.raw?.["VOUCHER"] || matchedClient?.["VOUCHER"] || "",
         descontoVoucher: sale["DESCONTO_VOUCHER"] || sale["descontoVoucher"] || sale.raw?.["DESCONTO_VOUCHER"] || matchedClient?.["DESCONTO_VOUCHER"] || ""
-      };
+      });
     });
 
     // Ordena da mais recente para a mais antiga
@@ -555,6 +698,7 @@ const OSManagement = ({
         const cleanQ = q.replace(/\D/g, '');
         const matchesOS = order.osNumber.toLowerCase().includes(q);
         const matchesClient = order.clientName.toLowerCase().includes(q);
+        const matchesPaciente = (order.pacienteNome || '').toLowerCase().includes(q);
         const matchesProduct = order.product.toLowerCase().includes(q);
         const matchesUnit = order.unit.toLowerCase().includes(q);
         const matchesArmacao = (order.armacao || '').toLowerCase().includes(q);
@@ -700,6 +844,9 @@ const OSManagement = ({
           if (effectiveRest > 0) {
             newlyCreatedPendingSum = effectiveRest;
             const isoVenc = toIsoDate(order.dtEntrega) || todayIso;
+            const resolvedMeioRestante = order.formaRestante
+              ? (/boleto|carnê|carne/i.test(order.formaRestante) ? 'Boleto' : order.formaRestante)
+              : (/boleto|carnê|carne/i.test(order.formasPagamento || '') ? 'Boleto' : 'A Prazo');
             itemsToCreate.push({
               CLIENTE_ID: clientId,
               CLIENTE_CPF: clientCpf,
@@ -707,7 +854,7 @@ const OSManagement = ({
               CLIENTE: clientName,
               'NOME CLIENTE': clientName,
               NOME: clientName,
-              DESCRICAO: `Venda OS #${order.osNumber} - ${order.product || 'Óculos Completo'}`,
+              DESCRICAO: `Venda OS #${order.osNumber} - ${order.product || 'Óculos Completo'}${order.formaRestante ? ` (${order.formaRestante})` : ''}`,
               VENDA_OS: order.osNumber,
               OS: order.osNumber,
               DOCUMENTO: `OS #${order.osNumber} - Saldo a Receber`,
@@ -719,8 +866,8 @@ const OSManagement = ({
               CIDADE: order.unit,
               LOJA: order.unit,
               UNIDADE: order.unit,
-              MEIO_PAGAMENTO: /boleto|carnê|carne/i.test(order.formasPagamento || '') ? 'Boleto' : 'A Prazo',
-              OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}. Total: R$ ${order.valorTotal}, Sinal: R$ ${order.valorEntrada}`,
+              MEIO_PAGAMENTO: resolvedMeioRestante,
+              OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}. Total: R$ ${order.valorTotal}, Sinal: R$ ${order.valorEntrada}${order.formaRestante ? `, Forma Restante: ${order.formaRestante}` : ''}`,
               DATA_CADASTRO: todayStr
             });
           }
@@ -782,116 +929,58 @@ const OSManagement = ({
     }
   };
 
-  // Exclusão Segura e Inteligente em Cascata da OS (com limpeza de duplicatas no Contas a Receber e recálculo do Cliente)
+  // Exclusão Total e Cirúrgica em Cascata da OS (Vendas, Contas a Receber, Histórico de Caixa e Estoque)
   const handleDeleteOS = async (order) => {
     if (!order || !onDeleteRow || isVendedor || !isAdmin) return;
 
-    // Localizar duplicatas vinculadas no CONTAS_RECEBER
-    const contasReceberList = data?.['CONTAS_RECEBER'] || [];
-    const targetOS = String(order.osNumber || '').trim().toLowerCase();
-    
-    const matchingInvoices = contasReceberList.filter(inv => isMatchingOS(inv, targetOS));
+    // 1. Mapeamento completo de todos os vínculos da OS em todo o sistema
+    const entities = findOSRelatedEntities({
+      osNumber: order.osNumber,
+      saleRow: order.raw,
+      data,
+      clientsData
+    });
 
-    const pendingInvoices = matchingInvoices.filter(inv => inv.STATUS !== 'Recebido' && inv.STATUS !== 'Pago');
-    const paidInvoices = matchingInvoices.filter(inv => inv.STATUS === 'Recebido' || inv.STATUS === 'Pago');
+    let confirmMsg = `⚠️ EXCLUSÃO TOTAL EM CASCATA DA OS #${order.osNumber}\n`;
+    confirmMsg += `Cliente: "${order.clientName}"\n\n`;
+    confirmMsg += `Esta ação apagará por completo TUDO referente a esta OS:\n\n`;
 
-    let confirmMsg = `Tem certeza que deseja excluir permanentemente a OS #${order.osNumber} do cliente "${order.clientName}"?\n\n`;
-
-    if (pendingInvoices.length > 0) {
-      const pendingTotal = pendingInvoices.reduce((sum, inv) => sum + parseCurrency(inv.VALOR), 0);
-      confirmMsg += `• ${pendingInvoices.length} parcela(s) pendente(s) no Contas a Receber (Total: R$ ${formatMoney(pendingTotal)}) serão APAGADAS.\n`;
-      confirmMsg += `• O saldo devedor do cliente será atualizado automaticamente.\n`;
+    if (entities.matchedInvoices.length > 0) {
+      confirmMsg += `• ${entities.matchedInvoices.length} parcela(s) no Contas a Receber (Total: R$ ${formatMoney(entities.totalInvoicesValue)}) serão APAGADAS.\n`;
     }
 
-    if (paidInvoices.length > 0) {
-      const paidTotal = paidInvoices.reduce((sum, inv) => sum + parseCurrency(inv.VALOR), 0);
-      confirmMsg += `\n⚠️ ATENÇÃO: Constam R$ ${formatMoney(paidTotal)} já marcados como quitados nesta OS.\n`;
+    if (entities.matchedCashMovements.length > 0) {
+      confirmMsg += `• ${entities.matchedCashMovements.length} lançamento(s) no Histórico de Caixa (Total: R$ ${formatMoney(entities.totalCashMovementsValue)}) serão APAGADOS.\n`;
     }
+
+    if (entities.stockItemsToRestore.length > 0) {
+      confirmMsg += `• ${entities.stockItemsToRestore.length} produto(s) (${entities.stockItemsToRestore.map(s => s.name).join(', ')}) serão DEVOLVIDOS ao estoque.\n`;
+    }
+
+    if (entities.matchedClient) {
+      confirmMsg += `• O saldo devedor do cliente será recalculado para R$ ${formatMoney(entities.newClientDebt)}.\n`;
+    }
+
+    confirmMsg += `• O registro principal de venda da OS será removido do sistema.\n\n`;
+    confirmMsg += `Deseja realmente prosseguir com a exclusão completa? Esta ação não pode ser desfeita.`;
 
     const confirmed = window.confirm(confirmMsg);
     if (!confirmed) return;
 
-    // Pergunta opcional de estorno para o operador caso existam recebimentos já quitados
-    let shouldRefundCash = false;
-    const paidTotal = paidInvoices.reduce((sum, inv) => sum + parseCurrency(inv.VALOR), 0);
-    if (paidTotal > 0 && onAddRow) {
-      shouldRefundCash = window.confirm(
-        `Deseja registrar o ESTORNO de R$ ${formatMoney(paidTotal)} no Fluxo de Caixa do dia de hoje?\n\n` +
-        `• [OK]: Lança uma SAÍDA / ESTORNO no Caixa de hoje (dinheiro devolvido ao cliente).\n` +
-        `• [Cancelar]: Mantém os lançamentos passados do Caixa sem alteração.`
-      );
-    }
-
     try {
-      // 1. Excluir duplicatas pendentes do CONTAS_RECEBER
-      for (const inv of pendingInvoices) {
-        await onDeleteRow('CONTAS_RECEBER', inv);
-      }
+      const result = await executeOSCascadeDeletion({
+        osNumber: order.osNumber,
+        saleRow: order.raw,
+        data,
+        clientsData,
+        onDeleteRow,
+        onUpdateRow
+      });
 
-      // Se estornou, excluir também duplicatas quitadas e lançar saída no caixa
-      if (shouldRefundCash) {
-        for (const inv of paidInvoices) {
-          await onDeleteRow('CONTAS_RECEBER', inv);
-        }
-
-        if (onAddRow) {
-          await onAddRow('FLUXO_CAIXA', {
-            id: `mov_estorno_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-            tipo: 'SAÍDA',
-            dataHora: new Date().toISOString(),
-            data: new Date().toLocaleDateString('pt-BR'),
-            unidade: order.unit || currentUser?.city || 'Central',
-            operador: currentUser?.username || 'Administração',
-            valor: paidTotal,
-            formaPagamento: 'ESTORNO / DEVOLUÇÃO',
-            motivo: `Estorno por Exclusão da OS #${order.osNumber} - ${order.clientName}`,
-            detalhes: `OS #${order.osNumber} excluída permanentemente.`,
-            CLIENTE_ID: order.clientData?.id || order.matchedClient?.id || '',
-            CLIENTE_CPF: order.clientCPF,
-            CPF: order.clientCPF
-          });
-        }
-      }
-
-      // 2. Abater débito na ficha do cliente (CLIENTES_CADASTRADOS)
-      const client = clientsData.find(c => isSameClient(c, order.raw || {})) || order.clientData || order.matchedClient;
-      if (client && onUpdateRow) {
-        const currentDebt = parseCurrency(client['Valor Devido'] || client['VALOR DEVIDO']);
-        const pendingTotal = pendingInvoices.reduce((sum, inv) => sum + parseCurrency(inv.VALOR), 0);
-        const newDebt = Math.max(0, currentDebt - pendingTotal);
-        const newStatus = newDebt === 0 ? 'Em dia' : client['Status de Pagamento'];
-
-        await onUpdateRow('CLIENTES_CADASTRADOS', client, {
-          ...client,
-          'Valor Devido': newDebt.toFixed(2).replace('.', ','),
-          'Status de Pagamento': newStatus
-        });
-      }
-
-      // 3. Estorno de Estoque (devolver armação para o estoque se aplicável)
-      const armacoesList = data?.['CAD_ARMACOES'] || [];
-      const armacaoNome = String(order.raw['ARMAÇÃO'] || order.raw['MODELO'] || order.raw['PRODUTO'] || '').trim().toLowerCase();
-      if (armacaoNome && armacaoNome !== '—' && armacaoNome !== 'não informada') {
-        const matchedArmacao = armacoesList.find(a => {
-          const nomeA = String(a['MODELO'] || a['NOME'] || a['DESCRICAO'] || '').trim().toLowerCase();
-          return nomeA && (nomeA === armacaoNome || armacaoNome.includes(nomeA));
-        });
-        if (matchedArmacao && onUpdateRow) {
-          const currStock = parseInt(matchedArmacao['ESTOQUE'] || matchedArmacao['QTD'] || '0', 10);
-          await onUpdateRow('CAD_ARMACOES', matchedArmacao, {
-            ...matchedArmacao,
-            ESTOQUE: String(currStock + 1)
-          });
-        }
-      }
-
-      // 4. Excluir a OS da tabela Registro_Vendas
-      await onDeleteRow('Registro_Vendas', order.raw);
-
-      setSuccessToast(`✅ OS #${order.osNumber} excluída com sucesso! ${pendingInvoices.length > 0 ? `${pendingInvoices.length} duplicata(s) pendente(s) cancelada(s) no Financeiro.` : ''}`);
+      setSuccessToast(`✅ OS #${order.osNumber} e todo o seu histórico financeiro foram excluídos com sucesso!`);
       setTimeout(() => setSuccessToast(''), 5000);
     } catch (err) {
-      console.error('Erro ao excluir OS e financeiro:', err);
+      console.error('Erro ao excluir OS em cascata:', err);
       alert('Erro ao excluir OS: ' + (err.message || err));
     }
   };
@@ -1047,16 +1136,25 @@ const OSManagement = ({
     window.open("https://wa.me/" + fullPhone + "?text=" + encodeURIComponent(msg), "_blank");
   };
 
-  // Impressão da OS
+  // Impressão da OS (Omitindo estritamente parcelas na Gestão de OS)
   const handlePrint = (order) => {
     setOsDataForLabPrint(null);
     setPrintLabClient(null);
+    const cleanedFP = cleanPaymentMethodForOS(order.raw["FORMAS_PAGAMENTO"] || order.raw["MEIO_PAGAMENTO"] || order.formasPagamento || "");
     const cData = {
       ...order.raw,
       ...(order.clientData || {}),
       "Nome Completo": order.clientName || order.raw?.['CLIENTE'] || order.raw?.['NOME'],
       "WhatsApp": order.clientPhone || order.raw?.['TELEFONE'],
-      "Cidade": order.clientCity || order.unit
+      "Cidade": order.clientCity || order.unit,
+      "FORMAS_PAGAMENTO": cleanedFP,
+      "FORMA_PAGTO": cleanedFP,
+      "FORMA_ENTRADA": order.formaEntrada || order.raw?.["FORMA_ENTRADA"] || "",
+      "formaPagamentoEntrada": order.formaEntrada || order.raw?.["formaPagamentoEntrada"] || "",
+      "FORMA_RESTANTE": order.formaRestante || order.raw?.["FORMA_RESTANTE"] || "",
+      "formaPagamentoRestante": order.formaRestante || order.raw?.["formaPagamentoRestante"] || "",
+      parcelas: [],
+      PARCELAS_JSON: "[]"
     };
     setPrintClient(cData);
     setOsDataForPrint({
@@ -1069,8 +1167,15 @@ const OSManagement = ({
       valorTotal: order.valorTotal,
       valorEntrada: order.raw["VALOR ENTRADA"] || "0,00",
       restante: order.raw["RESTANTE"] || "0,00",
+      FORMA_ENTRADA: order.formaEntrada || order.raw?.["FORMA_ENTRADA"] || "",
+      formaPagamentoEntrada: order.formaEntrada || order.raw?.["formaPagamentoEntrada"] || "",
+      FORMA_RESTANTE: order.formaRestante || order.raw?.["FORMA_RESTANTE"] || "",
+      formaPagamentoRestante: order.formaRestante || order.raw?.["formaPagamentoRestante"] || "",
+      dataVenda: order.dtVenda || order.raw?.["DATA  DA VENDA"] || order.raw?.["DATA DA VENDA"] || order.raw?.["DATA"] || "",
       dataEntrega: order.dtEntrega,
-      formasPagamento: cleanBoletoDisplay(order.raw["FORMAS_PAGAMENTO"] || order.raw["MEIO_PAGAMENTO"] || ""),
+      formasPagamento: cleanedFP,
+      parcelas: [],
+      PARCELAS_JSON: "[]",
       observacoes: order.raw["OBSERVACOES"] || order.obsEntrega || "",
       odEsf: order.odEsf || order.raw["OD_ESF"] || "",
       odCil: order.odCil || order.raw["OD_CIL"] || "",
@@ -1212,12 +1317,21 @@ const OSManagement = ({
     setPrintLabClient(null);
 
     const primary = ordersToPrint[0];
+    const primaryCleanedFP = cleanPaymentMethodForOS(primary.raw?.["FORMAS_PAGAMENTO"] || primary.raw?.["MEIO_PAGAMENTO"] || primary.formasPagamento || "");
     const cData = {
       ...primary.raw,
       ...(primary.clientData || {}),
       "Nome Completo": primary.clientName || primary.raw?.['CLIENTE'] || primary.raw?.['NOME'],
       "WhatsApp": primary.clientPhone || primary.raw?.['TELEFONE'],
-      "Cidade": primary.clientCity || primary.unit
+      "Cidade": primary.clientCity || primary.unit,
+      "FORMAS_PAGAMENTO": primaryCleanedFP,
+      "FORMA_PAGTO": primaryCleanedFP,
+      "FORMA_ENTRADA": primary.formaEntrada || primary.raw?.["FORMA_ENTRADA"] || "",
+      "formaPagamentoEntrada": primary.formaEntrada || primary.raw?.["formaPagamentoEntrada"] || "",
+      "FORMA_RESTANTE": primary.formaRestante || primary.raw?.["FORMA_RESTANTE"] || "",
+      "formaPagamentoRestante": primary.formaRestante || primary.raw?.["formaPagamentoRestante"] || "",
+      parcelas: [],
+      PARCELAS_JSON: "[]"
     };
     setPrintClient(cData);
 
@@ -1232,8 +1346,15 @@ const OSManagement = ({
       valorTotal: o.valorTotal,
       valorEntrada: o.raw?.["VALOR ENTRADA"] || "0,00",
       restante: o.raw?.["RESTANTE"] || "0,00",
+      FORMA_ENTRADA: o.formaEntrada || o.raw?.["FORMA_ENTRADA"] || primary.formaEntrada || "",
+      formaPagamentoEntrada: o.formaEntrada || o.raw?.["formaPagamentoEntrada"] || primary.formaEntrada || "",
+      FORMA_RESTANTE: o.formaRestante || o.raw?.["FORMA_RESTANTE"] || primary.formaRestante || "",
+      formaPagamentoRestante: o.formaRestante || o.raw?.["formaPagamentoRestante"] || primary.formaRestante || "",
+      dataVenda: o.dtVenda || o.raw?.["DATA  DA VENDA"] || o.raw?.["DATA DA VENDA"] || o.raw?.["DATA"] || "",
       dataEntrega: o.dtEntrega,
-      formasPagamento: cleanBoletoDisplay(o.raw?.["FORMAS_PAGAMENTO"] || o.raw?.["MEIO_PAGAMENTO"] || ""),
+      formasPagamento: cleanPaymentMethodForOS(o.raw?.["FORMAS_PAGAMENTO"] || o.raw?.["MEIO_PAGAMENTO"] || o.formasPagamento || ""),
+      parcelas: [],
+      PARCELAS_JSON: "[]",
       observacoes: o.raw?.["OBSERVACOES"] || o.obsEntrega || "",
       odEsf: o.odEsf || o.raw?.["OD_ESF"] || "",
       odCil: o.odCil || o.raw?.["OD_CIL"] || "",
@@ -2142,14 +2263,28 @@ const OSManagement = ({
                           </span>
                         </div>
                         <div className="space-y-2 text-xs">
-                          <div className="flex justify-between items-center py-0.5 border-b border-white/5">
+                          <div className="flex justify-between items-center py-0.5 border-b border-white/5 gap-2">
                             <span className="text-slate-400">Sinal / Entrada:</span>
-                            <span className="text-emerald-400 font-bold">R$ {formatMoney(order.valorEntrada)}</span>
+                            <div className="text-right flex items-center gap-1.5 flex-wrap justify-end">
+                              <span className="text-emerald-400 font-bold">R$ {formatMoney(order.valorEntrada)}</span>
+                              {order.formaEntrada && parseCurrency(order.valorEntrada) > 0 && (
+                                <span className="text-[9.5px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                  {order.formaEntrada}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex justify-between items-center py-0.5 border-b border-white/5">
+                          <div className="flex justify-between items-center py-0.5 border-b border-white/5 gap-2">
                             <span className="text-slate-400">Saldo Restante:</span>
                             {parseCurrency(order.restante) > 0 ? (
-                              <span className="text-rose-400 font-black">R$ {formatMoney(order.restante)}</span>
+                              <div className="text-right flex items-center gap-1.5 flex-wrap justify-end">
+                                <span className="text-rose-400 font-black">R$ {formatMoney(order.restante)}</span>
+                                {order.formaRestante && (
+                                  <span className="text-[9.5px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                    {order.formaRestante}
+                                  </span>
+                                )}
+                              </div>
                             ) : (
                               <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 text-[10px]">
                                 ✓ 100% Quitado
@@ -2164,13 +2299,13 @@ const OSManagement = ({
                               </span>
                             </div>
                           )}
-                          {order.formasPagamento && (
+                          {order.formasPagamentoLimpa && (
                             <div className="pt-1">
                               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
-                                Condições / Vencimentos:
+                                Forma de Pagamento:
                               </span>
-                              <p className="text-[11px] text-slate-200 bg-black/40 p-2 rounded-xl border border-white/5 whitespace-pre-wrap leading-tight font-mono">
-                                {order.formasPagamento}
+                              <p className="text-[11px] text-slate-200 bg-black/40 p-2 rounded-xl border border-white/5 whitespace-pre-wrap leading-tight font-mono font-bold">
+                                {order.formasPagamentoLimpa}
                               </p>
                             </div>
                           )}
@@ -2263,8 +2398,13 @@ const OSManagement = ({
 
                           {/* Cliente */}
                           <td className="px-5 py-4 min-w-[200px]">
-                            <p className="font-bold text-white group-hover:text-pink-300 transition-colors text-sm">
-                              {order.clientName}
+                            <p className="font-bold text-white group-hover:text-pink-300 transition-colors text-sm flex items-center gap-2 flex-wrap">
+                              <span>{order.clientName}</span>
+                              {order.pacienteNome && order.pacienteNome.toLowerCase() !== order.clientName.toLowerCase() && (
+                                <span className="text-[10px] bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 px-1.5 py-0.5 rounded font-black">
+                                  Pac: {order.pacienteNome}
+                                </span>
+                              )}
                             </p>
                             <div className="flex flex-wrap items-center gap-2 mt-1">
                               {order.clientPhone && (
@@ -2335,9 +2475,15 @@ const OSManagement = ({
                               R$ {formatMoney(order.valorTotal)}
                             </p>
                             <div className="text-[10px] text-slate-400 space-y-0.5 mt-0.5">
-                              <p><span className="text-emerald-400 font-bold">Sinal:</span> R$ {formatMoney(order.valorEntrada)}</p>
+                              <p>
+                                <span className="text-emerald-400 font-bold">Sinal:</span> R$ {formatMoney(order.valorEntrada)}
+                                {order.formaEntrada && parseCurrency(order.valorEntrada) > 0 ? ` (${order.formaEntrada})` : ''}
+                              </p>
                               {parseCurrency(order.restante) > 0 ? (
-                                <p><span className="text-rose-400 font-bold">Restante:</span> R$ {formatMoney(order.restante)}</p>
+                                <p>
+                                  <span className="text-rose-400 font-bold">Restante:</span> R$ {formatMoney(order.restante)}
+                                  {order.formaRestante ? ` (${order.formaRestante})` : ''}
+                                </p>
                               ) : (
                                 <p className="text-emerald-400 font-bold">100% Quitado</p>
                               )}
@@ -2349,11 +2495,11 @@ const OSManagement = ({
                                 </span>
                               </div>
                             )}
-                            {order.formasPagamento && (
+                            {order.formasPagamentoLimpa && (
                               <div className="mt-1.5 pt-1.5 border-t border-white/5">
-                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">Condições / Vencimentos:</span>
-                                <p className="text-[10px] text-slate-300 font-medium whitespace-pre-wrap leading-tight bg-white/[0.03] p-1.5 rounded-lg border border-white/5">
-                                  {order.formasPagamento}
+                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">Forma de Pagamento:</span>
+                                <p className="text-[10px] text-slate-300 font-bold whitespace-pre-wrap leading-tight bg-white/[0.03] p-1.5 rounded-lg border border-white/5 font-mono">
+                                  {order.formasPagamentoLimpa}
                                 </p>
                               </div>
                             )}
@@ -2682,19 +2828,24 @@ const OSManagement = ({
                                     </div>
                                     <span className="font-black text-white">R$ {formatMoney(order.valorTotal)}</span>
                                   </div>
-                                  <div className="flex justify-between">
+                                  <div className="flex justify-between items-center gap-2">
                                     <span className="text-slate-400">Sinal:</span>
-                                    <span className="text-emerald-400 font-bold">R$ {formatMoney(order.valorEntrada)}</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-slate-400">Restante:</span>
-                                    <span className={parseCurrency(order.restante) > 0 ? "text-rose-400 font-black" : "text-emerald-400 font-bold"}>
-                                      {parseCurrency(order.restante) > 0 ? `R$ ${formatMoney(order.restante)}` : "100% Quitado"}
+                                    <span className="text-emerald-400 font-bold">
+                                      R$ {formatMoney(order.valorEntrada)}
+                                      {order.formaEntrada && parseCurrency(order.valorEntrada) > 0 ? ` (${order.formaEntrada})` : ''}
                                     </span>
                                   </div>
-                                  {order.formasPagamento && (
-                                    <p className="text-[10px] text-slate-300 font-mono bg-black/40 p-1.5 rounded border border-white/5 truncate">
-                                      {order.formasPagamento}
+                                  <div className="flex justify-between items-center gap-2">
+                                    <span className="text-slate-400">Restante:</span>
+                                    <span className={parseCurrency(order.restante) > 0 ? "text-rose-400 font-black" : "text-emerald-400 font-bold"}>
+                                      {parseCurrency(order.restante) > 0
+                                        ? `R$ ${formatMoney(order.restante)}${order.formaRestante ? ` (${order.formaRestante})` : ''}`
+                                        : "100% Quitado"}
+                                    </span>
+                                  </div>
+                                  {order.formasPagamentoLimpa && (
+                                    <p className="text-[10px] text-slate-300 font-mono bg-black/40 p-1.5 rounded border border-white/5 truncate font-bold">
+                                      {order.formasPagamentoLimpa}
                                     </p>
                                   )}
                                 </div>
@@ -2781,61 +2932,38 @@ const OSManagement = ({
               </div>
               <div className="bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 text-center">
                 <span className="text-[10px] font-black uppercase text-emerald-400 block mb-1">Sinal / Entrada</span>
-                <span className="text-sm sm:text-base font-black text-emerald-300">R$ {formatMoney(approvalModalOrder.valorEntrada)}</span>
+                <span className="text-sm sm:text-base font-black text-emerald-300 block">R$ {formatMoney(approvalModalOrder.valorEntrada)}</span>
+                {approvalModalOrder.formaEntrada && parseCurrency(approvalModalOrder.valorEntrada) > 0 && (
+                  <span className="text-[9px] font-black uppercase text-emerald-400/90 mt-0.5 block">{approvalModalOrder.formaEntrada}</span>
+                )}
               </div>
               <div className="bg-rose-500/10 p-3 rounded-xl border border-rose-500/20 text-center">
                 <span className="text-[10px] font-black uppercase text-rose-400 block mb-1">Saldo a Cobrar</span>
-                <span className="text-sm sm:text-base font-black text-rose-300">R$ {formatMoney(approvalModalOrder.restante)}</span>
+                <span className="text-sm sm:text-base font-black text-rose-300 block">R$ {formatMoney(approvalModalOrder.restante)}</span>
+                {approvalModalOrder.formaRestante && parseCurrency(approvalModalOrder.restante) > 0 && (
+                  <span className="text-[9px] font-black uppercase text-amber-300 mt-0.5 block">{approvalModalOrder.formaRestante}</span>
+                )}
               </div>
             </div>
 
-            {/* Condições de Pagamento e Parcelas */}
+            {/* Condições de Pagamento e Saldo a Faturar */}
             <div className="space-y-1.5 bg-white/[0.02] p-3.5 rounded-xl border border-white/5 text-xs">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
-                Formas de Pagamento Declaradas:
+                Forma de Pagamento:
               </span>
-              <p className="text-slate-200 font-medium whitespace-pre-wrap leading-relaxed">
-                {approvalModalOrder.formasPagamento || "Não especificado na abertura."}
+              <p className="text-slate-200 font-bold whitespace-pre-wrap leading-relaxed font-mono">
+                {approvalModalOrder.formasPagamentoLimpa || cleanPaymentMethodForOS(approvalModalOrder.formasPagamento) || "Não especificado na abertura."}
               </p>
 
-              {(() => {
-                const parcs = extractOrderInstallments(approvalModalOrder);
-
-                if (parcs && parcs.length > 0) {
-                  return (
-                    <div className="mt-3 pt-2.5 border-t border-white/10 space-y-1.5">
-                      <span className="text-[10px] font-black uppercase text-indigo-400 block">
-                        Duplicatas que serão criadas em Contas a Receber ({parcs.length} parcela{parcs.length > 1 ? 's' : ''}):
-                      </span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
-                        {parcs.map((p, idx) => (
-                          <div key={idx} className="bg-black/40 border border-white/10 p-2 rounded-lg flex items-center justify-between text-[11px]">
-                            <div>
-                              <span className="font-bold text-slate-300 block">{p.numero}ª Parcela</span>
-                              {p.vencimento && (
-                                <span className="text-[10px] text-slate-500 font-mono">Venc: {formatDate(p.vencimento)}</span>
-                              )}
-                            </div>
-                            <span className="font-black text-emerald-400">R$ {typeof p.valor === 'number' ? formatMoney(p.valor) : p.valor}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                } else if (parseCurrency(approvalModalOrder.restante) > 0) {
-                  return (
-                    <div className="mt-2 pt-2 border-t border-white/10 text-[11px] text-amber-300 font-medium">
-                      ℹ️ O saldo de <strong className="text-white">R$ {formatMoney(approvalModalOrder.restante)}</strong> será lançado como duplicata a receber no Financeiro.
-                    </div>
-                  );
-                } else {
-                  return (
-                    <div className="mt-2 pt-2 border-t border-white/10 text-[11px] text-emerald-400 font-medium">
-                      ✅ OS quitada integralmente no ato (sem duplicatas pendentes).
-                    </div>
-                  );
-                }
-              })()}
+              {parseCurrency(approvalModalOrder.restante) > 0 ? (
+                <div className="mt-2 pt-2 border-t border-white/10 text-[11px] text-amber-300 font-medium">
+                  ℹ️ O saldo de <strong className="text-white">R$ {formatMoney(approvalModalOrder.restante)}</strong>{approvalModalOrder.formaRestante ? ` (${approvalModalOrder.formaRestante})` : ''} será lançado a receber no Financeiro (Contas a Receber).
+                </div>
+              ) : (
+                <div className="mt-2 pt-2 border-t border-white/10 text-[11px] text-emerald-400 font-medium">
+                  ✅ OS quitada integralmente no ato (sem duplicatas pendentes).
+                </div>
+              )}
             </div>
 
             {/* Aviso informativo de liberação */}
@@ -2928,7 +3056,15 @@ const OSManagement = ({
               <p><span className="text-slate-500 font-bold">Produto:</span> {deliveryModalOrder.product}</p>
               <p><span className="text-slate-500 font-bold">Valor Total:</span> <span className="text-emerald-400 font-bold">R$ {formatMoney(deliveryModalOrder.valorTotal)}</span></p>
               {parseCurrency(deliveryModalOrder.restante) > 0 && (
-                <p><span className="text-rose-400 font-bold">Saldo Restante na Entrega:</span> <span className="text-rose-400 font-black">R$ {formatMoney(deliveryModalOrder.restante)}</span></p>
+                <p>
+                  <span className="text-rose-400 font-bold">Saldo Restante na Entrega:</span>{' '}
+                  <span className="text-rose-400 font-black">R$ {formatMoney(deliveryModalOrder.restante)}</span>
+                  {deliveryModalOrder.formaRestante && (
+                    <span className="ml-1.5 text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      {deliveryModalOrder.formaRestante}
+                    </span>
+                  )}
+                </p>
               )}
             </div>
 

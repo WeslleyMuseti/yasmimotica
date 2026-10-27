@@ -11,9 +11,11 @@ import {
   Phone, Award, Layers, Trophy, Gift
 } from 'lucide-react';
 import FileUploader from './FileUploader';
-import { Upload as UploadIcon } from 'lucide-react';
+import { Upload as UploadIcon, FileCode } from 'lucide-react';
 import DataTable from './DataTable';
 import VendorRanking from './VendorRanking';
+import { buildSalesHistoryXml, downloadXmlFile } from '../xmlUtils';
+import * as XLSX from 'xlsx';
 
 const COLORS = ['#38bdf8', '#818cf8', '#10b981', '#f59e0b', '#f43f5e', '#a855f7', '#14b8a6', '#ec4899', '#64748b'];
 
@@ -832,6 +834,65 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
   // Dados filtrados das coleções em tempo real
   const vendasRows = useMemo(() => filterByCity(sheets['Registro_Vendas'] || sheets['BD MARKETING'] || []), [sheets, selectedCity]);
   const clientesRows = useMemo(() => filterByCity(sheets['CLIENTES_CADASTRADOS'] || []), [sheets, selectedCity]);
+
+  // Exportação do Histórico de Vendas em formato nativo Excel (.xlsx) compatível com Excel Online
+  const handleExportSalesExcel = () => {
+    if (!vendasRows || vendasRows.length === 0) {
+      alert('Nenhuma venda encontrada para exportar.');
+      return;
+    }
+    const todayStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+    const filename = `Historico_Vendas_${selectedCity}_${todayStr}.xlsx`;
+
+    const formattedRows = vendasRows.map((v, i) => ({
+      'Nº': i + 1,
+      'Data da Venda': v['DATA DA VENDA'] || v['DATA  DA VENDA'] || v['DATA_VENDA'] || v.dataHora || v.DATA || '',
+      'OS da Venda': v['OS DA VENDA'] || v.OS || v.osNumero || '',
+      'Cliente': v['NOME DO CLIENTE'] || v.CLIENTE || v.NOME || '',
+      'CPF': v['CPF'] || v.CLIENTE_CPF || '',
+      'Loja / Unidade': v.CIDADE || v.LOJA || v.UNIDADE || selectedCity,
+      'Vendedor': v.VENDEDOR || v.OPERADOR || '',
+      'Armação': v['ARMAÇÃO'] || v.armacao || '',
+      'Lente': v['LENTE'] || v.lente || '',
+      'Valor Total (R$)': cleanVal(v['VALOR TOTAL'] || v['VALOR DO ORÇAMENTO'] || v['VALOR DA VENDA'] || v.VALOR || 0),
+      'Forma de Pagamento': v['FORMA DE PAGAMENTO'] || v.formaPagamento || '',
+      'Status': v.STATUS || 'Concluída'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(formattedRows);
+    ws['!cols'] = [
+      { wch: 6 },
+      { wch: 15 },
+      { wch: 15 },
+      { wch: 30 },
+      { wch: 16 },
+      { wch: 15 },
+      { wch: 20 },
+      { wch: 25 },
+      { wch: 25 },
+      { wch: 15 },
+      { wch: 20 },
+      { wch: 15 }
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Histórico de Vendas');
+    XLSX.writeFile(wb, filename);
+  };
+
+  // Exportação do Histórico de Vendas em formato XML estruturado
+  const handleExportSalesXML = () => {
+    if (!vendasRows || vendasRows.length === 0) {
+      alert('Nenhuma venda encontrada para exportar.');
+      return;
+    }
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const xmlContent = buildSalesHistoryXml(vendasRows, {
+      loja: selectedCity,
+      periodo: 'Histórico Completo'
+    });
+    downloadXmlFile(xmlContent, `Historico_Vendas_${selectedCity}_${todayStr}.xml`);
+  };
   const armacoesRows = useMemo(() => filterByCity(sheets['CAD_ARMACOES'] || []), [sheets, selectedCity]);
   const lentesRows = useMemo(() => filterByCity(sheets['CAD_LENTES'] || []), [sheets, selectedCity]);
   const brindesRows = useMemo(() => filterByCity(sheets['CAD_BRINDES'] || []), [sheets, selectedCity]);
@@ -1195,14 +1256,25 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
               <h3 className="text-lg font-bold text-white">Todas as Ordens de Serviço e Vendas</h3>
               <p className="text-xs text-slate-400">{vendasRows.length} registros encontrados para esta seleção.</p>
             </div>
-            {onAddClick && (
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => onAddClick('Registro_Vendas', {})}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5"
+                type="button"
+                onClick={handleExportSalesExcel}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-md shadow-emerald-600/25 active:scale-95"
+                title="Baixar histórico de vendas em formato oficial Excel (.xlsx) compatível com Excel Online, Google Planilhas e Celular"
               >
-                <PlusCircle size={15} /> Nova Venda
+                <FileSpreadsheet size={15} />
+                <span>Baixar Vendas (.xlsx)</span>
               </button>
-            )}
+              {onAddClick && (
+                <button
+                  onClick={() => onAddClick('Registro_Vendas', {})}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5"
+                >
+                  <PlusCircle size={15} /> Nova Venda
+                </button>
+              )}
+            </div>
           </div>
           <DataTable sheetName="Registro_Vendas" rows={vendasRows} onRowUpdate={onRowUpdate} />
         </div>

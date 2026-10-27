@@ -55,8 +55,100 @@ const parseSafeCurrency = (val) => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
+// 🛡️ Comparador de listas para evitar re-renders desnecessários e loops em cascata
+const areDataListsEqual = (a, b) => {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const itemA = a[i];
+    const itemB = b[i];
+    if (itemA === itemB) continue;
+    if (!itemA || !itemB) return false;
+    const idA = itemA.id || itemA._id;
+    const idB = itemB.id || itemB._id;
+    if (idA !== idB) return false;
+    const upA = itemA.updatedAt || itemA.updated_at || itemA.dataHora || '';
+    const upB = itemB.updatedAt || itemB.updated_at || itemB.dataHora || '';
+    if (upA && upB && upA !== upB) return false;
+  }
+  return true;
+};
+
 // Hash seguro PBKDF2 padrão para primeiro acesso da conta master
 const DEFAULT_MASTER_HASH = "pbkdf2:b3bb279090a24beecaa987cfde1224a1:b473c3a43b120e5f624792b560dff6edc6b56d1865a8fb3d9a0433d7ab13804a";
+
+// 🛡️ Error Boundary Resiliente: Evita tela em branco/cinza caso ocorra qualquer exceção em subcomponentes
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('⚠️ [AppErrorBoundary] Erro capturado na interface:', error, errorInfo);
+  }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null });
+    if (this.props.onReset) {
+      this.props.onReset();
+    } else {
+      window.location.reload();
+    }
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-[500px] flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-slate-900 border border-amber-500/30 p-6 rounded-3xl shadow-2xl text-center space-y-4 backdrop-blur-xl">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/10">
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <h3 className="text-base font-black uppercase tracking-wider text-white">Recuperação de Interface</h3>
+              <p className="text-xs text-slate-300 mt-1">
+                {this.state.error?.message || 'Houve uma falha ao renderizar este módulo.'}
+              </p>
+            </div>
+            <div className="pt-2 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={this.handleReset}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-sky-500/20 cursor-pointer"
+              >
+                Voltar ao Início / Recarregar Módulo
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    if ('serviceWorker' in navigator) {
+                      navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+                    }
+                    if ('caches' in window) {
+                      caches.keys().then(names => names.forEach(n => caches.delete(n)));
+                    }
+                  } catch (e) {}
+                  window.location.href = window.location.origin + window.location.pathname + '?v=' + Date.now();
+                }}
+                className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-400 hover:text-white font-bold text-xs transition-all cursor-pointer"
+              >
+                Limpar Cache do Navegador e Recarregar
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function App() {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -65,12 +157,17 @@ function App() {
   const [showSyncSuccessToast, setShowSyncSuccessToast] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
+  // 🛡️ Travas de segurança para evitar loops de escrita automática e consumo excessivo
+  const processedDuplicateDeletionsRef = useRef(new Set());
+  const hasCleanedStephanieCloudRef = useRef(false);
+
   const [data, setData] = useState(() => {
     let initial = {
       'CLIENTES_CADASTRADOS': [],
       'Registro_Vendas': [],
       'CAD_LENTES': [],
       'CAD_ARMACOES': [],
+      'CAD_ACESSORIOS': [],
       'CAD_BRINDES': [],
       'CONTAS_PAGAR': [],
       'CONTAS_RECEBER': [],
@@ -84,6 +181,7 @@ function App() {
           'Registro_Vendas': backup['Registro_Vendas'] || [],
           'CAD_LENTES': backup['CAD_LENTES'] || [],
           'CAD_ARMACOES': backup['CAD_ARMACOES'] || [],
+          'CAD_ACESSORIOS': backup['CAD_ACESSORIOS'] || [],
           'CAD_BRINDES': backup['CAD_BRINDES'] || [],
           'CONTAS_PAGAR': backup['CONTAS_PAGAR'] || [],
           'CONTAS_RECEBER': backup['CONTAS_RECEBER'] || [],
@@ -268,7 +366,10 @@ function App() {
 
           if (isDuplicateLumpSum) {
             hasChange = true;
-            if (r.id) toDeleteIds.push(r.id);
+            if (r.id && !processedDuplicateDeletionsRef.current.has(r.id)) {
+              processedDuplicateDeletionsRef.current.add(r.id);
+              toDeleteIds.push(r.id);
+            }
           } else {
             // Normaliza as parcelas para que a tabela exiba perfeitamente
             if (isInst) {
@@ -299,10 +400,13 @@ function App() {
     });
 
     if (hasChange) {
-      setData(prev => ({
-        ...prev,
-        'CONTAS_RECEBER': resultList
-      }));
+      setData(prev => {
+        if (areDataListsEqual(prev?.['CONTAS_RECEBER'], resultList)) return prev;
+        return {
+          ...prev,
+          'CONTAS_RECEBER': resultList
+        };
+      });
 
       if (isConfigured && toDeleteIds.length > 0) {
         toDeleteIds.forEach(id => {
@@ -310,7 +414,7 @@ function App() {
         });
       }
     }
-  }, [data['CONTAS_RECEBER'], isConfigured]);
+  }, [data?.['CONTAS_RECEBER'], isConfigured]);
 
   const [selectedRow, setSelectedRow] = useState(null);
   const [editingRowData, setEditingRowData] = useState(null);
@@ -476,48 +580,71 @@ function App() {
 
       // Quando o firebase retorna dados, atualizamos o state central sincronizado
       setData(prev => {
+        let hasAnyChange = false;
         const merged = { ...prev };
         const keysToUpdate = changedCol ? [changedCol] : Object.keys(newData);
         keysToUpdate.forEach(key => {
           if (key === 'DELETED_ITEMS' || key === 'USUARIOS') return;
           // Coleções sincronizadas do Firebase sobrescrevem o estado local
           const list = (newData[key] || []).filter(r => !deletedKeys.includes(getItemKey(r)));
-          merged[key] = list;
+          if (!areDataListsEqual(prev[key], list)) {
+            merged[key] = list;
+            hasAnyChange = true;
+          }
         });
 
         if (financialCleared) {
-          if (!merged['Registro_Vendas']) merged['Registro_Vendas'] = [];
-          if (!merged['CONTAS_RECEBER']) merged['CONTAS_RECEBER'] = [];
-          if (!merged['CONTAS_PAGAR']) merged['CONTAS_PAGAR'] = [];
-          if (!merged['FLUXO_CAIXA']) merged['FLUXO_CAIXA'] = [];
-          merged['BD MARKETING'] = [];
+          if (merged['Registro_Vendas']?.length) { merged['Registro_Vendas'] = []; hasAnyChange = true; }
+          if (merged['CONTAS_RECEBER']?.length) { merged['CONTAS_RECEBER'] = []; hasAnyChange = true; }
+          if (merged['CONTAS_PAGAR']?.length) { merged['CONTAS_PAGAR'] = []; hasAnyChange = true; }
+          if (merged['FLUXO_CAIXA']?.length) { merged['FLUXO_CAIXA'] = []; hasAnyChange = true; }
+          if (merged['BD MARKETING']?.length) { merged['BD MARKETING'] = []; hasAnyChange = true; }
         }
 
-        // 🛡️ Higienização atômica e automática para Stephanie Museti
-        const { nextData, modified, deletedKeys: sDelKeys, deletedItems } = sanitizeStephanieMusetiData(merged, getItemKey);
+        // 🛡️ Higienização atômica em memória para Stephanie Museti (pura, sem disparar escrita repetida de rede)
+        const { nextData, modified, deletedKeys: sDelKeys } = sanitizeStephanieMusetiData(merged, getItemKey);
         if (modified) {
+          hasAnyChange = true;
           if (sDelKeys && sDelKeys.length > 0) {
             sDelKeys.forEach(k => addDeletedKey(k));
           }
-          if (isConfigured) {
-            if (deletedItems && deletedItems.length > 0) {
-              deletedItems.forEach(({ sheet, id }) => {
-                if (id) deleteDocument(sheet, id).catch(() => {});
-              });
-            }
-            if (Array.isArray(nextData['CLIENTES_CADASTRADOS'])) {
-              const stephanieClient = nextData['CLIENTES_CADASTRADOS'].find(c => isStephanieMuseti(c));
-              if (stephanieClient && stephanieClient.id) {
-                saveDocument('CLIENTES_CADASTRADOS', stephanieClient).catch(err => {
-                  console.warn('Aviso ao sincronizar cliente higienizada com Firestore:', err);
-                });
-              }
-            }
-          }
         }
 
-        return nextData;
+        return hasAnyChange ? nextData : prev;
       });
+
+      // 🛡️ Sincronização única de emergência para Stephanie Museti no Firestore (executa no máximo 1 vez por sessão e nunca em loop)
+      if (isConfigured && !hasCleanedStephanieCloudRef.current) {
+        hasCleanedStephanieCloudRef.current = true;
+        setTimeout(() => {
+          try {
+            const rawCurrent = { ...newData };
+            const { modified, deletedItems, nextData } = sanitizeStephanieMusetiData(rawCurrent, getItemKey);
+            if (modified) {
+              if (deletedItems && deletedItems.length > 0) {
+                deletedItems.forEach(({ sheet, id }) => {
+                  if (id) deleteDocument(sheet, id).catch(() => {});
+                });
+              }
+              if (Array.isArray(nextData['CLIENTES_CADASTRADOS'])) {
+                const stephanieClient = nextData['CLIENTES_CADASTRADOS'].find(c => isStephanieMuseti(c));
+                if (stephanieClient && stephanieClient.id) {
+                  const rawClient = (rawCurrent['CLIENTES_CADASTRADOS'] || []).find(c => isStephanieMuseti(c));
+                  const needsCloudSave = rawClient && (
+                    rawClient['Valor Devido'] !== '0,00' ||
+                    rawClient['Status de Pagamento'] !== 'Em dia'
+                  );
+                  if (needsCloudSave) {
+                    saveDocument('CLIENTES_CADASTRADOS', stephanieClient).catch(() => {});
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Aviso na higienização única de nuvem:', e);
+          }
+        }, 2000);
+      }
       
       // Update users somente quando a coleção USUARIOS sofreu atualização (previne churn e consumo elevado a cada venda/movimento)
       if (!changedCol || changedCol === 'USUARIOS') {
@@ -717,24 +844,12 @@ function App() {
       };
     });
 
-    // 2. Se o Firebase estiver configurado, remove o documento e registra exclusão permanente
-    if (isConfigured) {
-      if (rowToDelete.id) {
-        try {
-          await deleteDocument(sheetName, rowToDelete.id);
-        } catch (err) {
-          console.warn("Erro ao deletar no Firestore:", err);
-        }
-      }
+    // 2. Se o Firebase estiver configurado, remove o documento do Firestore
+    if (isConfigured && rowToDelete.id) {
       try {
-        await saveDocument('DELETED_ITEMS', {
-          key: delKey,
-          sheetName,
-          rowSummary: rowToDelete['Nome Completo'] || rowToDelete['NOME'] || rowToDelete['OS'] || '',
-          deletedAt: new Date().toISOString()
-        });
+        await deleteDocument(sheetName, rowToDelete.id);
       } catch (err) {
-        console.warn("Erro ao registrar exclusão no Firestore:", err);
+        console.warn("Erro ao deletar no Firestore:", err);
       }
     }
   };
@@ -1241,86 +1356,90 @@ function App() {
 
       {/* Conteúdo do Dashboard */}
       <div className="max-w-[1400px] mx-auto px-3 sm:px-6 py-4 sm:py-8">
-        {view === 'pos' ? (
-          <POSRegister
-            data={data}
-            setData={setData}
-            clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
-            salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || []}
-            armacoesData={data?.['CAD_ARMACOES'] || []}
-            lentesData={data?.['CAD_LENTES'] || []}
-            receberData={data?.['CONTAS_RECEBER'] || []}
-            currentUser={currentUser}
-            onAddSale={(newSale) => handleAddRow(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', newSale)}
-            onAddClient={(newClient) => handleAddRow('CLIENTES_CADASTRADOS', newClient)}
-            onUpdateRow={handleRowUpdate}
-            onAddRow={handleAddRow}
-            onAddBatch={handleAddBatch}
-            onNavigateToNewClient={() => {
-              setClientInitialTab('novo');
-              setView('clients');
-            }}
-            onNavigateToERP={() => setView('erp')}
-            onBack={() => setView(currentUser?.role === 'vendedor' ? 'clients' : 'dashboard')}
-          />
-        ) : view === 'clients' ? (
+        <AppErrorBoundary onReset={() => setView(currentUser?.role === 'vendedor' ? 'pos' : 'dashboard')}>
+          {view === 'pos' ? (
+            <POSRegister
+              data={data}
+              setData={setData}
+              clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
+              salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || []}
+              armacoesData={data?.['CAD_ARMACOES'] || []}
+              lentesData={data?.['CAD_LENTES'] || []}
+              receberData={data?.['CONTAS_RECEBER'] || []}
+              currentUser={currentUser}
+              onAddSale={(newSale) => handleAddRow(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', newSale)}
+              onAddClient={(newClient) => handleAddRow('CLIENTES_CADASTRADOS', newClient)}
+              onUpdateRow={handleRowUpdate}
+              onDeleteRow={handleDeleteRow}
+              onAddRow={handleAddRow}
+              onAddBatch={handleAddBatch}
+              onNavigateToNewClient={() => {
+                setClientInitialTab('novo');
+                setView('clients');
+              }}
+              onNavigateToERP={() => setView('erp')}
+              onBack={() => setView(currentUser?.role === 'vendedor' ? 'clients' : 'dashboard')}
+            />
+          ) : view === 'clients' ? (
 
-          <ClientRegistration 
-            currentUser={currentUser}
-            initialTab={clientInitialTab}
-            clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
-            salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || []}
-            lentesData={data?.['CAD_LENTES'] || []}
-            armacoesData={data?.['CAD_ARMACOES'] || []}
-            receberData={data?.['CONTAS_RECEBER'] || []}
-            onAddClient={(newClient) => handleAddRow('CLIENTES_CADASTRADOS', newClient)}
-            onUpdateClient={(updatedClient) => handleRowUpdate('CLIENTES_CADASTRADOS', updatedClient.oldRow, updatedClient.newRow)}
-            onDeleteClient={(clientToDelete) => handleDeleteRow('CLIENTES_CADASTRADOS', clientToDelete)}
-            onAddSale={(newSale) => handleAddRow(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', newSale)}
-            onUpdateSale={(oldSale, updatedSale) => handleRowUpdate(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', oldSale, updatedSale)}
-            onDeleteSale={(saleToDelete) => handleDeleteRow(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', saleToDelete)}
-            onAddRow={handleAddRow}
-            onAddBatch={handleAddBatch}
-            onUpdateRow={handleRowUpdate}
-            onDeleteRow={handleDeleteRow}
-            onBack={() => setView(currentUser?.role === 'vendedor' ? 'pos' : 'dashboard')} 
-          />
-        ) : view === 'erp' ? (
-          <ErpOptica
-            data={data}
-            currentUser={currentUser}
-            clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
-            onAddRow={handleAddRow}
-            onAddBatch={handleAddBatch}
-            onUpdateRow={handleRowUpdate}
-            onDeleteRow={handleDeleteRow}
-            onClearFinancialAndOS={handleClearFinancialAndOSHistory}
-            onBack={() => setView('dashboard')}
-          />
-        ) : view === 'os-management' ? (
-          <OSManagement
-            data={data}
-            salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || []}
-            clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
-            currentUser={currentUser}
-            onAddRow={handleAddRow}
-            onAddBatch={handleAddBatch}
-            onUpdateRow={handleRowUpdate}
-            onDeleteRow={handleDeleteRow}
-            onClearFinancialAndOS={handleClearFinancialAndOSHistory}
-            onBack={() => setView(currentUser?.role === 'vendedor' ? 'pos' : 'dashboard')}
-          />
-        ) : (
-          <Dashboard 
-            onDataLoaded={handleDataLoaded}
-            data={sanitizedDashboardData} 
-            isSynced={true} 
-            onRowUpdate={handleRowUpdate} 
-            onAddClick={(sheetName, emptyRow) => setAddingRowData({ sheetName, row: emptyRow })}
-            onOpenOSManagement={() => setView('os-management')}
-            onOpenPOS={() => setView('pos')}
-          />
-        )}
+            <ClientRegistration 
+              currentUser={currentUser}
+              data={data}
+              initialTab={clientInitialTab}
+              clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
+              salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || []}
+              lentesData={data?.['CAD_LENTES'] || []}
+              armacoesData={data?.['CAD_ARMACOES'] || []}
+              receberData={data?.['CONTAS_RECEBER'] || []}
+              onAddClient={(newClient) => handleAddRow('CLIENTES_CADASTRADOS', newClient)}
+              onUpdateClient={(updatedClient) => handleRowUpdate('CLIENTES_CADASTRADOS', updatedClient.oldRow, updatedClient.newRow)}
+              onDeleteClient={(clientToDelete) => handleDeleteRow('CLIENTES_CADASTRADOS', clientToDelete)}
+              onAddSale={(newSale) => handleAddRow(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', newSale)}
+              onUpdateSale={(oldSale, updatedSale) => handleRowUpdate(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', oldSale, updatedSale)}
+              onDeleteSale={(saleToDelete) => handleDeleteRow(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', saleToDelete)}
+              onAddRow={handleAddRow}
+              onAddBatch={handleAddBatch}
+              onUpdateRow={handleRowUpdate}
+              onDeleteRow={handleDeleteRow}
+              onBack={() => setView(currentUser?.role === 'vendedor' ? 'pos' : 'dashboard')} 
+            />
+          ) : view === 'erp' ? (
+            <ErpOptica
+              data={data}
+              currentUser={currentUser}
+              clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
+              onAddRow={handleAddRow}
+              onAddBatch={handleAddBatch}
+              onUpdateRow={handleRowUpdate}
+              onDeleteRow={handleDeleteRow}
+              onClearFinancialAndOS={handleClearFinancialAndOSHistory}
+              onBack={() => setView('dashboard')}
+            />
+          ) : view === 'os-management' ? (
+            <OSManagement
+              data={data}
+              salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || []}
+              clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
+              currentUser={currentUser}
+              onAddRow={handleAddRow}
+              onAddBatch={handleAddBatch}
+              onUpdateRow={handleRowUpdate}
+              onDeleteRow={handleDeleteRow}
+              onClearFinancialAndOS={handleClearFinancialAndOSHistory}
+              onBack={() => setView(currentUser?.role === 'vendedor' ? 'pos' : 'dashboard')}
+            />
+          ) : (
+            <Dashboard 
+              onDataLoaded={handleDataLoaded}
+              data={sanitizedDashboardData} 
+              isSynced={true} 
+              onRowUpdate={handleRowUpdate} 
+              onAddClick={(sheetName, emptyRow) => setAddingRowData({ sheetName, row: emptyRow })}
+              onOpenOSManagement={() => setView('os-management')}
+              onOpenPOS={() => setView('pos')}
+            />
+          )}
+        </AppErrorBoundary>
       </div>
 
       {/* Modal de Detalhes da Busca Global */}

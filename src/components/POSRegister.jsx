@@ -6,13 +6,14 @@ import {
   Sparkles, RefreshCw, X, ShieldCheck, Calendar, Phone,
   UserPlus, ClipboardList, Glasses, Layers, Tag, Check,
   Lock, Unlock, ArrowDownRight, ArrowUpRight, Building, Wallet, History, Receipt,
-  Ticket, Percent, AlertOctagon, Star, Gift, Loader2
+  Ticket, Percent, AlertOctagon, Star, Gift, Loader2, Info, Clock
 } from 'lucide-react';
 import PrintableOS from './PrintableOS';
 import PrintableReceipt from './PrintableReceipt';
 import OSGeneratorModal from './OSGeneratorModal';
-import CashManagementModal, { PrintableCashVoucher } from './CashManagementModal';
+import CashManagementModal, { PrintableCashVoucher, parseItemDate } from './CashManagementModal';
 import CashHistoryModal from './CashHistoryModal';
+import PrintableCashClosingReport from './PrintableCashClosingReport';
 import { PrintableLabelModal } from './PrintableLabel';
 import { decrementStockAtomically, isSameClient } from '../firebaseSync';
 
@@ -59,6 +60,7 @@ const POSRegister = ({
   onAddSale,
   onAddClient,
   onUpdateRow,
+  onDeleteRow,
   onAddRow,
   onAddBatch,
   onNavigateToNewClient,
@@ -105,6 +107,7 @@ const POSRegister = ({
   // ─── SISTEMA DE PAGAMENTO ────────────────────────────────────────
   const [payments, setPayments] = useState([]);
   const [currentMethod, setCurrentMethod] = useState('dinheiro'); // 'dinheiro', 'pix', 'debito', 'credito', 'carne'
+  const [currentStage, setCurrentStage] = useState('entrada'); // 'entrada' | 'restante'
   const [paymentInputVal, setPaymentInputVal] = useState('');
   const [payInstallments, setPayInstallments] = useState(1);
   const [payFirstDueDate, setPayFirstDueDate] = useState(() => {
@@ -114,6 +117,11 @@ const POSRegister = ({
   });
   const [customDueDates, setCustomDueDates] = useState({});
   const [cashTendered, setCashTendered] = useState('');
+  const [posSaleDate, setPosSaleDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [posSaleTime, setPosSaleTime] = useState(() => {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  });
 
   const getInstallmentDate = (firstDateStr, offset) => {
     if (!firstDateStr) {
@@ -142,10 +150,21 @@ const POSRegister = ({
 
   // ─── GESTÃO DE FLUXO DE CAIXA, TURNOS & SANGRIA ──────────────────
   const isVendor = currentUser?.role === 'vendedor';
-  const userFixedCity = isVendor ? (currentUser?.city || currentUser?.assignedStore || 'Cajati') : null;
+  const isExternalVendor = isVendor && (
+    String(currentUser?.city || currentUser?.assignedStore || '').trim().toLowerCase().includes('extern') ||
+    String(currentUser?.role || '').trim().toLowerCase().includes('extern')
+  );
+
+  const isProductFromVendaExterna = (item) => {
+    if (!item) return false;
+    const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.Unidade || item.unidade || '').trim().toLowerCase();
+    return u.includes('extern');
+  };
+  // Se for vendedor de loja fixa, fica travado na unidade. Se for Vendedor Externo (ou admin), pode selecionar a loja livremente no PDV!
+  const userFixedCity = (isVendor && !isExternalVendor) ? (currentUser?.city || currentUser?.assignedStore || 'Cajati') : null;
 
   const [selectedPOSCity, setSelectedPOSCity] = useState(() => {
-    return userFixedCity || currentUser?.city || currentUser?.assignedStore || 'Cajati';
+    return userFixedCity || (isExternalVendor ? 'Venda Externa' : (currentUser?.city || currentUser?.assignedStore || 'Cajati'));
   });
 
   useEffect(() => {
@@ -157,11 +176,18 @@ const POSRegister = ({
   const [cashModalState, setCashModalState] = useState({ isOpen: false, type: 'ABERTURA' });
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [cashVoucherPrintData, setCashVoucherPrintData] = useState(null);
+  const [cashClosingPdfData, setCashClosingPdfData] = useState(null);
 
   const handleTriggerCashPrint = (voucher) => {
     setOsPrintData(null);
     setReceiptPrintData(null);
-    setCashVoucherPrintData(voucher);
+    if (voucher && voucher.type === 'PDF_REPORT') {
+      setCashVoucherPrintData(null);
+      setCashClosingPdfData(voucher);
+    } else {
+      setCashClosingPdfData(null);
+      setCashVoucherPrintData(voucher);
+    }
     setTimeout(() => {
       window.print();
     }, 250);
@@ -174,7 +200,11 @@ const POSRegister = ({
   const activeSession = useMemo(() => {
     const cityMovements = [...cashMovements]
       .filter(m => m.unidade === selectedPOSCity)
-      .sort((a, b) => new Date(a.dataHora || a.timestamp || 0) - new Date(b.dataHora || b.timestamp || 0));
+      .sort((a, b) => {
+        const da = parseItemDate(a)?.getTime() || 0;
+        const db = parseItemDate(b)?.getTime() || 0;
+        return da - db;
+      });
 
     let currentOpen = null;
     cityMovements.forEach(m => {
@@ -196,10 +226,12 @@ const POSRegister = ({
 
   const liveDrawerCash = useMemo(() => {
     if (!activeSession) return 0;
-    const sessionStart = new Date(activeSession.dataHoraAbertura || 0);
+    const sessionStart = parseItemDate({ dataHora: activeSession.dataHoraAbertura || activeSession.timestamp }) || new Date(0);
     const movements = cashMovements.filter(m => {
       if (m.unidade !== selectedPOSCity) return false;
-      return new Date(m.dataHora || 0) >= sessionStart;
+      const mDate = parseItemDate(m);
+      if (!mDate) return false;
+      return mDate >= sessionStart;
     });
 
     let saldo = activeSession.fundoInicial || 0;
@@ -221,11 +253,22 @@ const POSRegister = ({
 
   const handleOpenCash = async (openData) => {
     if (onAddRow) {
+      const dtIso = openData.dataHoraAbertura || openData.dataHora || new Date().toISOString();
+      const dtObj = new Date(dtIso);
+      const dtFormatted = openData.data || dtObj.toLocaleDateString('pt-BR');
+      const dtTime = openData.hora || openData.HORA || dtObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const dtDateTime = openData.DATA_HORA || dtObj.toLocaleString('pt-BR');
       await onAddRow('FLUXO_CAIXA', {
         id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         tipo: 'ABERTURA',
-        dataHora: openData.dataHoraAbertura,
-        data: new Date().toLocaleDateString('pt-BR'),
+        dataHora: dtIso,
+        dataHoraAbertura: dtIso,
+        timestamp: dtObj.getTime(),
+        DATA_HORA: dtDateTime,
+        data: dtFormatted,
+        DATA: dtFormatted,
+        hora: dtTime,
+        HORA: dtTime,
         unidade: openData.unidade,
         operador: openData.operador,
         valor: openData.fundoInicial,
@@ -238,11 +281,21 @@ const POSRegister = ({
 
   const handleAddSangria = async (sangriaData) => {
     if (onAddRow) {
+      const dtIso = sangriaData.dataHora || new Date().toISOString();
+      const dtObj = new Date(dtIso);
+      const dtFormatted = sangriaData.data || dtObj.toLocaleDateString('pt-BR');
+      const dtTime = sangriaData.hora || sangriaData.HORA || dtObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const dtDateTime = sangriaData.DATA_HORA || dtObj.toLocaleString('pt-BR');
       await onAddRow('FLUXO_CAIXA', {
         id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         tipo: 'SANGRIA',
-        dataHora: sangriaData.dataHora,
-        data: new Date().toLocaleDateString('pt-BR'),
+        dataHora: dtIso,
+        timestamp: dtObj.getTime(),
+        DATA_HORA: dtDateTime,
+        data: dtFormatted,
+        DATA: dtFormatted,
+        hora: dtTime,
+        HORA: dtTime,
         unidade: sangriaData.unidade,
         operador: sangriaData.operador,
         valor: sangriaData.valor,
@@ -257,7 +310,12 @@ const POSRegister = ({
           'DESPESA': sangriaData.detalhes || sangriaData.motivo,
           'CATEGORIA': sangriaData.despesaCategoria || 'Despesa de Caixa',
           'VALOR': sangriaData.valor,
-          'DATA': new Date().toLocaleDateString('pt-BR'),
+          'DATA': dtFormatted,
+          'dataHora': dtIso,
+          'timestamp': dtObj.getTime(),
+          'DATA_HORA': dtDateTime,
+          'hora': dtTime,
+          'HORA': dtTime,
           'STATUS': 'Pago',
           'CIDADE': sangriaData.unidade,
           'OBSERVAÇÕES': `Sangria de Caixa realizada por ${sangriaData.operador}`
@@ -268,11 +326,21 @@ const POSRegister = ({
 
   const handleAddSuprimento = async (suprimentoData) => {
     if (onAddRow) {
+      const dtIso = suprimentoData.dataHora || new Date().toISOString();
+      const dtObj = new Date(dtIso);
+      const dtFormatted = suprimentoData.data || dtObj.toLocaleDateString('pt-BR');
+      const dtTime = suprimentoData.hora || suprimentoData.HORA || dtObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const dtDateTime = suprimentoData.DATA_HORA || dtObj.toLocaleString('pt-BR');
       await onAddRow('FLUXO_CAIXA', {
         id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         tipo: 'SUPRIMENTO',
-        dataHora: suprimentoData.dataHora,
-        data: new Date().toLocaleDateString('pt-BR'),
+        dataHora: dtIso,
+        timestamp: dtObj.getTime(),
+        DATA_HORA: dtDateTime,
+        data: dtFormatted,
+        DATA: dtFormatted,
+        hora: dtTime,
+        HORA: dtTime,
         unidade: suprimentoData.unidade,
         operador: suprimentoData.operador,
         valor: suprimentoData.valor,
@@ -284,11 +352,23 @@ const POSRegister = ({
 
   const handleCloseCash = async (closeData) => {
     if (onAddRow) {
+      const dtIso = closeData.dataHoraFechamento || closeData.dataHora || new Date().toISOString();
+      const dtObj = new Date(dtIso);
+      const dtFormatted = closeData.data || dtObj.toLocaleDateString('pt-BR');
+      const dtTime = closeData.hora || closeData.HORA || dtObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const dtDateTime = closeData.DATA_HORA || dtObj.toLocaleString('pt-BR');
       await onAddRow('FLUXO_CAIXA', {
         id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         tipo: 'FECHAMENTO',
-        dataHora: new Date().toISOString(),
-        data: new Date().toLocaleDateString('pt-BR'),
+        dataHora: dtIso,
+        dataHoraFechamento: dtIso,
+        timestamp: dtObj.getTime(),
+        DATA_HORA: dtDateTime,
+        dataFechamento: dtDateTime,
+        data: dtFormatted,
+        DATA: dtFormatted,
+        hora: dtTime,
+        HORA: dtTime,
         unidade: closeData.unidade,
         operador: closeData.operador,
         valor: closeData.dinheiroContado,
@@ -319,6 +399,10 @@ const POSRegister = ({
 
   const erpBrindes = useMemo(() => {
     return data?.['CAD_BRINDES'] || [];
+  }, [data]);
+
+  const erpAcessorios = useMemo(() => {
+    return data?.['CAD_ACESSORIOS'] || [];
   }, [data]);
 
   // ─── FILTROS DE CLIENTES ─────────────────────────────────────────
@@ -369,13 +453,80 @@ const POSRegister = ({
 
     const isInadimplente = hasOverdue || String(selectedClient['Status de Pagamento'] || '').toLowerCase() === 'inadimplente';
 
+    // Auditoria de Inadimplência do Responsável Legal (se houver)
+    let respFinancials = null;
+    const respName = String(selectedClient['Responsável Nome'] || selectedClient['Responsável'] || '').trim();
+    const respCpf = String(selectedClient['Responsável CPF'] || '').replace(/\D/g, '');
+
+    if (respName || respCpf) {
+      const clean = (str) => String(str || '').toLowerCase().trim();
+      const cleanDigits = (str) => String(str || '').replace(/\D/g, '');
+
+      const respInvoices = (receberData || []).filter(inv => {
+        const invCpf = cleanDigits(inv.CPF || inv.cpf || inv['CPF / CNPJ']);
+        if (respCpf && invCpf && invCpf === respCpf) return true;
+        const invClient = clean(inv.CLIENTE || inv.cliente || inv['Nome Completo']);
+        if (respName && invClient && invClient === clean(respName)) return true;
+        return false;
+      });
+
+      let respAberto = 0;
+      let respVencido = 0;
+      let respHasOverdue = false;
+
+      respInvoices.forEach(inv => {
+        const val = cleanVal(inv.VALOR || inv.valor || 0);
+        const st = String(inv.STATUS || inv.status || 'Pendente').trim();
+        const isPaid = st === 'Recebido' || st === 'Pago';
+        const dtVenc = String(inv.DATA_VENCIMENTO || inv['DATA VENCIMENTO'] || inv.VENCIMENTO || '');
+
+        if (!isPaid) {
+          respAberto += val;
+          if (dtVenc && dtVenc < todayStr) {
+            respHasOverdue = true;
+            respVencido += val;
+          }
+        }
+      });
+
+      if (respInvoices.length === 0 && Array.isArray(clientsData) && clientsData.length > 0) {
+        const respClient = clientsData.find(c => {
+          const cCpf = cleanDigits(c['CPF'] || c['cpf']);
+          if (respCpf && cCpf && cCpf === respCpf) return true;
+          const cName = clean(c['Nome Completo'] || c['NOME']);
+          if (respName && cName && cName === clean(respName)) return true;
+          return false;
+        });
+        if (respClient) {
+          const dev = cleanVal(respClient['Valor Devido'] || respClient['VALOR DEVIDO'] || 0);
+          if (dev > 0 || String(respClient['Status de Pagamento'] || '').toLowerCase().includes('inadimplente')) {
+            respAberto = dev;
+            respVencido = dev;
+            respHasOverdue = true;
+          }
+        }
+      }
+
+      if (respAberto > 0 || respHasOverdue) {
+        respFinancials = {
+          respName: respName || 'Responsável Legal',
+          respCpf: respCpf ? respCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '',
+          totalAberto: respAberto,
+          totalVencido: respVencido > 0 ? respVencido : respAberto,
+          isInadimplente: true,
+          countInvoices: respInvoices.length
+        };
+      }
+    }
+
     return {
       totalAberto,
       totalVencido: totalVencido > 0 ? totalVencido : (isInadimplente ? totalAberto : 0),
       isInadimplente,
-      countInvoices: clientInvoices.length
+      countInvoices: clientInvoices.length,
+      respFinancials
     };
-  }, [selectedClient, receberData]);
+  }, [selectedClient, receberData, clientsData]);
 
   // ─── MAPA DE MAIS VENDIDOS (CROSS-REFERENCE COM VENDAS DO ERP) ────────
   const salesCountMap = useMemo(() => {
@@ -398,12 +549,15 @@ const POSRegister = ({
       source = erpLentes.map(i => ({ ...i, _type: 'lentes' }));
     } else if (productCategory === 'brindes') {
       source = erpBrindes.map(i => ({ ...i, _type: 'brindes' }));
+    } else if (productCategory === 'acessorios') {
+      source = erpAcessorios.map(i => ({ ...i, _type: 'acessorios' }));
     } else if (productCategory === 'geral') {
       source = erpGeral.map(i => ({ ...i, _type: 'geral' }));
     } else if (productCategory === 'mais_vendidos') {
       const all = [
         ...erpArmacoes.map(i => ({ ...i, _type: 'armacoes' })),
-        ...erpLentes.map(i => ({ ...i, _type: 'lentes' }))
+        ...erpLentes.map(i => ({ ...i, _type: 'lentes' })),
+        ...erpAcessorios.map(i => ({ ...i, _type: 'acessorios' }))
       ];
       source = all.sort((a, b) => {
         const textA = String(a['MODELO'] || a['MARCA'] || a['PRODUTO'] || '').toLowerCase();
@@ -416,6 +570,7 @@ const POSRegister = ({
       source = [
         ...erpArmacoes.map(i => ({ ...i, _type: 'armacoes' })),
         ...erpLentes.map(i => ({ ...i, _type: 'lentes' })),
+        ...erpAcessorios.map(i => ({ ...i, _type: 'acessorios' })),
         ...erpBrindes.map(i => ({ ...i, _type: 'brindes' })),
         ...erpGeral.map(i => ({ ...i, _type: 'geral' }))
       ];
@@ -435,10 +590,26 @@ const POSRegister = ({
       const text = Object.values(item).join(' ').toLowerCase();
       return text.includes(q);
     });
-  }, [productCategory, erpArmacoes, erpLentes, erpBrindes, erpGeral, salesCountMap, productSearch, selectedCityStock]);
+  }, [productCategory, erpArmacoes, erpLentes, erpAcessorios, erpBrindes, erpGeral, salesCountMap, productSearch, selectedCityStock]);
 
   // ─── OPERAÇÕES DO CARRINHO ───────────────────────────────────────
   const addToCart = (product, type) => {
+    const rawStock = product['ESTOQUE'] !== undefined ? product['ESTOQUE'] : (product['EM ESTOQUE'] !== undefined ? product['EM ESTOQUE'] : (product['estoque'] !== undefined ? product['estoque'] : product['QTD']));
+    const stockAvailable = parseInt(rawStock !== undefined && rawStock !== '' ? rawStock : 999, 10);
+
+    // 🛡️ Regra: Vendedores (internos e externos) não podem selecionar produtos com estoque zerado ou esgotado (<= 0)
+    if (isVendor && stockAvailable <= 0) {
+      const prodName = `${product['MARCA'] || ''} ${product['MODELO'] || product['PRODUTO'] || product['NOME'] || 'Produto'}`.trim();
+      alert(`⚠️ Item com Estoque Zerado!\n\nO produto "${prodName}" está esgotado (Estoque: 0 un).\n\nVendedores não têm permissão para adicionar produtos com estoque zerado no carrinho.`);
+      return;
+    }
+
+    if (isExternalVendor && !isProductFromVendaExterna(product)) {
+      const prodUnit = product['UNIDADE'] || product['CIDADE'] || product['LOJA'] || product['Unidade'] || 'Outra Loja';
+      alert(`Inclusão não permitida para Vendedor Externo:\n\nEste produto pertence ao estoque da unidade "${prodUnit}".\n\nVendedores externos podem consultar produtos de todas as lojas, porém só têm permissão para adicionar produtos que pertençam ao estoque de "Venda Externa".\n\nCaso o cliente deseje este item, solicite a transferência do produto para Venda Externa no ERP.`);
+      return;
+    }
+
     const effectiveType = type || product._type || (product['CATEGORIA'] && !product['MARCA'] ? 'brindes' : product['LENTE'] ? 'lentes' : (product['COR'] || product['MODELO'] ? 'armacoes' : 'geral'));
     const id = product.id || `${effectiveType}_${product['MARCA'] || ''}_${product['MODELO'] || ''}_${product['REFERENCIA_SKU'] || ''}_${product['NOME'] || ''}_${product['LENTE'] || ''}`;
     
@@ -459,6 +630,13 @@ const POSRegister = ({
       if (product['INDICE_REFRACAO']) extra.push(`Índice: ${product['INDICE_REFRACAO']}`);
       if (product['TRATAMENTO']) extra.push(product['TRATAMENTO']);
       details = extra.join(' | ');
+    } else if (effectiveType === 'acessorios') {
+      name = `${product['MARCA'] ? product['MARCA'] + ' ' : ''}${product['NOME'] || product['MODELO'] || product['PRODUTO'] || 'Acessório'}`.trim();
+      const extra = [];
+      if (product['CATEGORIA']) extra.push(`Cat: ${product['CATEGORIA']}`);
+      if (product['REFERENCIA_SKU']) extra.push(`Ref: ${product['REFERENCIA_SKU']}`);
+      if (product['UNIDADE']) extra.push(`Loja: ${product['UNIDADE']}`);
+      details = extra.join(' | ');
     } else if (effectiveType === 'brindes') {
       name = product['NOME'] || product['MODELO'] || product['PRODUTO'] || 'Brinde / Cortesia';
       const extra = [];
@@ -472,7 +650,6 @@ const POSRegister = ({
     }
 
     const price = cleanVal(product['PRECO_VENDA'] || product['VALOR'] || product['PRECO'] || product['VALOR UNITARIO'] || 0);
-    const stockAvailable = parseInt(product['ESTOQUE'] || product['EM ESTOQUE'] || product['QTD'] || 999, 10);
 
     setCart(prev => {
       const existing = prev.find(item => item.id === id);
@@ -596,22 +773,56 @@ const POSRegister = ({
       if (matchedItem) {
         matchedType = 'lentes';
       } else {
-        matchedItem = erpBrindes.find(findMatch);
+        matchedItem = erpAcessorios.find(findMatch);
         if (matchedItem) {
-          matchedType = 'brindes';
+          matchedType = 'acessorios';
         } else {
-          matchedItem = erpGeral.find(findMatch);
+          matchedItem = erpBrindes.find(findMatch);
           if (matchedItem) {
-            matchedType = 'geral';
+            matchedType = 'brindes';
+          } else {
+            matchedItem = erpGeral.find(findMatch);
+            if (matchedItem) {
+              matchedType = 'geral';
+            }
           }
         }
       }
     }
 
     if (matchedItem) {
+      const rawStock = matchedItem['ESTOQUE'] !== undefined ? matchedItem['ESTOQUE'] : (matchedItem['EM ESTOQUE'] !== undefined ? matchedItem['EM ESTOQUE'] : (matchedItem['estoque'] !== undefined ? matchedItem['estoque'] : matchedItem['QTD']));
+      const stockAvailable = parseInt(rawStock !== undefined && rawStock !== '' ? rawStock : 999, 10);
+      const name = `${matchedItem['MARCA'] || ''} ${matchedItem['MODELO'] || matchedItem['PRODUTO'] || matchedItem['NOME'] || 'Produto'}`.trim();
+
+      if (isVendor && stockAvailable <= 0) {
+        playScannerBeep(false);
+        setBarcodeToast({
+          id: Date.now(),
+          type: 'warning',
+          title: 'Produto com Estoque Zerado',
+          message: `O item "${name}" está esgotado (0 un). Vendedores não podem adicionar itens sem estoque.`,
+          price: cleanVal(matchedItem['PRECO_VENDA'] || matchedItem['VALOR'] || 0)
+        });
+        return;
+      }
+
+      if (isExternalVendor && !isProductFromVendaExterna(matchedItem)) {
+        playScannerBeep(false);
+        const prodUnit = matchedItem['UNIDADE'] || matchedItem['CIDADE'] || matchedItem['LOJA'] || matchedItem['Unidade'] || 'Outra Filial';
+        const name = `${matchedItem['MARCA'] || ''} ${matchedItem['MODELO'] || matchedItem['PRODUTO'] || matchedItem['NOME'] || 'Produto'}`.trim();
+        setBarcodeToast({
+          id: Date.now(),
+          type: 'warning',
+          title: 'Bloqueado para Vendedor Externo',
+          message: `O item "${name}" pertence à unidade ${prodUnit}. Vendedores externos só podem adicionar itens de Venda Externa.`,
+          price: cleanVal(matchedItem['PRECO_VENDA'] || matchedItem['VALOR'] || 0)
+        });
+        return;
+      }
+
       addToCart(matchedItem, matchedType);
       playScannerBeep(true);
-      const name = `${matchedItem['MARCA'] || ''} ${matchedItem['MODELO'] || matchedItem['PRODUTO'] || 'Produto'}`.trim();
       setBarcodeToast({
         id: Date.now(),
         type: 'success',
@@ -810,21 +1021,24 @@ const POSRegister = ({
     return dStr;
   };
 
-  const buildPaymentObject = (method, val, cashReceivedVal, installmentsCount, dueDate, customDates = {}) => {
+  const buildPaymentObject = (method, val, cashReceivedVal, installmentsCount, dueDate, customDates = {}, stageOverride = null) => {
     let texto = '';
     let parcelasDetalhe = [];
     let trocoLocal = 0;
     const n = parseInt(installmentsCount, 10) || 1;
     const valorNumerico = Math.max(0, cleanVal(val));
+    const isBoletoMethod = method === 'carne' || method === 'boleto';
+    const effectiveStage = isBoletoMethod ? 'restante' : (stageOverride || currentStage || 'entrada');
+    const stagePrefix = (!isBoletoMethod && effectiveStage === 'restante') ? '[Restante] ' : '';
 
     if (method === 'dinheiro') {
       const recebido = cleanVal(cashReceivedVal) || valorNumerico;
       trocoLocal = Math.max(0, recebido - valorNumerico);
-      texto = `💵 Dinheiro: ${fmtMoeda(valorNumerico)}${trocoLocal > 0 ? ` (Recebido: ${fmtMoeda(recebido)} | Troco: ${fmtMoeda(trocoLocal)})` : ''}`;
+      texto = `${stagePrefix}💵 Dinheiro: ${fmtMoeda(valorNumerico)}${trocoLocal > 0 ? ` (Recebido: ${fmtMoeda(recebido)} | Troco: ${fmtMoeda(trocoLocal)})` : ''}`;
     } else if (method === 'pix') {
-      texto = `⚡ PIX: ${fmtMoeda(valorNumerico)}`;
+      texto = `${stagePrefix}⚡ PIX: ${fmtMoeda(valorNumerico)}`;
     } else if (method === 'debito') {
-      texto = `💳 Cartão Débito: ${fmtMoeda(valorNumerico)}`;
+      texto = `${stagePrefix}💳 Cartão Débito: ${fmtMoeda(valorNumerico)}`;
     } else if (method === 'credito') {
       const vParc = n > 0 ? valorNumerico / n : valorNumerico;
       if (n > 1) {
@@ -835,9 +1049,9 @@ const POSRegister = ({
             valor: vParc.toFixed(2).replace('.', ',')
           });
         }
-        texto = `💳 Cartão Crédito (${n}x de ${fmtMoeda(vParc)}): ${fmtMoeda(valorNumerico)}`;
+        texto = `${stagePrefix}💳 Cartão Crédito (${n}x de ${fmtMoeda(vParc)}): ${fmtMoeda(valorNumerico)}`;
       } else {
-        texto = `💳 Cartão Crédito (1x à vista): ${fmtMoeda(valorNumerico)}`;
+        texto = `${stagePrefix}💳 Cartão Crédito (1x à vista): ${fmtMoeda(valorNumerico)}`;
       }
     } else if (method === 'carne' || method === 'boleto') {
       const vParc = n > 0 ? valorNumerico / n : valorNumerico;
@@ -858,6 +1072,7 @@ const POSRegister = ({
     return {
       id: `pay_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       metodo: method,
+      stage: effectiveStage,
       valor: valorNumerico,
       texto,
       parcelas: parcelasDetalhe,
@@ -882,6 +1097,15 @@ const POSRegister = ({
       if (!allow) return;
     }
 
+    if (currentMethod === 'carne' && selectedClientFinancials?.respFinancials?.isInadimplente) {
+      const respName = selectedClientFinancials.respFinancials.respName;
+      const vencido = fmtMoeda(selectedClientFinancials.respFinancials.totalVencido || selectedClientFinancials.respFinancials.totalAberto);
+      const allow = window.confirm(
+        `⚠️ ALERTA DE RISCO DE CRÉDITO DO RESPONSÁVEL LEGAL:\n\nO Responsável Legal deste cliente (${respName}) possui parcelas vencidas em aberto no valor de ${vencido}.\n\nDeseja realmente autorizar a emissão de NOVO BOLETO para este cliente?`
+      );
+      if (!allow) return;
+    }
+
     const rawVal = cleanVal(paymentInputVal) || (currentMethod === 'dinheiro' ? cleanVal(cashTendered) : 0) || remaining;
     const val = remaining > 0 ? Math.min(rawVal, remaining) : (rawVal || totalFinal);
 
@@ -890,12 +1114,27 @@ const POSRegister = ({
       return;
     }
 
-    const newPay = buildPaymentObject(currentMethod, val, cashTendered, payInstallments, payFirstDueDate, customDueDates);
+    const newPay = buildPaymentObject(currentMethod, val, cashTendered, payInstallments, payFirstDueDate, customDueDates, currentStage);
     setPayments(prev => [...prev, newPay]);
     setPaymentInputVal('');
     setCashTendered('');
     setPayInstallments(1);
     setCustomDueDates({});
+  };
+
+  const togglePaymentStage = (id) => {
+    setPayments(prev => prev.map(p => {
+      if (p.id !== id) return p;
+      const mLower = String(p.metodo || '').toLowerCase();
+      if (mLower === 'carne' || mLower === 'boleto') return p;
+      const nextStage = p.stage === 'restante' ? 'entrada' : 'restante';
+      const cleanTexto = String(p.texto || '').replace(/^\[Restante\]\s*/i, '');
+      return {
+        ...p,
+        stage: nextStage,
+        texto: nextStage === 'restante' ? `[Restante] ${cleanTexto}` : cleanTexto
+      };
+    }));
   };
 
   const removePayment = (id) => {
@@ -932,7 +1171,7 @@ const POSRegister = ({
         return;
       }
 
-      const autoPay = buildPaymentObject(currentMethod, totalFinal, cashTendered, payInstallments, payFirstDueDate, customDueDates);
+      const autoPay = buildPaymentObject(currentMethod, totalFinal, cashTendered, payInstallments, payFirstDueDate, customDueDates, currentStage);
       effectivePayments = [autoPay];
     }
 
@@ -947,13 +1186,64 @@ const POSRegister = ({
       if (!allow) return;
     }
 
+    if (hasCarne && selectedClientFinancials?.respFinancials?.isInadimplente) {
+      const respName = selectedClientFinancials.respFinancials.respName;
+      const vencido = fmtMoeda(selectedClientFinancials.respFinancials.totalVencido || selectedClientFinancials.respFinancials.totalAberto);
+      const allow = window.confirm(
+        `⚠️ ALERTA DE RISCO DE CRÉDITO DO RESPONSÁVEL LEGAL:\n\nO Responsável Legal deste cliente (${respName}) possui parcelas vencidas em aberto no valor de ${vencido}.\n\nDeseja realmente autorizar e FINALIZAR a venda com emissão de novo boleto?`
+      );
+      if (!allow) return;
+    }
+
     setIsFinalizingSale(true);
 
     const clientId = selectedClient.id || selectedClient._id || selectedClient.CLIENTE_ID || `client_${Date.now()}`;
     const clientCpf = String(selectedClient['CPF / CNPJ'] || selectedClient['CPF'] || '').trim();
     const clientName = selectedClient['Nome Completo'] || selectedClient['NOME'] || 'Cliente';
     const city = userFixedCity || selectedPOSCity || selectedClient['Cidade'] || selectedClient['CIDADE'] || currentUser?.city || 'Cajati';
-    const todayStr = new Date().toLocaleDateString('pt-BR');
+
+    // 🛡️ Cálculo preciso da data e horário da venda informados pelo operador (respeita data e horário retroativos ou customizados)
+    const getSaleDateInfo = () => {
+      const now = new Date();
+      const defaultTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const effectiveTime = posSaleTime || defaultTime;
+      const [hStr, mStr] = effectiveTime.split(':');
+      const hours = parseInt(hStr, 10) || now.getHours();
+      const minutes = parseInt(mStr, 10) || now.getMinutes();
+
+      let targetYear = now.getFullYear();
+      let targetMonth = now.getMonth();
+      let targetDay = now.getDate();
+
+      if (posSaleDate) {
+        const parts = posSaleDate.split('-');
+        if (parts.length === 3) {
+          targetYear = parseInt(parts[0], 10);
+          targetMonth = parseInt(parts[1], 10) - 1;
+          targetDay = parseInt(parts[2], 10);
+        }
+      }
+
+      const customDate = new Date(targetYear, targetMonth, targetDay, hours, minutes, 0);
+      const timeFormatted = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+      return {
+        dateObj: customDate,
+        formatted: customDate.toLocaleDateString('pt-BR'),
+        iso: customDate.toISOString(),
+        timestamp: customDate.getTime(),
+        timeStr: timeFormatted
+      };
+    };
+
+    const saleDateInfo = getSaleDateInfo();
+    const effectiveSaleDateFormatted = saleDateInfo.formatted;
+    const effectiveSaleDateIso = saleDateInfo.iso;
+    const effectiveSaleTimestamp = saleDateInfo.timestamp;
+    const effectiveSaleTimeStr = saleDateInfo.timeStr;
+    const effectiveSaleDateTimeFmt = saleDateInfo.dateObj.toLocaleString('pt-BR');
+    const nowIso = effectiveSaleDateIso;
+    const todayStr = effectiveSaleDateFormatted;
 
     // Montar texto de pagamento consolidado
     const formaPagamentoTexto = effectivePayments.map(p => p.texto).join(' + ');
@@ -963,25 +1253,48 @@ const POSRegister = ({
     const valorTotalFmt = totalFinal.toFixed(2).replace('.', ',');
     const totalPagoImediato = effectivePayments.reduce((acc, p) => {
       const metodoLower = String(p.metodo || '').toLowerCase();
-      if (metodoLower === 'boleto' || metodoLower === 'carne') {
+      if (metodoLower === 'boleto' || metodoLower === 'carne' || p.stage === 'restante') {
         return acc;
       }
       return acc + (cleanVal(p.valor) || 0);
     }, 0);
     const valorEntradaFmt = totalPagoImediato.toFixed(2).replace('.', ',');
     const restanteFmt = Math.max(0, totalFinal - totalPagoImediato).toFixed(2).replace('.', ',');
-    const todasParcelas = effectivePayments.flatMap(p => p.parcelas || []);
+    const todasParcelas = effectivePayments
+      .filter(p => p.metodo === 'carne' || p.metodo === 'boleto')
+      .flatMap(p => p.parcelas || []);
+
+    const formatPOSMethodName = (m, parcelas) => {
+      const ml = String(m || '').toLowerCase();
+      if (ml === 'dinheiro') return 'Dinheiro';
+      if (ml === 'pix') return 'PIX';
+      if (ml === 'debito') return 'Cartão de Débito';
+      if (ml === 'credito') return parcelas && parcelas.length > 1 ? `Cartão de Crédito (${parcelas.length}x)` : 'Cartão de Crédito';
+      if (ml === 'carne' || ml === 'boleto') return parcelas && parcelas.length > 0 ? `Boleto (${parcelas.length}x)` : 'Boleto';
+      return m;
+    };
+    const entradaMethodsList = [...new Set(
+      effectivePayments
+        .filter(p => p.metodo !== 'carne' && p.metodo !== 'boleto' && p.stage !== 'restante')
+        .map(p => formatPOSMethodName(p.metodo, p.parcelas))
+    )];
+    const restanteMethodsList = [...new Set(
+      effectivePayments
+        .filter(p => p.metodo === 'carne' || p.metodo === 'boleto' || p.stage === 'restante')
+        .map(p => formatPOSMethodName(p.metodo, p.parcelas))
+    )];
+    const derivedFormaEntrada = entradaMethodsList.join(' + ');
+    const derivedFormaRestante = restanteMethodsList.join(' + ');
 
     const saleId = `venda_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-    const nowIso = new Date().toISOString();
-    const nowTs = Date.now();
-    const nowFormatted = new Date().toLocaleString('pt-BR');
 
     const newSale = {
       id: saleId,
       dataHora: nowIso,
-      timestamp: nowTs,
-      DATA_HORA: nowFormatted,
+      timestamp: effectiveSaleTimestamp,
+      DATA_HORA: effectiveSaleDateTimeFmt,
+      HORA: effectiveSaleTimeStr,
+      hora: effectiveSaleTimeStr,
       'CLIENTE_ID': clientId,
       'CLIENTE_CPF': clientCpf,
       'CPF': clientCpf,
@@ -992,6 +1305,10 @@ const POSRegister = ({
       'LOJA': city,
       'DATA': todayStr,
       'DATA  DA VENDA': todayStr,
+      'DATA DA VENDA': todayStr,
+      'DATA_VENDA': todayStr,
+      'Data da Venda': todayStr,
+      'data_venda': todayStr,
       'PRODUTO': descricaoItens,
       'VALOR TOTAL': totalFinal,
       'VALOR DA VENDA': totalFinal,
@@ -999,6 +1316,10 @@ const POSRegister = ({
       'SINAL': valorEntradaFmt,
       'RESTANTE': restanteFmt,
       'FORMA_PAGTO': formaPagamentoTexto,
+      'FORMA_ENTRADA': derivedFormaEntrada,
+      'formaPagamentoEntrada': derivedFormaEntrada,
+      'FORMA_RESTANTE': derivedFormaRestante,
+      'formaPagamentoRestante': derivedFormaRestante,
       'pagamentosLista': effectivePayments,
       'parcelas': todasParcelas,
       'PARCELAS_JSON': JSON.stringify(todasParcelas),
@@ -1024,12 +1345,27 @@ const POSRegister = ({
       'valorEntrada': valorEntradaFmt,
       'restante': restanteFmt,
       'formasPagamento': formaPagamentoTexto,
+      'FORMA_ENTRADA': derivedFormaEntrada,
+      'formaPagamentoEntrada': derivedFormaEntrada,
+      'FORMA_RESTANTE': derivedFormaRestante,
+      'formaPagamentoRestante': derivedFormaRestante,
       'parcelas': todasParcelas,
       'PARCELAS_JSON': JSON.stringify(todasParcelas),
       'Cidade': city,
       'CIDADE': city,
       'LOJA': city,
       'selectedCity': city,
+      'dataVenda': effectiveSaleDateFormatted,
+      'dataHora': nowIso,
+      'timestamp': effectiveSaleTimestamp,
+      'DATA_HORA': effectiveSaleDateTimeFmt,
+      'HORA': effectiveSaleTimeStr,
+      'hora': effectiveSaleTimeStr,
+      'DATA  DA VENDA': effectiveSaleDateFormatted,
+      'DATA DA VENDA': effectiveSaleDateFormatted,
+      'DATA_VENDA': effectiveSaleDateFormatted,
+      'Data da Venda': effectiveSaleDateFormatted,
+      'DATA': effectiveSaleDateFormatted,
       'observacoes': `Venda Caixa PDV: ${todosItensNomes}`
     };
 
@@ -1043,10 +1379,18 @@ const POSRegister = ({
       vouchers: appliedVouchers,
       valorTotal: totalFinal,
       formaPagamento: formaPagamentoTexto,
+      formaPagamentoEntrada: derivedFormaEntrada,
+      formaPagamentoRestante: derivedFormaRestante,
       pagamentosLista: effectivePayments,
       trocoTotal,
       parcelas: todasParcelas,
       cidade: city,
+      dataHora: nowIso,
+      timestamp: effectiveSaleTimestamp,
+      DATA_HORA: effectiveSaleDateTimeFmt,
+      HORA: effectiveSaleTimeStr,
+      hora: effectiveSaleTimeStr,
+      dataVenda: effectiveSaleDateFormatted,
       vendedor: currentUser?.username || 'Caixa'
     };
 
@@ -1057,12 +1401,16 @@ const POSRegister = ({
     // 2. Limpar formulário de venda e carrinho do operador
     setCart([]);
     setPayments([]);
+    setCurrentStage('entrada');
     setDiscountInput('');
     setCashTendered('');
     setPaymentInputVal('');
     setAppliedVouchers([]);
     setVoucherCodeInput('');
     setVoucherError('');
+    setPosSaleDate(new Date().toISOString().slice(0, 10));
+    const resetNowTime = new Date();
+    setPosSaleTime(`${String(resetNowTime.getHours()).padStart(2, '0')}:${String(resetNowTime.getMinutes()).padStart(2, '0')}`);
     setIsFinalizingSale(false);
 
     // 3. Sincronização em background protegida com withTimeout para não prender a interface
@@ -1130,9 +1478,10 @@ const POSRegister = ({
 
         // 2. Baixar Estoque dos Itens Vendidos no ERP (Transações Atômicas no Firestore)
         for (const item of cart) {
-          if (item.rawProduct && (item.type === 'armacoes' || item.type === 'lentes' || item.type === 'brindes' || item.type === 'geral')) {
+          if (item.rawProduct && (item.type === 'armacoes' || item.type === 'lentes' || item.type === 'acessorios' || item.type === 'brindes' || item.type === 'geral')) {
             let sheetName = 'CAD_ARMACOES';
             if (item.type === 'lentes') sheetName = 'CAD_LENTES';
+            else if (item.type === 'acessorios') sheetName = 'CAD_ACESSORIOS';
             else if (item.type === 'brindes') sheetName = 'CAD_BRINDES';
             else if (item.type === 'geral') sheetName = 'ESTOQUE';
 
@@ -1180,64 +1529,86 @@ const POSRegister = ({
         // na OS (Semáforo Azul) até a conferência e liberação financeira pela administração!
         const hasOpticalItems = cart.some(i => i.type === 'armacoes' || i.type === 'lentes');
         if (!hasOpticalItems) {
+          const parcelasItems = [];
           for (const pay of effectivePayments) {
-            if ((pay.metodo === 'carne' || pay.metodo === 'boleto') && pay.parcelas && pay.parcelas.length > 0 && onAddRow) {
+            if ((pay.metodo === 'carne' || pay.metodo === 'boleto') && pay.parcelas && pay.parcelas.length > 0) {
               for (const p of pay.parcelas) {
-                try {
-                  await withTimeout(onAddRow('CONTAS_RECEBER', {
-                    'CLIENTE_ID': clientId,
-                    'CLIENTE_CPF': clientCpf,
-                    'CPF': clientCpf,
-                    'CLIENTE': clientName,
-                    'NOME CLIENTE': clientName,
-                    'DOCUMENTO': `BOLETO ${p.numero}/${p.totalParcelas} - PDV`,
-                    'VALOR': typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
-                    'DATA_VENCIMENTO': p.vencimento,
-                    'DATA VENCIMENTO': p.vencimento,
-                    'STATUS': 'Pendente',
-                    'CIDADE': city,
-                    'MEIO_PAGAMENTO': 'Boleto',
-                    'DESCRICAO': `Venda PDV - Parcela ${p.numero}/${p.totalParcelas} (${descricaoItens})`
-                  }), 3000);
-                } catch (crErr) {
-                  console.warn('Aviso ao registrar parcela em CONTAS_RECEBER:', crErr);
+                parcelasItems.push({
+                  'CLIENTE_ID': clientId,
+                  'CLIENTE_CPF': clientCpf,
+                  'CPF': clientCpf,
+                  'CLIENTE': clientName,
+                  'NOME CLIENTE': clientName,
+                  'DOCUMENTO': `BOLETO ${p.numero}/${p.totalParcelas} - PDV`,
+                  'VALOR': typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
+                  'DATA_VENCIMENTO': p.vencimento,
+                  'DATA VENCIMENTO': p.vencimento,
+                  'STATUS': 'Pendente',
+                  'CIDADE': city,
+                  'MEIO_PAGAMENTO': 'Boleto',
+                  'DESCRICAO': `Venda PDV - Parcela ${p.numero}/${p.totalParcelas} (${descricaoItens})`
+                });
+              }
+            }
+          }
+          if (parcelasItems.length > 0) {
+            try {
+              if (onAddBatch) {
+                await withTimeout(onAddBatch('CONTAS_RECEBER', parcelasItems), 4000);
+              } else if (onAddRow) {
+                for (const item of parcelasItems) {
+                  await withTimeout(onAddRow('CONTAS_RECEBER', item), 3000);
                 }
               }
+            } catch (crErr) {
+              console.warn('Aviso ao registrar parcelas em lote em CONTAS_RECEBER:', crErr);
             }
           }
         }
 
-        // 4. Registrar Movimentações no FLUXO_CAIXA em tempo real com rastreabilidade de cliente
-        // Filtra para que APENAS meios de pagamento imediatos (DINHEIRO, PIX, DEBITO, CREDITO) gerem entrada imediata no caixa
-        if (onAddRow) {
-          const immediatePayments = effectivePayments.filter(pay => {
-            const m = String(pay.metodo || '').toUpperCase();
-            return m === 'DINHEIRO' || m === 'PIX' || m === 'DEBITO' || m === 'CREDITO' ||
-                   m.includes('DINHEIRO') || m.includes('PIX') || m.includes('DEBITO') || m.includes('DÉBITO') || m.includes('CREDITO') || m.includes('CRÉDITO');
-          });
+        // 4. Registrar Movimentações no FLUXO_CAIXA em tempo real com rastreabilidade de cliente (em Lote)
+        // Filtra para que APENAS meios de pagamento imediatos (DINHEIRO, PIX, DEBITO, CREDITO) pagos na Entrada (não marcados como Restante) gerem entrada imediata no caixa
+        const immediatePayments = effectivePayments.filter(pay => {
+          if (pay.stage === 'restante') return false;
+          const m = String(pay.metodo || '').toUpperCase();
+          return m === 'DINHEIRO' || m === 'PIX' || m === 'DEBITO' || m === 'CREDITO' ||
+                 m.includes('DINHEIRO') || m.includes('PIX') || m.includes('DEBITO') || m.includes('DÉBITO') || m.includes('CREDITO') || m.includes('CRÉDITO');
+        });
 
-          for (const pay of immediatePayments) {
-            try {
-              await withTimeout(onAddRow('FLUXO_CAIXA', {
-                id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-                saleId: newSale.id,
-                osNumero: newSale['OS DA VENDA'] || '',
-                tipo: 'VENDA',
-                dataHora: new Date().toISOString(),
-                data: todayStr,
-                unidade: city,
-                operador: currentUser?.username || 'Caixa',
-                valor: cleanVal(pay.valor),
-                formaPagamento: String(pay.metodo || 'DINHEIRO').toUpperCase(),
-                motivo: `Venda PDV - ${clientName}`,
-                detalhes: descricaoItens,
-                CLIENTE_ID: clientId,
-                CLIENTE_CPF: clientCpf,
-                CPF: clientCpf
-              }), 3000);
-            } catch (fcErr) {
-              console.warn('Aviso ao registrar movimentação no FLUXO_CAIXA:', fcErr);
+        if (immediatePayments.length > 0) {
+          const cashMovements = immediatePayments.map(pay => ({
+            id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+            saleId: newSale.id,
+            osNumero: newSale['OS DA VENDA'] || '',
+            tipo: 'VENDA',
+            dataHora: effectiveSaleDateIso,
+            timestamp: effectiveSaleTimestamp,
+            DATA_HORA: effectiveSaleDateTimeFmt,
+            data: effectiveSaleDateFormatted,
+            DATA: effectiveSaleDateFormatted,
+            hora: effectiveSaleTimeStr,
+            HORA: effectiveSaleTimeStr,
+            unidade: city,
+            operador: currentUser?.username || 'Caixa',
+            valor: cleanVal(pay.valor),
+            formaPagamento: String(pay.metodo || 'DINHEIRO').toUpperCase(),
+            motivo: `Venda PDV - ${clientName}`,
+            detalhes: descricaoItens,
+            CLIENTE_ID: clientId,
+            CLIENTE_CPF: clientCpf,
+            CPF: clientCpf
+          }));
+
+          try {
+            if (onAddBatch) {
+              await withTimeout(onAddBatch('FLUXO_CAIXA', cashMovements), 4000);
+            } else if (onAddRow) {
+              for (const mov of cashMovements) {
+                await withTimeout(onAddRow('FLUXO_CAIXA', mov), 3000);
+              }
             }
+          } catch (fcErr) {
+            console.warn('Aviso ao registrar movimentação em lote no FLUXO_CAIXA:', fcErr);
           }
         }
       } catch (unexpectedErr) {
@@ -1273,13 +1644,30 @@ const POSRegister = ({
       const singleData = osList[0] || osGeneratedData;
       const osRestante = Math.max(0, parseCurrency(singleData.valorTotal) - parseCurrency(singleData.valorEntrada));
 
+      const singleSaleDate = singleData.dataVenda || completedSale?.['DATA  DA VENDA'] || completedSale?.['DATA'] || todayStr;
+      const singleSaleIso = completedSale?.dataHora || (singleData.dataHora) || new Date().toISOString();
+      const singleSaleTimestamp = completedSale?.timestamp || new Date(singleSaleIso).getTime();
+      const singleSaleDataHoraFmt = completedSale?.DATA_HORA || new Date(singleSaleIso).toLocaleString('pt-BR');
+      const singleSaleHoraFmt = completedSale?.HORA || completedSale?.hora || new Date(singleSaleIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const resolvedFormaEntrada = singleData.formaPagamentoEntrada || singleData.FORMA_ENTRADA || completedSale?.['FORMA_ENTRADA'] || completedSale?.formaPagamentoEntrada || '';
+      const resolvedFormaRestante = singleData.formaPagamentoRestante || singleData.FORMA_RESTANTE || completedSale?.['FORMA_RESTANTE'] || completedSale?.formaPagamentoRestante || '';
+
       const mergedSaleData = {
         ...(completedSale || {}),
         'CLIENTE_ID': clientId,
         'CLIENTE_CPF': clientCpf,
         'CPF': clientCpf,
-        'DATA': todayStr,
-        'DATA  DA VENDA': todayStr,
+        'DATA': singleSaleDate,
+        'DATA  DA VENDA': singleSaleDate,
+        'DATA DA VENDA': singleSaleDate,
+        'DATA_VENDA': singleSaleDate,
+        'Data da Venda': singleSaleDate,
+        'data_venda': singleSaleDate,
+        'dataHora': singleSaleIso,
+        'timestamp': singleSaleTimestamp,
+        'DATA_HORA': singleSaleDataHoraFmt,
+        'HORA': singleSaleHoraFmt,
+        'hora': singleSaleHoraFmt,
         'PRODUTO': (singleData.lente + (singleData.armacao ? ` + ${singleData.armacao}` : '')).trim() || completedSale?.PRODUTO || 'Óculos com Grau',
         'LENTE': singleData.lente || '',
         'ARMAÇÃO': singleData.armacao || '',
@@ -1290,6 +1678,10 @@ const POSRegister = ({
         'SINAL': singleData.valorEntrada || completedSale?.['SINAL'] || '0,00',
         'RESTANTE': singleData.restante || (osRestante > 0 ? osRestante.toFixed(2).replace('.', ',') : '0,00'),
         'FORMAS_PAGAMENTO': singleData.formasPagamento || completedSale?.['FORMA_PAGTO'] || '',
+        'FORMA_ENTRADA': resolvedFormaEntrada,
+        'formaPagamentoEntrada': resolvedFormaEntrada,
+        'FORMA_RESTANTE': resolvedFormaRestante,
+        'formaPagamentoRestante': resolvedFormaRestante,
         'SITUAÇÃO': 'Aguardando Confirmação',
         'OS DA VENDA': singleData.numeroOS,
         'OS': singleData.numeroOS,
@@ -1306,6 +1698,12 @@ const POSRegister = ({
         'NOME CLIENTE': clientName,
         'CLIENTE': clientName,
         'NOME': clientName,
+        'PACIENTE': singleData.nomePessoa || singleData.PACIENTE || singleData.NOME_BENEFICIARIO || clientName,
+        'NOME_BENEFICIARIO': singleData.nomePessoa || singleData.NOME_BENEFICIARIO || singleData.PACIENTE || clientName,
+        'CLIENTE_BENEFICIARIO': singleData.nomePessoa || singleData.CLIENTE_BENEFICIARIO || clientName,
+        'nomePessoa': singleData.nomePessoa || clientName,
+        'RESPONSAVEL_LEGAL_INADIMPLENTE': !!singleData.RESPONSAVEL_LEGAL_INADIMPLENTE,
+        'RESPONSAVEL_LEGAL_DEBITO': singleData.RESPONSAVEL_LEGAL_DEBITO || 0,
         'TELEFONE': savedClientForOS['WhatsApp'] || savedClientForOS['TELEFONE'] || completedSale?.TELEFONE || '',
         'CIDADE': userFixedCity || singleData.selectedCity || singleData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
         'LOJA': userFixedCity || singleData.selectedCity || singleData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
@@ -1321,6 +1719,16 @@ const POSRegister = ({
         'OE_EIXO': singleData.oeEixo || '',
         'OE_DNP': singleData.oeDnp || '',
         'OE_ALT': singleData.oeAlt || '',
+        'OD_PERTO_ESF': singleData.odPertoEsf || '',
+        'OD_PERTO_CIL': singleData.odPertoCil || '',
+        'OD_PERTO_EIXO': singleData.odPertoEixo || '',
+        'OD_PERTO_DNP': singleData.odPertoDnp || '',
+        'OD_PERTO_ALT': singleData.odPertoAlt || '',
+        'OE_PERTO_ESF': singleData.oePertoEsf || '',
+        'OE_PERTO_CIL': singleData.oePertoCil || '',
+        'OE_PERTO_EIXO': singleData.oePertoEixo || '',
+        'OE_PERTO_DNP': singleData.oePertoDnp || '',
+        'OE_PERTO_ALT': singleData.oePertoAlt || '',
         'ADICAO': singleData.adicao || '',
         'MEDICO': singleData.medico || '',
         'OBSERVACOES': singleData.observacoes || completedSale?.OBSERVACOES || ''
@@ -1333,6 +1741,41 @@ const POSRegister = ({
       } else if (onAddSale) {
         await onAddSale(mergedSaleData);
         setCompletedSale(mergedSaleData);
+      }
+
+      // 🛡️ Sincronizar data e OS no FLUXO_CAIXA (incluindo data e horário) para que não fique preso na data de hoje
+      if (completedSale?.id && onUpdateRow && Array.isArray(cashMovements)) {
+        try {
+          const matchingMovements = cashMovements.filter(m => m.saleId === completedSale.id || (m.osNumero && m.osNumero === singleData.numeroOS));
+          const labelRestante = resolvedFormaRestante && !resolvedFormaRestante.toLowerCase().includes('boleto')
+            ? `Restante (${resolvedFormaRestante})`
+            : 'Parcelado Boleto';
+          for (const mov of matchingMovements) {
+            const updatedMov = {
+              ...mov,
+              data: singleSaleDate,
+              DATA: singleSaleDate,
+              dataHora: singleSaleIso,
+              timestamp: singleSaleTimestamp,
+              DATA_HORA: singleSaleDataHoraFmt,
+              hora: singleSaleHoraFmt,
+              HORA: singleSaleHoraFmt,
+              osNumero: singleData.numeroOS,
+              cliente: clientName,
+              valorTotalOS: parseCurrency(singleData.valorTotal),
+              valorEntradaOS: parseCurrency(singleData.valorEntrada),
+              valorRestanteBoleto: osRestante,
+              formaRestanteOS: resolvedFormaRestante || 'Boleto',
+              motivo: `Venda OS #${singleData.numeroOS} - ${clientName} (${mov.formaPagamento || 'PDV'})`,
+              detalhes: osRestante > 0
+                ? `OS #${singleData.numeroOS} • Total da OS: R$ ${singleData.valorTotal} (Entrada: R$ ${singleData.valorEntrada} | ${labelRestante}: R$ ${osRestante.toFixed(2).replace('.', ',')})`
+                : `OS #${singleData.numeroOS} • Total da OS: R$ ${singleData.valorTotal} | ${mergedSaleData.PRODUTO || ''}`
+            };
+            await withTimeout(onUpdateRow('FLUXO_CAIXA', mov, updatedMov), 2000);
+          }
+        } catch (syncFcErr) {
+          console.warn('Aviso ao sincronizar FLUXO_CAIXA com a data da OS:', syncFcErr);
+        }
       }
 
       // Atualiza o número de OS real no histórico do voucher se houver
@@ -1368,6 +1811,10 @@ const POSRegister = ({
       setReceiptPrintData(null);
       setOsPrintData({
         ...singleData,
+        FORMA_ENTRADA: resolvedFormaEntrada,
+        formaPagamentoEntrada: resolvedFormaEntrada,
+        FORMA_RESTANTE: resolvedFormaRestante,
+        formaPagamentoRestante: resolvedFormaRestante,
         itens: completedSale?.itens || cart
       });
       setIsOSModalOpen(false);
@@ -1384,6 +1831,14 @@ const POSRegister = ({
     const saleId = completedSale?.id || `venda_${Date.now()}`;
     const city = userFixedCity || primaryOS.selectedCity || primaryOS.unidade || completedSale?.CIDADE || 'Cajati';
 
+    const primarySaleDate = primaryOS.dataVenda || completedSale?.['DATA  DA VENDA'] || completedSale?.['DATA'] || todayStr;
+    const multiSaleIso = completedSale?.dataHora || primaryOS.dataHora || new Date().toISOString();
+    const multiSaleTimestamp = completedSale?.timestamp || new Date(multiSaleIso).getTime();
+    const multiSaleDataHoraFmt = completedSale?.DATA_HORA || new Date(multiSaleIso).toLocaleString('pt-BR');
+    const multiSaleHoraFmt = completedSale?.HORA || completedSale?.hora || new Date(multiSaleIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const multiFormaEntrada = osGeneratedData.formaPagamentoEntrada || osGeneratedData.FORMA_ENTRADA || primaryOS.formaPagamentoEntrada || primaryOS.FORMA_ENTRADA || completedSale?.['FORMA_ENTRADA'] || '';
+    const multiFormaRestante = osGeneratedData.formaPagamentoRestante || osGeneratedData.FORMA_RESTANTE || primaryOS.formaPagamentoRestante || primaryOS.FORMA_RESTANTE || completedSale?.['FORMA_RESTANTE'] || '';
+
     // 1. Atualizar a Venda Principal / OS #1
     const mergedPrimarySaleData = {
       ...(completedSale || {}),
@@ -1392,8 +1847,17 @@ const POSRegister = ({
       'CLIENTE_ID': clientId,
       'CLIENTE_CPF': clientCpf,
       'CPF': clientCpf,
-      'DATA': todayStr,
-      'DATA  DA VENDA': todayStr,
+      'DATA': primarySaleDate,
+      'DATA  DA VENDA': primarySaleDate,
+      'DATA DA VENDA': primarySaleDate,
+      'DATA_VENDA': primarySaleDate,
+      'Data da Venda': primarySaleDate,
+      'data_venda': primarySaleDate,
+      'dataHora': multiSaleIso,
+      'timestamp': multiSaleTimestamp,
+      'DATA_HORA': multiSaleDataHoraFmt,
+      'HORA': multiSaleHoraFmt,
+      'hora': multiSaleHoraFmt,
       'OS DA VENDA': primaryOS.numeroOS,
       'OS': primaryOS.numeroOS,
       'VENDA_OS': primaryOS.numeroOS,
@@ -1414,6 +1878,10 @@ const POSRegister = ({
       'RESTANTE': osGeneratedData.restante || primaryOS.restante || completedSale?.['RESTANTE'] || '0,00',
       'FORMAS_PAGAMENTO': osGeneratedData.formasPagamento || primaryOS.formasPagamento || completedSale?.['FORMAS_PAGAMENTO'] || completedSale?.['FORMA_PAGTO'] || '',
       'FORMA_PAGTO': osGeneratedData.formasPagamento || primaryOS.formasPagamento || completedSale?.['FORMA_PAGTO'] || completedSale?.['FORMAS_PAGAMENTO'] || '',
+      'FORMA_ENTRADA': multiFormaEntrada,
+      'formaPagamentoEntrada': multiFormaEntrada,
+      'FORMA_RESTANTE': multiFormaRestante,
+      'formaPagamentoRestante': multiFormaRestante,
       'SITUAÇÃO': 'Aguardando Confirmação',
       'STATUS_OS': 'Aguardando Confirmação',
       'PAGAMENTO_CONFERIDO': 'Não',
@@ -1431,6 +1899,12 @@ const POSRegister = ({
       'NOME CLIENTE': clientName,
       'CLIENTE': clientName,
       'NOME': clientName,
+      'PACIENTE': primaryOS.nomePessoa || primaryOS.PACIENTE || primaryOS.NOME_BENEFICIARIO || clientName,
+      'NOME_BENEFICIARIO': primaryOS.nomePessoa || primaryOS.NOME_BENEFICIARIO || primaryOS.PACIENTE || clientName,
+      'CLIENTE_BENEFICIARIO': primaryOS.nomePessoa || primaryOS.CLIENTE_BENEFICIARIO || clientName,
+      'nomePessoa': primaryOS.nomePessoa || clientName,
+      'RESPONSAVEL_LEGAL_INADIMPLENTE': !!osGeneratedData.RESPONSAVEL_LEGAL_INADIMPLENTE,
+      'RESPONSAVEL_LEGAL_DEBITO': osGeneratedData.RESPONSAVEL_LEGAL_DEBITO || 0,
       'TELEFONE': savedClientForOS['WhatsApp'] || savedClientForOS['TELEFONE'] || completedSale?.TELEFONE || '',
       'CIDADE': city,
       'LOJA': city,
@@ -1448,6 +1922,16 @@ const POSRegister = ({
       'OE_EIXO': primaryOS.oeEixo || '',
       'OE_DNP': primaryOS.oeDnp || '',
       'OE_ALT': primaryOS.oeAlt || '',
+      'OD_PERTO_ESF': primaryOS.odPertoEsf || '',
+      'OD_PERTO_CIL': primaryOS.odPertoCil || '',
+      'OD_PERTO_EIXO': primaryOS.odPertoEixo || '',
+      'OD_PERTO_DNP': primaryOS.odPertoDnp || '',
+      'OD_PERTO_ALT': primaryOS.odPertoAlt || '',
+      'OE_PERTO_ESF': primaryOS.oePertoEsf || '',
+      'OE_PERTO_CIL': primaryOS.oePertoCil || '',
+      'OE_PERTO_EIXO': primaryOS.oePertoEixo || '',
+      'OE_PERTO_DNP': primaryOS.oePertoDnp || '',
+      'OE_PERTO_ALT': primaryOS.oePertoAlt || '',
       'OE_DP': primaryOS.oeDp || '',
       'OE_OPA': primaryOS.oeOpa || '',
       'ADICAO': primaryOS.adicao || '',
@@ -1473,13 +1957,28 @@ const POSRegister = ({
       'NOME CLIENTE': clientName,
       CLIENTE: clientName,
       NOME: clientName,
+      PACIENTE: secOS.nomePessoa || secOS.PACIENTE || secOS.NOME_BENEFICIARIO || `Beneficiário Óculos ${idx + 2}`,
+      NOME_BENEFICIARIO: secOS.nomePessoa || secOS.NOME_BENEFICIARIO || secOS.PACIENTE || `Beneficiário Óculos ${idx + 2}`,
+      CLIENTE_BENEFICIARIO: secOS.nomePessoa || secOS.CLIENTE_BENEFICIARIO || `Beneficiário Óculos ${idx + 2}`,
+      nomePessoa: secOS.nomePessoa || `Beneficiário Óculos ${idx + 2}`,
+      RESPONSAVEL_LEGAL_INADIMPLENTE: !!osGeneratedData.RESPONSAVEL_LEGAL_INADIMPLENTE,
+      RESPONSAVEL_LEGAL_DEBITO: osGeneratedData.RESPONSAVEL_LEGAL_DEBITO || 0,
       TELEFONE: savedClientForOS['WhatsApp'] || savedClientForOS['TELEFONE'] || completedSale?.TELEFONE || '',
       CIDADE: userFixedCity || secOS.selectedCity || secOS.unidade || city,
       LOJA: userFixedCity || secOS.selectedCity || secOS.unidade || city,
       UNIDADE: userFixedCity || secOS.selectedCity || secOS.unidade || city,
       VENDEDOR: completedSale?.VENDEDOR || currentUser?.username || 'Caixa',
-      DATA: todayStr,
-      'DATA  DA VENDA': todayStr,
+      DATA: secOS.dataVenda || primarySaleDate || todayStr,
+      'DATA  DA VENDA': secOS.dataVenda || primarySaleDate || todayStr,
+      'DATA DA VENDA': secOS.dataVenda || primarySaleDate || todayStr,
+      'DATA_VENDA': secOS.dataVenda || primarySaleDate || todayStr,
+      'Data da Venda': secOS.dataVenda || primarySaleDate || todayStr,
+      'data_venda': secOS.dataVenda || primarySaleDate || todayStr,
+      dataHora: multiSaleIso,
+      timestamp: multiSaleTimestamp,
+      DATA_HORA: multiSaleDataHoraFmt,
+      hora: multiSaleHoraFmt,
+      HORA: multiSaleHoraFmt,
       'OS DA VENDA': secOS.numeroOS,
       'OS': secOS.numeroOS,
       'VENDA_OS': secOS.numeroOS,
@@ -1501,6 +2000,16 @@ const POSRegister = ({
       OE_EIXO: secOS.oeEixo || '',
       OE_DNP: secOS.oeDnp || '',
       OE_ALT: secOS.oeAlt || '',
+      OD_PERTO_ESF: secOS.odPertoEsf || '',
+      OD_PERTO_CIL: secOS.odPertoCil || '',
+      OD_PERTO_EIXO: secOS.odPertoEixo || '',
+      OD_PERTO_DNP: secOS.odPertoDnp || '',
+      OD_PERTO_ALT: secOS.odPertoAlt || '',
+      OE_PERTO_ESF: secOS.oePertoEsf || '',
+      OE_PERTO_CIL: secOS.oePertoCil || '',
+      OE_PERTO_EIXO: secOS.oePertoEixo || '',
+      OE_PERTO_DNP: secOS.oePertoDnp || '',
+      OE_PERTO_ALT: secOS.oePertoAlt || '',
       OE_DP: secOS.oeDp || '',
       OE_OPA: secOS.oeOpa || '',
       ADICAO: secOS.adicao || '',
@@ -1517,6 +2026,8 @@ const POSRegister = ({
       'VALOR_ITEM': secOS.valorTotal || '0,00',
       'FORMAS_PAGAMENTO': `Cobrança Unificada (Venda #${saleId})`,
       'FORMA_PAGTO': `Cobrança Unificada (Venda #${saleId})`,
+      'FORMA_ENTRADA': multiFormaEntrada,
+      'FORMA_RESTANTE': multiFormaRestante,
       'PAGAMENTO_CONFERIDO': 'Sim',
       'DUPLICATAS_GERADAS': true,
       'FINANCEIRO_UNIFICADO': true,
@@ -1527,6 +2038,29 @@ const POSRegister = ({
       await onUpdateRow(salesSheetName, completedSale, mergedPrimarySaleData);
     } else if (onAddSale) {
       await onAddSale(mergedPrimarySaleData);
+    }
+
+    // 🛡️ Sincronizar data, horário e OS no FLUXO_CAIXA para o fluxo Multi-OS
+    if (completedSale?.id && onUpdateRow && Array.isArray(cashMovements)) {
+      try {
+        const matchingMovements = cashMovements.filter(m => m.saleId === completedSale.id || allLinkedOSNumbers.includes(m.osNumero));
+        for (const mov of matchingMovements) {
+          const updatedMov = {
+            ...mov,
+            data: primarySaleDate,
+            DATA: primarySaleDate,
+            dataHora: multiSaleIso,
+            timestamp: multiSaleTimestamp,
+            DATA_HORA: multiSaleDataHoraFmt,
+            hora: multiSaleHoraFmt,
+            HORA: multiSaleHoraFmt,
+            osNumero: primaryOS.numeroOS
+          };
+          await withTimeout(onUpdateRow('FLUXO_CAIXA', mov, updatedMov), 2000);
+        }
+      } catch (syncFcErr) {
+        console.warn('Aviso ao sincronizar FLUXO_CAIXA no Multi-OS:', syncFcErr);
+      }
     }
 
     if (companionRows.length > 0) {
@@ -1587,12 +2121,20 @@ const POSRegister = ({
         valorEntrada: idx === 0 ? (osGeneratedData.valorEntrada || o.valorEntrada || completedSale?.['VALOR ENTRADA'] || '0,00') : '0,00',
         restante: idx === 0 ? (osGeneratedData.restante || o.restante || completedSale?.['RESTANTE'] || '0,00') : '0,00',
         formasPagamento: idx === 0 ? (osGeneratedData.formasPagamento || o.formasPagamento || completedSale?.['FORMAS_PAGAMENTO'] || '') : `Cobrança Unificada (Venda #${saleId})`,
+        FORMA_ENTRADA: multiFormaEntrada,
+        formaPagamentoEntrada: multiFormaEntrada,
+        FORMA_RESTANTE: multiFormaRestante,
+        formaPagamentoRestante: multiFormaRestante,
         itens: [
           o.armacao ? { tipo: 'armacoes', type: 'armacoes', nome: o.armacao, qtd: 1 } : null,
           o.lente ? { tipo: 'lentes', type: 'lentes', nome: o.lente, qtd: 1 } : null
         ].filter(Boolean)
       })),
       ...primaryOS,
+      FORMA_ENTRADA: multiFormaEntrada,
+      formaPagamentoEntrada: multiFormaEntrada,
+      FORMA_RESTANTE: multiFormaRestante,
+      formaPagamentoRestante: multiFormaRestante,
       itens: completedSale?.itens || cart
     });
     setIsOSModalOpen(false);
@@ -1685,21 +2227,28 @@ const POSRegister = ({
             <div className="h-10 flex items-center gap-2 bg-slate-950/90 border border-slate-700/60 px-3.5 rounded-xl shadow-inner">
               <Building size={15} className="text-emerald-400 shrink-0" />
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Loja:</span>
-              {isVendor ? (
+              {isVendor && !isExternalVendor ? (
                 <div className="flex items-center gap-1.5 text-xs text-white font-black uppercase">
                   <span>{selectedPOSCity}</span>
                   <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">Unidade Fixa</span>
                 </div>
               ) : (
-                <select
-                  value={selectedPOSCity}
-                  onChange={e => setSelectedPOSCity(e.target.value)}
-                  className="bg-transparent text-xs text-white font-black uppercase outline-none cursor-pointer pr-1"
-                >
-                  {['Cajati', 'Registro', 'Jacupiranga', 'Venda Externa'].map(c => (
-                    <option key={c} value={c} className="bg-slate-900 text-white font-bold">{c}</option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedPOSCity}
+                    onChange={e => setSelectedPOSCity(e.target.value)}
+                    className="bg-transparent text-xs text-white font-black uppercase outline-none cursor-pointer pr-1"
+                  >
+                    {['Cajati', 'Registro', 'Jacupiranga', 'Venda Externa'].map(c => (
+                      <option key={c} value={c} className="bg-slate-900 text-white font-bold">{c}</option>
+                    ))}
+                  </select>
+                  {isExternalVendor && (
+                    <span className="text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                      Vendedor Externo
+                    </span>
+                  )}
+                </div>
               )}
             </div>
 
@@ -1957,6 +2506,26 @@ const POSRegister = ({
                     <span>Cliente possui <strong>{fmtMoeda(selectedClientFinancials.totalAberto)}</strong> em parcelas futuras a vencer (situação em dia).</span>
                   </div>
                 )}
+
+                {/* ALERTA DE DÉBITO DO RESPONSÁVEL LEGAL NO PDV */}
+                {selectedClientFinancials?.respFinancials?.isInadimplente && (
+                  <div className="p-3.5 rounded-2xl bg-rose-950/70 border border-rose-500 text-rose-200 text-xs flex items-center justify-between gap-3 shadow-lg shadow-rose-950/40">
+                    <div className="flex items-center gap-2.5">
+                      <AlertOctagon size={18} className="text-rose-400 shrink-0 animate-pulse" />
+                      <div>
+                        <p className="font-black text-rose-300 uppercase tracking-wide text-[11px]">
+                          Atenção: Responsável Legal ({selectedClientFinancials.respFinancials.respName}) com Débito
+                        </p>
+                        <p className="text-[11px] text-slate-300 mt-0.5">
+                          Possui duplicatas em aberto / vencidas no valor de <strong className="text-rose-300 font-mono font-bold">{fmtMoeda(selectedClientFinancials.respFinancials.totalVencido || selectedClientFinancials.respFinancials.totalAberto)}</strong> no financeiro da loja.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-200 text-[10px] font-black border border-rose-500/30 shrink-0 uppercase tracking-wider">
+                      Alerta Responsável
+                    </span>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="relative">
@@ -2030,6 +2599,13 @@ const POSRegister = ({
                 </button>
                 <button
                   type="button"
+                  onClick={() => setProductCategory('acessorios')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${productCategory === 'acessorios' ? 'bg-amber-600 text-white font-black shadow-lg shadow-amber-600/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                >
+                  🎒 Acessórios ({erpAcessorios.length})
+                </button>
+                <button
+                  type="button"
                   onClick={() => setProductCategory('brindes')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${productCategory === 'brindes' ? 'bg-pink-600 text-white font-black shadow-lg shadow-pink-600/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                 >
@@ -2040,7 +2616,7 @@ const POSRegister = ({
                   onClick={() => setProductCategory('todos')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${productCategory === 'todos' ? 'bg-sky-600 text-white font-black shadow-md shadow-sky-600/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                 >
-                  📦 Todos ({erpArmacoes.length + erpLentes.length + erpBrindes.length})
+                  📦 Todos ({erpArmacoes.length + erpLentes.length + erpAcessorios.length + erpBrindes.length})
                 </button>
                 <button
                   type="button"
@@ -2054,6 +2630,15 @@ const POSRegister = ({
 
             {productCategory !== 'avulso' ? (
               <>
+                {isExternalVendor && (
+                  <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs shadow-sm">
+                    <Info size={16} className="text-amber-400 shrink-0" />
+                    <span>
+                      <strong>Consulta de Lojas:</strong> Você pode visualizar os produtos e saldos de todas as filiais. Para incluir no carrinho, o item deve pertencer ao estoque de <strong>Venda Externa</strong>.
+                    </span>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <div className="flex flex-col sm:flex-row gap-2">
                     <div className="relative flex-1">
@@ -2119,6 +2704,7 @@ const POSRegister = ({
                   {filteredProducts.slice(0, 100).map((prod, idx) => {
                     const isArmacao = productCategory === 'armacoes' || prod._type === 'armacoes';
                     const isBrinde = productCategory === 'brindes' || prod._type === 'brindes';
+                    const isAcessorio = productCategory === 'acessorios' || prod._type === 'acessorios';
                     const brand = prod['MARCA'] || prod['marca'] || '';
                     const model = prod['NOME'] || prod['MODELO'] || prod['modelo'] || prod['PRODUTO'] || prod['DESCRICAO'] || '';
                     const sku = prod['REFERENCIA_SKU'] || prod['CODIGO'] || prod['SKU'] || '';
@@ -2127,21 +2713,21 @@ const POSRegister = ({
                     const unit = prod['UNIDADE'] || prod['CIDADE'] || prod['LOJA'] || 'Central';
                     const imagem = prod['IMAGEM'] || null;
 
-                    const title = isBrinde ? (prod['NOME'] || prod['MODELO'] || 'Brinde') : `${brand} ${model}`.trim() || 'Item ERP';
+                    const title = (isBrinde || isAcessorio) ? (prod['NOME'] || prod['MODELO'] || prod['PRODUTO'] || (isAcessorio ? 'Acessório' : 'Brinde')) : `${brand} ${model}`.trim() || 'Item ERP';
                     const price = cleanVal(prod['PRECO_VENDA'] || prod['preco_venda'] || prod['VALOR'] || prod['PRECO'] || 0);
                     const stock = parseInt(prod['ESTOQUE'] || prod['estoque'] || prod['EM ESTOQUE'] || 0, 10);
 
                     return (
                       <div
                         key={idx}
-                        className={`bg-slate-950/90 border ${isBrinde ? 'border-pink-500/20 hover:border-pink-500/50' : 'border-slate-800 hover:border-amber-500/40'} p-3.5 rounded-2xl flex flex-col justify-between transition-all group shadow-sm`}
+                        className={`bg-slate-950/90 border ${isBrinde ? 'border-pink-500/20 hover:border-pink-500/50' : isAcessorio ? 'border-amber-500/20 hover:border-amber-500/50' : 'border-slate-800 hover:border-amber-500/40'} p-3.5 rounded-2xl flex flex-col justify-between transition-all group shadow-sm`}
                       >
                         <div className="flex items-start gap-3 mb-2">
                           {imagem ? (
                             <img src={imagem} alt={title} className="w-12 h-12 object-cover rounded-xl border border-white/10 shrink-0 bg-slate-900" />
                           ) : (
                             <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 shrink-0">
-                              {isArmacao ? <Glasses size={18} className="text-amber-400" /> : isBrinde ? <Gift size={18} className="text-pink-400" /> : <Package size={18} className="text-indigo-400" />}
+                              {isArmacao ? <Glasses size={18} className="text-amber-400" /> : isBrinde ? <Gift size={18} className="text-pink-400" /> : isAcessorio ? <Package size={18} className="text-amber-400" /> : <Eye size={18} className="text-indigo-400" />}
                             </div>
                           )}
                           <div className="min-w-0 flex-1">
@@ -2169,6 +2755,11 @@ const POSRegister = ({
                                   {unit}
                                 </span>
                               )}
+                              {isExternalVendor && !isProductFromVendaExterna(prod) && (
+                                <span className="text-[9px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded flex items-center gap-1" title="Disponível apenas para consulta visual por vendedor externo">
+                                  <Eye size={10} /> Consulta
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -2192,13 +2783,37 @@ const POSRegister = ({
                           </div>
 
                           <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => addToCart(prod, prod._type || productCategory)}
-                              className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-xl text-xs font-black transition-all shadow-md shadow-amber-500/10 active:scale-95"
-                            >
-                              + Adicionar
-                            </button>
+                            {isVendor && stock <= 0 ? (
+                              <button
+                                type="button"
+                                disabled
+                                className="px-3.5 py-2 bg-slate-900 border border-rose-500/30 text-rose-400/80 rounded-xl text-xs font-bold transition-all cursor-not-allowed opacity-70 flex items-center gap-1"
+                                title="Vendedores não podem selecionar produtos com estoque zerado"
+                              >
+                                <Lock size={12} className="text-rose-400" />
+                                <span>Esgotado</span>
+                              </button>
+                            ) : isExternalVendor && !isProductFromVendaExterna(prod) ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  alert(`Inclusão bloqueada para Vendedor Externo:\n\nEste produto pertence ao estoque da unidade "${unit || 'Outra Filial'}".\n\nVendedores externos podem consultar produtos de todas as lojas, mas só têm permissão para adicionar produtos que pertençam ao estoque de "Venda Externa".\n\nCaso o cliente deseje este item, solicite a transferência do produto para Venda Externa no ERP.`);
+                                }}
+                                className="px-3 py-2 bg-slate-900/90 hover:bg-slate-800 text-slate-400 hover:text-amber-300 border border-slate-800 hover:border-amber-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 shadow-sm"
+                                title={`Produto alocado em ${unit || 'outra filial'}. Apenas consulta disponível para vendedor externo.`}
+                              >
+                                <Lock size={12} className="text-amber-400" />
+                                <span>Outra Loja</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => addToCart(prod, prod._type || productCategory)}
+                                className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-xl text-xs font-black transition-all shadow-md shadow-amber-500/10 active:scale-95"
+                              >
+                                + Adicionar
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2520,7 +3135,14 @@ const POSRegister = ({
                   <button
                     key={p.id}
                     type="button"
-                    onClick={() => setCurrentMethod(p.id)}
+                    onClick={() => {
+                      setCurrentMethod(p.id);
+                      if (p.id === 'carne') {
+                        setCurrentStage('restante');
+                      } else if (payments.length === 0) {
+                        setCurrentStage('entrada');
+                      }
+                    }}
                     className={`min-h-[42px] py-2 px-1 rounded-xl text-xs font-bold transition-all border flex items-center justify-center text-center ${
                       currentMethod === p.id
                         ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-black shadow-lg shadow-emerald-500/20'
@@ -2531,6 +3153,37 @@ const POSRegister = ({
                   </button>
                 ))}
               </div>
+
+              {/* SELETOR DE DESTINO DO PAGAMENTO (ENTRADA vs RESTANTE) - BOLETO SEMPRE RESTANTE */}
+              {currentMethod !== 'carne' && (
+                <div className="flex items-center justify-between gap-2 bg-slate-950/90 border border-slate-800 rounded-xl p-1.5">
+                  <span className="text-[10px] font-black uppercase text-slate-400 pl-1.5 shrink-0">Referente a:</span>
+                  <div className="flex items-center gap-1 flex-1 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStage('entrada')}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase transition-all ${
+                        currentStage !== 'restante'
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      🟢 Entrada (Pago Hoje)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStage('restante')}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase transition-all ${
+                        currentStage === 'restante'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      🟡 Restante (Falta)
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* CAMPOS ESPECÍFICOS DO MÉTODO SELECIONADO */}
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-3">
@@ -2709,26 +3362,106 @@ const POSRegister = ({
                       Limpar Pagamentos
                     </button>
                   </div>
-                  {payments.map(p => (
-                    <div key={p.id} className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center text-xs">
-                      <div className="min-w-0 pr-2">
-                        <p className="font-bold text-white truncate">{p.texto}</p>
+                  {payments.map(p => {
+                    const isBoletoItem = p.metodo === 'carne' || p.metodo === 'boleto';
+                    const isRestanteItem = isBoletoItem || p.stage === 'restante';
+                    return (
+                      <div key={p.id} className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center text-xs">
+                        <div className="min-w-0 pr-2 flex items-center gap-1.5">
+                          {!isBoletoItem ? (
+                            <button
+                              type="button"
+                              onClick={() => togglePaymentStage(p.id)}
+                              title="Clique para alternar entre Entrada (Pago Hoje) e Restante (Falta)"
+                              className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-black uppercase border transition-all ${
+                                isRestanteItem
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                              }`}
+                            >
+                              {isRestanteItem ? 'Restante' : 'Entrada'}
+                            </button>
+                          ) : (
+                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              Restante
+                            </span>
+                          )}
+                          <p className="font-bold text-white truncate">{p.texto}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`font-black ${isRestanteItem ? 'text-amber-400' : 'text-emerald-400'}`}>{fmtMoeda(p.valor)}</span>
+                          <button
+                            type="button"
+                            onClick={() => removePayment(p.id)}
+                            className="text-slate-500 hover:text-rose-400 transition-colors p-1"
+                            title="Remover Pagamento"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="font-black text-emerald-400">{fmtMoeda(p.valor)}</span>
-                        <button
-                          type="button"
-                          onClick={() => removePayment(p.id)}
-                          className="text-slate-500 hover:text-rose-400 transition-colors p-1"
-                          title="Remover Pagamento"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
+
+              {/* CAMPO DE DATA E HORÁRIO DA VENDA (OPÇÃO RETROATIVA/CUSTOMIZADA) */}
+              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs">
+                    <Calendar size={14} className="text-sky-400 shrink-0" />
+                    <div>
+                      <span className="font-bold text-slate-200 block text-[11px]">Data & Horário da Venda</span>
+                      <span className="text-[9px] text-slate-400">Registrado em tudo: Venda, OS, Comprovante e Caixa</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      setPosSaleDate(now.toISOString().slice(0, 10));
+                      setPosSaleTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold text-sky-300 bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 rounded-lg transition-all active:scale-95 cursor-pointer shadow-sm"
+                    title="Definir data e horário para agora"
+                  >
+                    <Clock size={11} className="text-sky-400" />
+                    Agora
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-semibold text-slate-400 block uppercase tracking-wider">Data</label>
+                    <input
+                      type="date"
+                      value={posSaleDate}
+                      onChange={(e) => setPosSaleDate(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 focus:border-sky-500 rounded-lg px-2 py-1.5 text-xs text-white font-bold outline-none cursor-pointer"
+                      title="Data do registro"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-semibold text-slate-400 block uppercase tracking-wider">Horário</label>
+                    <div className="relative">
+                      <input
+                        type="time"
+                        value={posSaleTime}
+                        onChange={(e) => setPosSaleTime(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 focus:border-sky-500 rounded-lg px-2 py-1.5 text-xs text-white font-bold outline-none cursor-pointer"
+                        title="Horário do registro"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {posSaleDate !== new Date().toISOString().slice(0, 10) && (
+                  <div className="text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 font-medium">
+                    <Info size={12} className="shrink-0 text-amber-400" />
+                    <span>Data modificada: esta venda e suas movimentações financeiras serão registradas em <strong>{posSaleDate.split('-').reverse().join('/')} às {posSaleTime}</strong>.</span>
+                  </div>
+                )}
+              </div>
 
               {/* BOTÃO PRINCIPAL: FINALIZAR VENDA NO CAIXA */}
               <button
@@ -2924,6 +3657,8 @@ const POSRegister = ({
           armacoesData={erpArmacoes}
           salesData={salesData}
           currentUser={currentUser}
+          receberData={receberData}
+          clientsData={clientsData}
         />
       )}
 
@@ -2943,13 +3678,24 @@ const POSRegister = ({
         />
       )}
 
-      {/* COMPONENTE DE IMPRESSÃO DE SANGRIA / SUPRIMENTO / FECHAMENTO */}
+      {/* COMPONENTE DE IMPRESSÃO DE SANGRIA / SUPRIMENTO / FECHAMENTO (80mm) */}
       {cashVoucherPrintData && (
         <PrintableCashVoucher
           type={cashVoucherPrintData.type}
           data={cashVoucherPrintData.data}
           unit={selectedPOSCity}
           operator={currentUser?.username || 'Caixa'}
+        />
+      )}
+
+      {/* RELATÓRIO OFICIAL DE FECHAMENTO DE CAIXA EM PDF (A4) */}
+      {cashClosingPdfData && (
+        <PrintableCashClosingReport
+          closingData={cashClosingPdfData.closingData}
+          movements={cashClosingPdfData.movements}
+          storeName={cashClosingPdfData.storeName || selectedPOSCity}
+          periodLabel={cashClosingPdfData.periodLabel}
+          reportTitle={cashClosingPdfData.reportTitle || cashClosingPdfData.title}
         />
       )}
 
@@ -2976,9 +3722,12 @@ const POSRegister = ({
         onClose={() => setIsHistoryModalOpen(false)}
         cashMovements={cashMovements}
         salesData={salesData}
+        receberData={receberData || data?.['CONTAS_RECEBER'] || []}
         selectedCity={selectedPOSCity}
         currentUser={currentUser}
         onTriggerPrint={handleTriggerCashPrint}
+        onUpdateRow={onUpdateRow}
+        onDeleteRow={onDeleteRow}
       />
 
       {/* MODAL DE IMPRESSÃO DE ETIQUETAS TÉRMICAS (50x30mm) */}

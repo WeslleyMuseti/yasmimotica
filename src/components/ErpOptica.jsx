@@ -6,11 +6,21 @@ import {
   TrendingUp, TrendingDown, Clock, Search, Download, Trash2, Edit2,
   History, Wallet, ArrowLeftRight, Truck, Ticket, Percent, Gift,
   Sparkles, CheckCircle2, AlertCircle, Copy, Check, Plus, X,
-  Filter, PieChart as PieChartIcon, ChevronDown, Building2, MapPin, Store
+  Filter, PieChart as PieChartIcon, ChevronDown, Building2, MapPin, Store, FileCode, FileSpreadsheet,
+  RefreshCw, User, Trophy
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DataTable from './DataTable';
 import ClientInstallmentsModal from './ClientInstallmentsModal';
+import ReparcelamentoOSModal, {
+  filterInstallmentsByDateRange,
+  buildOverdueInstallmentAlerts,
+  normalizeInstallmentDateIso,
+  formatInstallmentDateBr,
+  extractOSFromRow,
+  resolveInstallmentClientName,
+  PrintableReparcelamentoAgreement
+} from './ReparcelamentoOSModal';
 import { CashHistoryContent } from './CashHistoryModal';
 import ProductTransferModal from './ProductTransferModal';
 import { PrintableLabelModal } from './PrintableLabel';
@@ -18,6 +28,8 @@ import StockFilterModal from './StockFilterModal';
 import StockPieChart from './StockPieChart';
 import { filterAndSortStock } from '../stockFilters';
 import { isSameClient, transferStockAtomically, decrementStockAtomically } from '../firebaseSync';
+import { buildStockXml, buildFinancialSummaryXml, downloadXmlFile } from '../xmlUtils';
+import { syncInstallmentPaymentDate, buildNormalizedDateTime } from '../dateSyncUtils';
 
 const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -117,11 +129,23 @@ const ErpOptica = ({
   const [successMsg, setSuccessMsg] = useState('');
   const [filterCriticalStock, setFilterCriticalStock] = useState(false);
   const [isStockFilterModalOpen, setIsStockFilterModalOpen] = useState(false);
-  const [appliedStockFilters, setAppliedStockFilters] = useState({ armacoes: null, lentes: null, brindes: null });
-  const appliedStockFilter = (activeTab === 'armacoes' || activeTab === 'lentes' || activeTab === 'brindes') ? (appliedStockFilters[activeTab] || null) : null;
-  const [showStockChartHeader, setShowStockChartHeader] = useState(true);
+  const [stockFilterInitialTab, setStockFilterInitialTab] = useState('stock');
+  const [appliedStockFilters, setAppliedStockFilters] = useState({ armacoes: null, lentes: null, acessorios: null, brindes: null });
+  const appliedStockFilter = (activeTab === 'armacoes' || activeTab === 'lentes' || activeTab === 'acessorios' || activeTab === 'brindes') ? (appliedStockFilters[activeTab] || null) : null;
+  const [showStockChartHeader, setShowStockChartHeader] = useState(false);
   const [selectedStockCity, setSelectedStockCity] = useState('ALL');
   const [labelModalItem, setLabelModalItem] = useState(null);
+
+  // Estados do Módulo de Reparcelamento de OS e Filtro de Datas das Parcelas
+  const [isReparcelamentoModalOpen, setIsReparcelamentoModalOpen] = useState(false);
+  const [reparcelamentoTargetRow, setReparcelamentoTargetRow] = useState(null);
+  const [reparcelamentoAgreementPrintData, setReparcelamentoAgreementPrintData] = useState(null);
+  const [installmentPeriodMode, setInstallmentPeriodMode] = useState('ALL');
+  const [installmentStartDate, setInstallmentStartDate] = useState('');
+  const [installmentEndDate, setInstallmentEndDate] = useState('');
+  const [installmentDateField, setInstallmentDateField] = useState('VENCIMENTO');
+  const [installmentStatusFilter, setInstallmentStatusFilter] = useState('ALL');
+  const [installmentSearchQuery, setInstallmentSearchQuery] = useState('');
 
   const salesData = useMemo(() => {
     const s1 = data?.['Registro_Vendas'] || [];
@@ -177,6 +201,11 @@ const ErpOptica = ({
     PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '5', IMAGEM: '', OBSERVACOES: ''
   });
 
+  const [acessoriosForm, setAcessoriosForm] = useState({
+    UNIDADE: defaultFormCity || 'Central', NOME: '', CATEGORIA: 'Estojo', REFERENCIA_SKU: '', MARCA: '', COR: 'Padrão',
+    PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '10', IMAGEM: '', OBSERVACOES: ''
+  });
+
   const [brindesForm, setBrindesForm] = useState({
     UNIDADE: defaultFormCity || 'Central', NOME: '', CATEGORIA: 'Estojo Rígido', REFERENCIA_SKU: '', COR: 'Sortido',
     PRECO_COMPRA: '', PRECO_VENDA: '0,00', ESTOQUE: '20', IMAGEM: '', OBSERVACOES: ''
@@ -214,6 +243,7 @@ const ErpOptica = ({
   // Dados das abas (seguro contra nulos - estoque de todas as lojas visível para vendedores e administradores)
   const lentesData = useMemo(() => data?.['CAD_LENTES'] || [], [data]);
   const armacoesData = useMemo(() => data?.['CAD_ARMACOES'] || [], [data]);
+  const acessoriosData = useMemo(() => data?.['CAD_ACESSORIOS'] || [], [data]);
   const brindesData = useMemo(() => data?.['CAD_BRINDES'] || [], [data]);
   const pagarData = useMemo(() => data?.['CONTAS_PAGAR'] || [], [data]);
   const receberData = useMemo(() => data?.['CONTAS_RECEBER'] || [], [data]);
@@ -226,7 +256,8 @@ const ErpOptica = ({
     let esgotados = 0;
     let totalUsos = 0;
     vouchersData.forEach(item => {
-      const st = (item.STATUS || item.status || 'Ativo').trim();
+      if (!item || typeof item !== 'object') return;
+      const st = String(item.STATUS || item.status || 'Ativo').trim();
       const total = parseInt(item.QUANTIDADE_TOTAL || item.quantidade_total || 0, 10);
       const usada = parseInt(item.QUANTIDADE_USADA || item.quantidade_usada || 0, 10);
       totalUsos += usada;
@@ -246,11 +277,13 @@ const ErpOptica = ({
     let criticos = 0;
     const list = (selectedStockCity && selectedStockCity !== 'ALL')
       ? lentesData.filter(item => {
+          if (!item || typeof item !== 'object') return false;
           const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim().toLowerCase();
           return u === selectedStockCity.toLowerCase() || u.includes(selectedStockCity.toLowerCase());
         })
       : lentesData;
     list.forEach(item => {
+      if (!item || typeof item !== 'object') return;
       const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10) || 0;
       const preco = parseCurrency(item.PRECO_COMPRA || item.preco_compra || 0);
       totalPares += qtd;
@@ -266,11 +299,13 @@ const ErpOptica = ({
     let criticos = 0;
     const list = (selectedStockCity && selectedStockCity !== 'ALL')
       ? armacoesData.filter(item => {
+          if (!item || typeof item !== 'object') return false;
           const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim().toLowerCase();
           return u === selectedStockCity.toLowerCase() || u.includes(selectedStockCity.toLowerCase());
         })
       : armacoesData;
     list.forEach(item => {
+      if (!item || typeof item !== 'object') return;
       const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10) || 0;
       const preco = parseCurrency(item.PRECO_COMPRA || item.preco_compra || 0);
       totalPecs += qtd;
@@ -286,11 +321,13 @@ const ErpOptica = ({
     let criticos = 0;
     const list = (selectedStockCity && selectedStockCity !== 'ALL')
       ? brindesData.filter(item => {
+          if (!item || typeof item !== 'object') return false;
           const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim().toLowerCase();
           return u === selectedStockCity.toLowerCase() || u.includes(selectedStockCity.toLowerCase());
         })
       : brindesData;
     list.forEach(item => {
+      if (!item || typeof item !== 'object') return;
       const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10) || 0;
       const preco = parseCurrency(item.PRECO_COMPRA || item.preco_compra || 0);
       totalPecs += qtd;
@@ -300,11 +337,37 @@ const ErpOptica = ({
     return { total: list.length, totalPecs, valorEstoque, criticos };
   }, [brindesData, selectedStockCity]);
 
+  const acessoriosStats = useMemo(() => {
+    let totalPecs = 0;
+    let valorEstoque = 0;
+    let valorVenda = 0;
+    let criticos = 0;
+    const list = (selectedStockCity && selectedStockCity !== 'ALL')
+      ? acessoriosData.filter(item => {
+          if (!item || typeof item !== 'object') return false;
+          const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim().toLowerCase();
+          return u === selectedStockCity.toLowerCase() || u.includes(selectedStockCity.toLowerCase());
+        })
+      : acessoriosData;
+    list.forEach(item => {
+      if (!item || typeof item !== 'object') return;
+      const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10) || 0;
+      const preco = parseCurrency(item.PRECO_COMPRA || item.preco_compra || 0);
+      const venda = parseCurrency(item.PRECO_VENDA || item.preco_venda || 0);
+      totalPecs += qtd;
+      valorEstoque += qtd * preco;
+      valorVenda += qtd * venda;
+      if (qtd <= 2) criticos++;
+    });
+    return { total: list.length, totalPecs, valorEstoque, valorVenda, criticos };
+  }, [acessoriosData, selectedStockCity]);
+
   // Distribuição completa do estoque por cidade/filial para a aba ativa
   const stockDistributionByCity = useMemo(() => {
     let source = [];
     if (activeTab === 'lentes') source = lentesData;
     else if (activeTab === 'armacoes') source = armacoesData;
+    else if (activeTab === 'acessorios') source = acessoriosData;
     else if (activeTab === 'brindes') source = brindesData;
     else return null;
 
@@ -318,6 +381,7 @@ const ErpOptica = ({
     let totalUnits = 0;
 
     source.forEach(item => {
+      if (!item || typeof item !== 'object') return;
       const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim();
       const matchedStore = stores.find(s => s.toLowerCase() === u.toLowerCase()) || (u || 'Central');
       if (!map[matchedStore]) {
@@ -335,14 +399,15 @@ const ErpOptica = ({
       totalItems,
       totalUnits
     };
-  }, [activeTab, lentesData, armacoesData, brindesData]);
+  }, [activeTab, lentesData, armacoesData, acessoriosData, brindesData]);
 
   const pagarStats = useMemo(() => {
     let pendente = 0;
     let pago = 0;
     pagarData.forEach(item => {
+      if (!item || typeof item !== 'object') return;
       const val = parseCurrency(item.VALOR || item.valor);
-      const st = (item.STATUS || item.status || 'Pendente').trim();
+      const st = String(item.STATUS || item.status || 'Pendente').trim();
       if (st === 'Pago') pago += val;
       else pendente += val;
     });
@@ -353,8 +418,9 @@ const ErpOptica = ({
     let pendente = 0;
     let recebido = 0;
     receberData.forEach(item => {
+      if (!item || typeof item !== 'object') return;
       const val = parseCurrency(item.VALOR || item.valor);
-      const st = (item.STATUS || item.status || 'Pendente').trim();
+      const st = String(item.STATUS || item.status || 'Pendente').trim();
       if (st === 'Recebido' || st === 'Pago') recebido += val;
       else pendente += val;
     });
@@ -364,6 +430,7 @@ const ErpOptica = ({
   const transferStats = useMemo(() => {
     let totalItems = 0;
     transferenciasData.forEach(item => {
+      if (!item || typeof item !== 'object') return;
       totalItems += parseInt(item.QUANTIDADE || item.quantidade || 0, 10) || 0;
     });
     return { totalMoves: transferenciasData.length, totalItems };
@@ -421,7 +488,7 @@ const ErpOptica = ({
         DATA: payload.date,
         HORA: payload.time,
         DATA_HORA: payload.timestamp,
-        TIPO: payload.productType === 'armacoes' ? 'Armação' : payload.productType === 'brindes' ? 'Brinde' : 'Lente',
+        TIPO: payload.productType === 'armacoes' ? 'Armação' : payload.productType === 'brindes' ? 'Brinde' : payload.productType === 'acessorios' ? 'Acessório' : 'Lente',
         PRODUTO: payload.productName,
         ORIGEM: payload.originStore,
         DESTINO: payload.destStore,
@@ -669,6 +736,23 @@ const ErpOptica = ({
         PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '5', IMAGEM: '', OBSERVACOES: ''
       });
       setSuccessMsg('Armação cadastrada com sucesso no estoque!');
+    } else if (activeTab === 'acessorios') {
+      const sku = (acessoriosForm.REFERENCIA_SKU || '').trim() || `ACS-${Date.now().toString().slice(-6)}`;
+      onAddRow('CAD_ACESSORIOS', {
+        ...acessoriosForm,
+        REFERENCIA_SKU: sku,
+        CODIGO: sku,
+        SKU: sku,
+        PRECO_COMPRA: parseCurrency(acessoriosForm.PRECO_COMPRA).toFixed(2).replace('.', ','),
+        PRECO_VENDA: parseCurrency(acessoriosForm.PRECO_VENDA || 0).toFixed(2).replace('.', ','),
+        ESTOQUE: parseInt(acessoriosForm.ESTOQUE, 10) || 0,
+        DATA_CADASTRO: new Date().toLocaleDateString('pt-BR')
+      });
+      setAcessoriosForm({
+        UNIDADE: defaultFormCity || 'Central', NOME: '', CATEGORIA: 'Estojo', REFERENCIA_SKU: '', MARCA: '', COR: 'Padrão',
+        PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '10', IMAGEM: '', OBSERVACOES: ''
+      });
+      setSuccessMsg('Acessório cadastrado com sucesso no estoque!');
     } else if (activeTab === 'brindes') {
       const sku = (brindesForm.REFERENCIA_SKU || '').trim() || `BRD-${Date.now().toString().slice(-6)}`;
       onAddRow('CAD_BRINDES', {
@@ -835,14 +919,119 @@ const ErpOptica = ({
   };
 
   const handleViewInstallments = (row) => {
-    const clientId = row.CLIENTE_ID || row.cliente_id;
-    const clientCpf = row.CLIENTE_CPF || row.cliente_cpf || row.CPF || row.cpf;
-    const clientName = row.CLIENTE || row.cliente || row.NOME || row.Nome || row['NOME DO CLIENTE'];
+    const clientId = row.CLIENTE_ID || row.cliente_id || '';
+    const clientCpf = row.CLIENTE_CPF || row.cliente_cpf || row.CPF || row.cpf || '';
+    const resolvedName = resolveInstallmentClientName(row, clientsData, salesData);
+    const osNumero = extractOSFromRow(row);
     setClientInstallmentsInfo({
       clientId,
       clientCpf,
-      clientName: clientName || 'Cliente Desconhecido'
+      osNumero,
+      clientName: resolvedName && resolvedName !== 'Cliente não identificado' ? resolvedName : (row.CLIENTE || row.cliente || row.NOME || 'Cliente Desconhecido')
     });
+  };
+
+  const handleOpenReparcelamento = (row = null) => {
+    setReparcelamentoTargetRow(row || null);
+    setIsReparcelamentoModalOpen(true);
+  };
+
+  const handleConfirmReparcelamento = (payload) => {
+    if (!payload) return;
+
+    // 1. Remover as parcelas antigas substituídas pelo reparcelamento
+    if (Array.isArray(payload.rowsToDelete) && onDeleteRow) {
+      payload.rowsToDelete.forEach(oldRow => {
+        onDeleteRow('CONTAS_RECEBER', oldRow);
+      });
+    }
+
+    // 2. Se houve Entrada na renegociação, registrar no Contas a Receber (Recebido) e no Fluxo de Caixa
+    if (payload.entradaReceberRow && onAddRow) {
+      onAddRow('CONTAS_RECEBER', payload.entradaReceberRow);
+    }
+    if (payload.entradaFluxoRow && onAddRow) {
+      onAddRow('FLUXO_CAIXA', payload.entradaFluxoRow);
+    }
+
+    // 3. Inserir o novo cronograma de parcelas (Boleto) no Contas a Receber
+    if (Array.isArray(payload.newInstallmentRows) && payload.newInstallmentRows.length > 0) {
+      if (onAddBatch) {
+        onAddBatch('CONTAS_RECEBER', payload.newInstallmentRows);
+      } else if (onAddRow) {
+        payload.newInstallmentRows.forEach(r => onAddRow('CONTAS_RECEBER', r));
+      }
+    }
+
+    // 4. Sincronizar a Ordem de Serviço (OS) em Registro_Vendas se encontrada
+    const numNewParc = payload.newInstallmentRows?.length || 0;
+    if (payload.osNumero && onUpdateRow && Array.isArray(data?.['Registro_Vendas'])) {
+      const targetOSClean = String(payload.osNumero).replace(/^#/, '').trim();
+      const matchedSale = data['Registro_Vendas'].find(s => {
+        const sOs = String(s['OS'] || s['OS DA VENDA'] || s['Nº DA OS'] || s.os || '').replace(/^#/, '').trim();
+        return sOs && sOs === targetOSClean;
+      });
+      if (matchedSale) {
+        const newFormaRestante = numNewParc > 0
+          ? (numNewParc > 1 ? `Boleto (${numNewParc}x)` : 'Boleto')
+          : '';
+        const updatedSale = {
+          ...matchedSale,
+          FORMA_PAGAMENTO: numNewParc > 0 ? 'Boleto' : (payload.entradaMeioPagamento || matchedSale.FORMA_PAGAMENTO || 'Boleto'),
+          'FORMA DE PAGAMENTO': numNewParc > 0 ? 'Boleto' : (payload.entradaMeioPagamento || matchedSale['FORMA DE PAGAMENTO'] || 'Boleto'),
+          FORMA_RESTANTE: newFormaRestante,
+          formaPagamentoRestante: newFormaRestante,
+          PARCELAS: String(numNewParc || 1),
+          RESTANTE: Number(payload.totalNovoParcelado || 0).toFixed(2).replace('.', ','),
+          PARCELAS_JSON: payload.updatedParcelasJson || matchedSale.PARCELAS_JSON,
+          OBSERVACOES_FINANCEIRO: numNewParc > 0
+            ? `Reparcelado em ${new Date().toLocaleDateString('pt-BR')} (${numNewParc}x Boleto)`
+            : `Quitado integralmente em renegociação de OS em ${new Date().toLocaleDateString('pt-BR')}`
+        };
+        onUpdateRow('Registro_Vendas', matchedSale, updatedSale);
+      }
+    }
+
+    // 5. Sincronizar Saldo Devedor e Vencimento na tabela CLIENTES_CADASTRADOS
+    if (clientsData && clientsData.length > 0 && onUpdateRow) {
+      const matchedClient = clientsData.find(c =>
+        isSameClient(c, {
+          id: payload.clientId,
+          CLIENTE_ID: payload.clientId,
+          'CPF / CNPJ': payload.clientCpf,
+          CPF: payload.clientCpf,
+          'Nome Completo': payload.clientName,
+          NOME: payload.clientName,
+          CLIENTE: payload.clientName
+        })
+      );
+
+      if (matchedClient) {
+        const currentDebt = parseCurrency(matchedClient['Valor Devido'] || 0);
+        const delta = Number(payload.totalNovoParcelado || 0) - Number(payload.originalSelectedTotal || 0);
+        const recalculatedDebt = Math.max(0, Number((currentDebt + delta).toFixed(2)));
+        const nextDueIso = payload.newInstallmentRows?.[0]?.DATA_VENCIMENTO || (recalculatedDebt > 0 ? matchedClient['Data de Vencimento'] || '' : '');
+        const todayIso = new Date().toISOString().split('T')[0];
+        const hasNewOverdue = (payload.newInstallmentRows || []).some(
+          r => r.DATA_VENCIMENTO && normalizeInstallmentDateIso(r.DATA_VENCIMENTO) <= todayIso
+        );
+        const nextStatus = recalculatedDebt <= 0 ? 'Em dia' : hasNewOverdue ? 'Inadimplente' : 'Pendente';
+
+        onUpdateRow('CLIENTES_CADASTRADOS', matchedClient, {
+          ...matchedClient,
+          'Valor Devido': recalculatedDebt > 0 ? recalculatedDebt.toFixed(2).replace('.', ',') : '0,00',
+          'Status de Pagamento': nextStatus,
+          'Data de Vencimento': nextDueIso
+        });
+      }
+    }
+
+    setSuccessMsg(
+      numNewParc > 0
+        ? `Reparcelamento da OS #${payload.osNumero || 'AVULSO'} (${payload.clientName}) concluído: ${numNewParc}x no Boleto!`
+        : `Renegociação e quitação da OS #${payload.osNumero || 'AVULSO'} (${payload.clientName}) concluída com sucesso!`
+    );
+    setTimeout(() => setSuccessMsg(''), 5000);
   };
 
   const handleRowUpdateWithSync = (sheetName, oldRow, newRow) => {
@@ -858,31 +1047,18 @@ const ErpOptica = ({
       const isPaidNow = (!['recebido', 'pago', 'liquidado'].includes(oldStatusNorm)) &&
                         (['recebido', 'pago', 'liquidado'].includes(newStatusNorm));
 
-      // 🛡️ Fix 5: Ao marcar como Recebido/Pago, registrar entrada no FLUXO_CAIXA
-      if (isPaidNow && onAddRow) {
-        const todayStr = new Date().toLocaleDateString('pt-BR');
-        const rowClientId = newRow.CLIENTE_ID || newRow.cliente_id || oldRow.CLIENTE_ID || oldRow.cliente_id || '';
-        const rowCpf = newRow.CLIENTE_CPF || newRow.CPF || newRow.cpf || oldRow.CLIENTE_CPF || oldRow.CPF || oldRow.cpf || '';
-        const clienteNome = (newRow.CLIENTE || newRow.cliente || oldRow.CLIENTE || oldRow.cliente || 'Cliente').trim();
-        const doc = newRow.DOCUMENTO || newRow.documento || oldRow.DOCUMENTO || oldRow.documento || '';
-        const desc = newRow.DESCRICAO || newRow.descricao || oldRow.DESCRICAO || oldRow.descricao || 'Recebimento de Conta';
-        const osNum = newRow.VENDA_OS || newRow.OS || oldRow.VENDA_OS || oldRow.OS || '';
-        const unidade = newRow.CIDADE || newRow.cidade || oldRow.CIDADE || oldRow.cidade || defaultFormCity || 'Cajati';
+      // 🛡️ Sincronização Absoluta de Data de Pagamento no FLUXO_CAIXA
+      const effectivePayDate = newRow.DATA_PAGAMENTO || newRow.DATA_RECEBIMENTO || newRow.data_pagamento || newRow.data_recebimento || newRow.DATA || '';
+      const isDateChanged = oldRow.DATA_PAGAMENTO !== newRow.DATA_PAGAMENTO || oldRow.DATA_RECEBIMENTO !== newRow.DATA_RECEBIMENTO;
 
-        onAddRow('FLUXO_CAIXA', {
-          id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-          tipo: 'RECEBIMENTO',
-          dataHora: new Date().toISOString(),
-          data: todayStr,
-          unidade: unidade,
-          operador: currentUser?.username || 'ERP',
-          valor: valorRow,
-          formaPagamento: newRow.MEIO_PAGAMENTO || newRow.FORMA_PAGAMENTO || 'DINHEIRO',
-          motivo: `Recebimento ERP - ${clienteNome}`,
-          detalhes: osNum ? `OS #${osNum} - ${doc || desc}` : (doc || desc),
-          CLIENTE_ID: rowClientId,
-          CLIENTE_CPF: rowCpf,
-          CPF: rowCpf
+      if ((isPaidNow || (['recebido', 'pago', 'liquidado'].includes(newStatusNorm) && isDateChanged)) && (onAddRow || onUpdateRow)) {
+        syncInstallmentPaymentDate({
+          installmentRow: newRow,
+          newPaymentDate: effectivePayDate || new Date().toISOString().split('T')[0],
+          data,
+          onUpdateRow,
+          onAddRow,
+          currentUser
         });
       }
 
@@ -961,6 +1137,7 @@ const ErpOptica = ({
     switch (activeTab) {
       case 'lentes': return 'CAD_LENTES';
       case 'armacoes': return 'CAD_ARMACOES';
+      case 'acessorios': return 'CAD_ACESSORIOS';
       case 'brindes': return 'CAD_BRINDES';
       case 'pagar': return 'CONTAS_PAGAR';
       case 'receber': return 'CONTAS_RECEBER';
@@ -975,6 +1152,7 @@ const ErpOptica = ({
     switch (activeTab) {
       case 'lentes': rows = lentesData; break;
       case 'armacoes': rows = armacoesData; break;
+      case 'acessorios': rows = acessoriosData; break;
       case 'brindes': rows = brindesData; break;
       case 'pagar': rows = pagarData; break;
       case 'receber': rows = receberData; break;
@@ -982,7 +1160,7 @@ const ErpOptica = ({
       case 'vouchers': rows = vouchersData; break;
       default: rows = []; break;
     }
-    if (activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') {
+    if (activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes') {
       if (selectedStockCity && selectedStockCity !== 'ALL') {
         rows = rows.filter(item => {
           const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim().toLowerCase();
@@ -999,19 +1177,37 @@ const ErpOptica = ({
         });
       }
     }
+    if (activeTab === 'receber' || activeTab === 'pagar') {
+      rows = filterInstallmentsByDateRange(rows, {
+        startDate: installmentStartDate,
+        endDate: installmentEndDate,
+        periodMode: installmentPeriodMode,
+        dateField: installmentDateField,
+        statusFilter: installmentStatusFilter,
+        searchQuery: installmentSearchQuery,
+        clientsData,
+        salesData
+      });
+    }
     return rows;
-  }, [activeTab, lentesData, armacoesData, brindesData, pagarData, receberData, transferenciasData, vouchersData, appliedStockFilter, filterCriticalStock, salesData, selectedStockCity]);
+  }, [
+    activeTab, lentesData, armacoesData, acessoriosData, brindesData, pagarData, receberData,
+    transferenciasData, vouchersData, appliedStockFilter, filterCriticalStock, salesData, clientsData,
+    selectedStockCity, installmentStartDate, installmentEndDate, installmentPeriodMode,
+    installmentDateField, installmentStatusFilter, installmentSearchQuery
+  ]);
 
   const handleExportStockExcel = (type) => {
     try {
       const isArmacao = type === 'armacoes';
       const isBrinde = type === 'brindes';
-      const rawList = isArmacao ? armacoesData : isBrinde ? brindesData : lentesData;
+      const isAcessorio = type === 'acessorios';
+      const rawList = isArmacao ? armacoesData : isBrinde ? brindesData : isAcessorio ? acessoriosData : lentesData;
       const todayStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
-      const filename = `Estoque_${isArmacao ? 'Armacoes' : isBrinde ? 'Brindes' : 'Lentes'}_Yasmin_Otica_${todayStr}.xlsx`;
+      const filename = `Estoque_${isArmacao ? 'Armacoes' : isBrinde ? 'Brindes' : isAcessorio ? 'Acessorios' : 'Lentes'}_Yasmin_Otica_${todayStr}.xlsx`;
 
       if (!rawList || rawList.length === 0) {
-        alert(`Não há registros de estoque de ${isArmacao ? 'armações' : isBrinde ? 'brindes' : 'lentes'} para exportar.`);
+        alert(`Não há registros de estoque de ${isArmacao ? 'armações' : isBrinde ? 'brindes' : isAcessorio ? 'acessórios' : 'lentes'} para exportar.`);
         return;
       }
 
@@ -1032,12 +1228,13 @@ const ErpOptica = ({
             'Observações': item.OBSERVACOES || item.observacoes || '',
             'Data Cadastro': item.DATA_CADASTRO || item.data_cadastro || ''
           };
-        } else if (isBrinde) {
+        } else if (isBrinde || isAcessorio) {
           return {
             'Nº': index + 1,
             'Unidade': item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central',
             'Nome / Descrição': item.NOME || item.nome || item.MODELO || '',
-            'Categoria': item.CATEGORIA || item.categoria || 'Acessório',
+            'Categoria': item.CATEGORIA || item.categoria || (isAcessorio ? 'Acessório' : 'Brinde'),
+            'Marca': item.MARCA || item.marca || '',
             'SKU / Código': item.REFERENCIA_SKU || item.referencia_sku || item.CODIGO || item.SKU || '',
             'Cor': item.COR || item.cor || '',
             'Estoque (Unidades)': parseInt(item.ESTOQUE || item.estoque || 0, 10),
@@ -1070,7 +1267,7 @@ const ErpOptica = ({
 
       const ws = XLSX.utils.json_to_sheet(formattedRows);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, isArmacao ? 'Estoque Armações' : isBrinde ? 'Estoque Brindes' : 'Estoque Lentes');
+      XLSX.utils.book_append_sheet(wb, ws, isArmacao ? 'Estoque Armações' : isBrinde ? 'Estoque Brindes' : isAcessorio ? 'Estoque Acessórios' : 'Estoque Lentes');
       XLSX.writeFile(wb, filename);
     } catch (err) {
       console.error('Erro ao exportar estoque:', err);
@@ -1078,10 +1275,149 @@ const ErpOptica = ({
     }
   };
 
+  // Exportar Estoque em formato oficial XML estruturado
+  const handleExportStockXML = (type) => {
+    try {
+      const isArmacao = type === 'armacoes';
+      const isBrinde = type === 'brindes';
+      const isAcessorio = type === 'acessorios';
+      const rawList = isArmacao ? armacoesData : isBrinde ? brindesData : isAcessorio ? acessoriosData : lentesData;
+      const todayStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+      const tipoNome = isArmacao ? 'Armacoes' : isBrinde ? 'Brindes' : isAcessorio ? 'Acessorios' : 'Lentes';
+      const filename = `Estoque_${tipoNome}_Yasmin_Otica_${todayStr}.xml`;
+
+      if (!rawList || rawList.length === 0) {
+        alert(`Não há registros de estoque de ${isArmacao ? 'armações' : isBrinde ? 'brindes' : isAcessorio ? 'acessórios' : 'lentes'} para exportar.`);
+        return;
+      }
+
+      const xmlContent = buildStockXml(rawList, {
+        tipo: tipoNome,
+        unidade: selectedStockCity !== 'todas' ? selectedStockCity : 'Todas'
+      });
+      downloadXmlFile(xmlContent, filename);
+    } catch (err) {
+      console.error('Erro ao exportar estoque em XML:', err);
+      alert('Erro ao gerar arquivo XML do estoque.');
+    }
+  };
+
+  // Exportar Levantamento Financeiro Consolidado em formato nativo Excel (.xlsx) compatível com Excel Online
+  const handleExportFinancialExcel = () => {
+    try {
+      const todayStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+      const filename = `Levantamento_Financeiro_Yasmin_Otica_${todayStr}.xlsx`;
+
+      const receberList = Array.isArray(data?.['CONTAS_RECEBER']) ? data['CONTAS_RECEBER'] : [];
+      const pagarList = Array.isArray(data?.['CONTAS_PAGAR']) ? data['CONTAS_PAGAR'] : [];
+      const fluxoList = Array.isArray(data?.['FLUXO_CAIXA']) ? data['FLUXO_CAIXA'] : [];
+
+      // 1. Resumo Consolidado
+      const totalReceber = receberList.reduce((acc, r) => acc + (parseFloat(String(r.VALOR || r['VALOR PARCELA'] || 0).replace(',', '.')) || 0), 0);
+      const totalPagar = pagarList.reduce((acc, p) => acc + (parseFloat(String(p.VALOR || p.valor || 0).replace(',', '.')) || 0), 0);
+      const resumoRows = [
+        { 'Indicador / Métrica': 'Data do Levantamento', 'Valor': new Date().toLocaleString('pt-BR') },
+        { 'Indicador / Métrica': 'Total de Duplicatas a Receber (R$)', 'Valor': totalReceber },
+        { 'Indicador / Métrica': 'Total de Contas a Pagar (R$)', 'Valor': totalPagar },
+        { 'Indicador / Métrica': 'Saldo Líquido Previsto (R$)', 'Valor': totalReceber - totalPagar },
+        { 'Indicador / Métrica': 'Total de Registros em Contas a Receber', 'Valor': receberList.length },
+        { 'Indicador / Métrica': 'Total de Registros em Contas a Pagar', 'Valor': pagarList.length },
+        { 'Indicador / Métrica': 'Total de Movimentações em Fluxo de Caixa', 'Valor': fluxoList.length }
+      ];
+
+      // 2. Contas a Receber
+      const formattedReceber = receberList.map((r, i) => ({
+        'Nº': i + 1,
+        'Cliente': r.CLIENTE || r.NOME || r['NOME DO CLIENTE'] || '---',
+        'CPF': r.CLIENTE_CPF || r.CPF || '',
+        'Loja / Unidade': r.LOJA || r.CIDADE || r.UNIDADE || 'Todas',
+        'Parcela': r.PARCELA || r['PARCELA'] || '',
+        'Vencimento': r.DATA_VENCIMENTO || r.VENCIMENTO || r['DATA VENCIMENTO'] || '',
+        'Valor (R$)': parseFloat(String(r.VALOR || r['VALOR PARCELA'] || 0).replace(',', '.')) || 0,
+        'Status': r.STATUS || r.status || 'Pendente',
+        'Data Pagamento': r.DATA_PAGAMENTO || r.DATA_RECEBIMENTO || '',
+        'OS / Origem': r.OS || r['OS DA VENDA'] || r.venda_os || ''
+      }));
+
+      // 3. Contas a Pagar
+      const formattedPagar = pagarList.map((p, i) => ({
+        'Nº': i + 1,
+        'Fornecedor / Favorecido': p.FORNECEDOR || p.fornecedor || p.FAVORECIDO || '---',
+        'Categoria / Descrição': p.CATEGORIA || p.DESCRICAO || p.categoria || '',
+        'Loja / Unidade': p.LOJA || p.CIDADE || p.unidade || 'Todas',
+        'Vencimento': p.DATA_VENCIMENTO || p.VENCIMENTO || p['DATA VENCIMENTO'] || '',
+        'Valor (R$)': parseFloat(String(p.VALOR || p.valor || 0).replace(',', '.')) || 0,
+        'Status': p.STATUS || p.status || 'Pendente',
+        'Data Pagamento': p.DATA_PAGAMENTO || p.data_pagamento || '',
+        'Observações': p.OBSERVACOES || p.observacoes || ''
+      }));
+
+      // 4. Fluxo de Caixa
+      const formattedFluxo = fluxoList.map((f, i) => ({
+        'Nº': i + 1,
+        'Data / Hora': f.dataHora || f.DATA || f.data || '',
+        'Loja / Unidade': f.unidade || f.CIDADE || f.LOJA || 'Todas',
+        'Operador': f.operador || f.OPERADOR || '',
+        'Operação': f.tipo || f.TIPO || '',
+        'Forma de Pagamento': f.formaPagamento || '',
+        'Valor (R$)': parseFloat(String(f.valor || 0).replace(',', '.')) || 0,
+        'Motivo / Justificativa': f.motivo || f.MOTIVO || '',
+        'Observações': f.detalhes || f.DETALHES || ''
+      }));
+
+      const wb = XLSX.utils.book_new();
+      
+      const wsResumo = XLSX.utils.json_to_sheet(resumoRows);
+      wsResumo['!cols'] = [{ wch: 35 }, { wch: 25 }];
+      XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo Geral');
+
+      const wsReceber = XLSX.utils.json_to_sheet(formattedReceber.length > 0 ? formattedReceber : [{ 'Aviso': 'Nenhum registro' }]);
+      wsReceber['!cols'] = [{ wch: 6 }, { wch: 30 }, { wch: 16 }, { wch: 15 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 15 }, { wch: 15 }];
+      XLSX.utils.book_append_sheet(wb, wsReceber, 'Contas a Receber');
+
+      const wsPagar = XLSX.utils.json_to_sheet(formattedPagar.length > 0 ? formattedPagar : [{ 'Aviso': 'Nenhum registro' }]);
+      wsPagar['!cols'] = [{ wch: 6 }, { wch: 30 }, { wch: 25 }, { wch: 15 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 15 }, { wch: 30 }];
+      XLSX.utils.book_append_sheet(wb, wsPagar, 'Contas a Pagar');
+
+      const wsFluxo = XLSX.utils.json_to_sheet(formattedFluxo.length > 0 ? formattedFluxo : [{ 'Aviso': 'Nenhum registro' }]);
+      wsFluxo['!cols'] = [{ wch: 6 }, { wch: 20 }, { wch: 15 }, { wch: 18 }, { wch: 15 }, { wch: 18 }, { wch: 14 }, { wch: 25 }, { wch: 30 }];
+      XLSX.utils.book_append_sheet(wb, wsFluxo, 'Fluxo de Caixa');
+
+      XLSX.writeFile(wb, filename);
+    } catch (err) {
+      console.error('Erro ao exportar levantamento financeiro em Excel:', err);
+      alert('Erro ao gerar arquivo Excel do financeiro.');
+    }
+  };
+
+  // Exportar Levantamento Financeiro Consolidado em formato XML estruturado
+  const handleExportFinancialXML = () => {
+    try {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const filename = `Levantamento_Financeiro_Yasmin_Otica_${todayStr}.xml`;
+
+      const xmlContent = buildFinancialSummaryXml(
+        data?.['CONTAS_RECEBER'] || [],
+        data?.['CONTAS_PAGAR'] || [],
+        data?.['FLUXO_CAIXA'] || [],
+        {
+          unidade: 'Todas',
+          periodo: 'Histórico Geral Consolidado'
+        }
+      );
+
+      downloadXmlFile(xmlContent, filename);
+    } catch (err) {
+      console.error('Erro ao exportar levantamento financeiro em XML:', err);
+      alert('Erro ao gerar arquivo XML financeiro.');
+    }
+  };
+
   // Alertas Inteligentes de Estoque Baixo e Contas Vencidas
   const criticalStock = useMemo(() => {
     const list = [];
     lentesData.forEach(item => {
+      if (!item || typeof item !== 'object') return;
       const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10);
       if (qtd <= 2) {
         list.push({
@@ -1093,6 +1429,7 @@ const ErpOptica = ({
       }
     });
     armacoesData.forEach(item => {
+      if (!item || typeof item !== 'object') return;
       const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10);
       if (qtd <= 2) {
         list.push({
@@ -1103,7 +1440,20 @@ const ErpOptica = ({
         });
       }
     });
+    acessoriosData.forEach(item => {
+      if (!item || typeof item !== 'object') return;
+      const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10);
+      if (qtd <= 2) {
+        list.push({
+          type: 'Acessório',
+          name: `${item.NOME || item.nome || item.MODELO || 'Acessório'} ${item.CATEGORIA ? `(${item.CATEGORIA})` : ''}`.trim(),
+          qtd,
+          rawItem: item
+        });
+      }
+    });
     brindesData.forEach(item => {
+      if (!item || typeof item !== 'object') return;
       const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10);
       if (qtd <= 5) {
         list.push({
@@ -1115,43 +1465,18 @@ const ErpOptica = ({
       }
     });
     return list;
-  }, [lentesData, armacoesData, brindesData]);
+  }, [lentesData, armacoesData, acessoriosData, brindesData]);
 
   const overdueBills = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const list = [];
-    pagarData.forEach(item => {
-      const st = (item.STATUS || item.status || 'Pendente').trim();
-      const dt = (item.DATA_VENCIMENTO || item.data_vencimento || '').toString().trim();
-      if (st !== 'Pago' && st !== 'Liquidado' && dt && dt <= todayStr) {
-        list.push({
-          type: 'Pagar',
-          descricao: item.DESCRICAO || item.descricao || 'Despesa',
-          valor: parseCurrency(item.VALOR || item.valor),
-          vencimento: dt
-        });
-      }
-    });
-    receberData.forEach(item => {
-      const st = (item.STATUS || item.status || 'Pendente').trim();
-      const dt = (item.DATA_VENCIMENTO || item.data_vencimento || '').toString().trim();
-      if (st !== 'Recebido' && st !== 'Pago' && st !== 'Liquidado' && dt && dt <= todayStr) {
-        list.push({
-          type: 'Receber',
-          descricao: item.DESCRICAO || item.descricao || 'Recebimento',
-          valor: parseCurrency(item.VALOR || item.valor),
-          vencimento: dt
-        });
-      }
-    });
-    return list;
-  }, [pagarData, receberData]);
+    return buildOverdueInstallmentAlerts(receberData, pagarData, clientsData, salesData);
+  }, [receberData, pagarData, clientsData, salesData]);
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-[1400px] mx-auto space-y-8">
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-[1400px] mx-auto space-y-4 sm:space-y-6">
       {/* Cabeçalho */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl shadow-xl backdrop-blur-md">
-        <div className="flex items-center gap-3 sm:gap-4">
+      <div className="relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-slate-900/95 border border-slate-800/90 p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl shadow-2xl backdrop-blur-md">
+        <div className="pointer-events-none absolute -top-24 -right-24 w-72 h-72 rounded-full bg-sky-500/10 blur-3xl" />
+        <div className="flex items-center gap-3 sm:gap-4 relative z-10">
           <button
             onClick={onBack}
             className="p-2.5 glass-card hover:bg-white/10 transition-all rounded-xl text-slate-400 hover:text-white shadow-lg shrink-0"
@@ -1167,26 +1492,76 @@ const ErpOptica = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && (
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto relative z-10">
+          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes') && (
             <button
-              onClick={() => setIsStockFilterModalOpen(true)}
+              onClick={() => {
+                setStockFilterInitialTab('stock');
+                setIsStockFilterModalOpen(true);
+              }}
               className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 border font-black rounded-xl shadow-lg transition-all text-xs sm:text-sm active:scale-95 ${
                 appliedStockFilter
                   ? 'bg-gradient-to-r from-emerald-600/40 to-teal-600/40 border-emerald-400 text-emerald-100 ring-2 ring-emerald-500/30'
                   : 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-500/40 text-emerald-300 hover:text-white'
               }`}
-              title={`Filtros & Relatórios de Estoque (${activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})`}
+              title={`Filtros & Relatórios de Estoque (${activeTab === 'armacoes' ? 'Armações' : activeTab === 'acessorios' ? 'Acessórios' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})`}
             >
               <Filter size={15} className="text-emerald-400 shrink-0" />
-              <span className="hidden sm:inline">Filtros de Estoque ({activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})</span>
+              <span className="hidden sm:inline">Filtros de Estoque ({activeTab === 'armacoes' ? 'Armações' : activeTab === 'acessorios' ? 'Acessórios' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})</span>
               <span className="sm:hidden">Filtros</span>
               {appliedStockFilter && (
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               )}
             </button>
           )}
-          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && (
+
+          {(activeTab === 'armacoes' || activeTab === 'lentes') && (
+            <button
+              onClick={() => {
+                setStockFilterInitialTab('brand_sales');
+                setIsStockFilterModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 sm:py-2.5 bg-gradient-to-r from-purple-600/25 to-pink-600/25 hover:from-purple-600/40 hover:to-pink-600/40 border border-purple-500/40 text-purple-200 hover:text-white font-black rounded-xl shadow-lg transition-all text-xs sm:text-sm active:scale-95"
+              title={activeTab === 'armacoes' ? "Ver todas as armações vendidas por grife e por loja" : "Ver vendas por fabricante e por loja"}
+            >
+              <Trophy size={15} className="text-amber-300 shrink-0" />
+              <span className="hidden sm:inline">{activeTab === 'armacoes' ? 'Vendas por Grife' : 'Vendas por Fabricante'}</span>
+              <span className="sm:hidden">Grifes</span>
+            </button>
+          )}
+          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes') && (
+            <button
+              onClick={() => handleExportStockXML(activeTab)}
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 sm:py-2.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 hover:text-white font-black rounded-xl shadow-lg transition-all text-xs sm:text-sm active:scale-95"
+              title={`Exportar registros de estoque de ${activeTab === 'armacoes' ? 'armações' : activeTab === 'acessorios' ? 'acessórios' : activeTab === 'brindes' ? 'brindes' : 'lentes'} em XML`}
+            >
+              <FileCode size={15} className="text-amber-400 shrink-0" />
+              <span className="hidden sm:inline">Exportar XML</span>
+              <span className="sm:hidden">XML</span>
+            </button>
+          )}
+          {(activeTab === 'receber' || activeTab === 'pagar') && (
+            <button
+              onClick={() => handleOpenReparcelamento(null)}
+              className="flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500 border border-indigo-400/40 text-white font-black rounded-xl shadow-lg shadow-indigo-600/25 transition-all text-xs sm:text-sm active:scale-95 cursor-pointer"
+              title="Abrir Módulo de Reparcelamento referente à OS no Financeiro"
+            >
+              <RefreshCw size={15} className="shrink-0" />
+              <span>Reparcelar OS</span>
+            </button>
+          )}
+          {(activeTab === 'receber' || activeTab === 'pagar' || activeTab === 'fluxo_caixa') && (
+            <button
+              onClick={handleExportFinancialExcel}
+              className="flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-lg shadow-emerald-600/25 transition-all text-xs sm:text-sm active:scale-95"
+              title="Baixar levantamento financeiro completo em planilha Excel (.xlsx) compatível com Excel Online, Google Planilhas e Celular"
+            >
+              <FileSpreadsheet size={15} className="shrink-0" />
+              <span className="hidden sm:inline">Baixar Planilha (.xlsx)</span>
+              <span className="sm:hidden">Excel (.xlsx)</span>
+            </button>
+          )}
+          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes') && (
             <button
               onClick={() => setIsTransferModalOpen(true)}
               className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-indigo-600/30 to-sky-600/30 hover:from-indigo-600/50 hover:to-sky-600/50 border border-indigo-500/40 hover:border-indigo-400 text-indigo-200 hover:text-white font-black rounded-xl shadow-lg transition-all text-xs sm:text-sm active:scale-95"
@@ -1224,162 +1599,300 @@ const ErpOptica = ({
         )}
       </AnimatePresence>
 
-      {/* Painel de Alertas Rápidos (Notificações) */}
-      {overdueBills.length > 0 && (
-        <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl space-y-2.5">
-          <div className="flex items-center gap-2 text-amber-400 font-black text-sm uppercase tracking-wide">
-            <AlertTriangle size={18} className="animate-pulse shrink-0" />
-            <span>Contas Vencidas / Vencendo Hoje ({overdueBills.length})</span>
-          </div>
-          <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
-            {overdueBills.map((item, idx) => (
-              <div key={idx} className="flex items-center justify-between bg-black/30 px-3 py-2 rounded-xl border border-amber-500/20 text-xs font-bold text-slate-200">
-                <span className="truncate pr-2 text-slate-300">{item.type === 'Pagar' ? '📉 A Pagar' : '📈 A Receber'}: <span className="text-white font-black">{item.descricao}</span></span>
-                <span className="shrink-0 font-black text-amber-300">{formatCurrency(item.valor)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Navegação Secundária em Abas */}
-      <div className="flex overflow-x-auto pb-2 sm:grid sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2.5 sm:gap-3 erp-scroll">
+      <div className="flex overflow-x-auto pb-2 sm:grid sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-9 gap-2 sm:gap-2.5 erp-scroll">
         <button
           onClick={() => { setActiveTab('lentes'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
+          title="Estoque de Lentes"
+          className={`flex items-center gap-2.5 p-2.5 sm:p-3 rounded-2xl transition-all border shrink-0 min-w-[130px] sm:min-w-0 ${
             activeTab === 'lentes'
-              ? 'bg-sky-500/20 border-sky-500 text-white shadow-lg shadow-sky-500/10'
+              ? 'bg-sky-500/20 border-sky-500 text-white shadow-lg shadow-sky-500/10 ring-1 ring-sky-500/30'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'lentes' ? 'bg-sky-500 text-white' : 'bg-white/5 text-sky-400'}`}>
-            <Eye size={20} />
+          <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'lentes' ? 'bg-sky-500 text-white' : 'bg-white/5 text-sky-400'}`}>
+            <Eye size={18} />
           </div>
-          <div className="text-left">
-            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Estoque</p>
-            <p className="font-black text-sm">Lentes</p>
+          <div className="text-left min-w-0 flex-1">
+            <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 truncate">Estoque</p>
+            <p className="font-black text-xs sm:text-sm truncate text-white leading-tight">Lentes</p>
           </div>
         </button>
 
         <button
           onClick={() => { setActiveTab('armacoes'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
+          title="Estoque de Armações"
+          className={`flex items-center gap-2.5 p-2.5 sm:p-3 rounded-2xl transition-all border shrink-0 min-w-[130px] sm:min-w-0 ${
             activeTab === 'armacoes'
-              ? 'bg-fuchsia-500/20 border-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/10'
+              ? 'bg-fuchsia-500/20 border-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/10 ring-1 ring-fuchsia-500/30'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'armacoes' ? 'bg-fuchsia-500 text-white' : 'bg-white/5 text-fuchsia-400'}`}>
-            <Glasses size={20} />
+          <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'armacoes' ? 'bg-fuchsia-500 text-white' : 'bg-white/5 text-fuchsia-400'}`}>
+            <Glasses size={18} />
           </div>
-          <div className="text-left">
-            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Estoque</p>
-            <p className="font-black text-sm">Armações</p>
+          <div className="text-left min-w-0 flex-1">
+            <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 truncate">Estoque</p>
+            <p className="font-black text-xs sm:text-sm truncate text-white leading-tight">Armações</p>
+          </div>
+        </button>
+
+        <button
+          onClick={() => { setActiveTab('acessorios'); setIsAdding(false); }}
+          title="Estoque de Acessórios"
+          className={`flex items-center gap-2.5 p-2.5 sm:p-3 rounded-2xl transition-all border shrink-0 min-w-[130px] sm:min-w-0 ${
+            activeTab === 'acessorios'
+              ? 'bg-amber-500/20 border-amber-500 text-white shadow-lg shadow-amber-500/10 ring-1 ring-amber-500/30'
+              : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
+          }`}
+        >
+          <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'acessorios' ? 'bg-amber-500 text-white' : 'bg-white/5 text-amber-400'}`}>
+            <Package size={18} />
+          </div>
+          <div className="text-left min-w-0 flex-1">
+            <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 truncate">Estoque</p>
+            <p className="font-black text-xs sm:text-sm truncate text-white leading-tight">Acessórios</p>
           </div>
         </button>
 
         <button
           onClick={() => { setActiveTab('brindes'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
+          title="Estoque de Brindes e Cortesias"
+          className={`flex items-center gap-2.5 p-2.5 sm:p-3 rounded-2xl transition-all border shrink-0 min-w-[130px] sm:min-w-0 ${
             activeTab === 'brindes'
-              ? 'bg-pink-500/20 border-pink-500 text-white shadow-lg shadow-pink-500/10'
+              ? 'bg-pink-500/20 border-pink-500 text-white shadow-lg shadow-pink-500/10 ring-1 ring-pink-500/30'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'brindes' ? 'bg-pink-500 text-white' : 'bg-white/5 text-pink-400'}`}>
-            <Gift size={20} />
+          <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'brindes' ? 'bg-pink-500 text-white' : 'bg-white/5 text-pink-400'}`}>
+            <Gift size={18} />
           </div>
-          <div className="text-left">
-            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Estoque</p>
-            <p className="font-black text-sm">Brindes</p>
+          <div className="text-left min-w-0 flex-1">
+            <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 truncate">Estoque</p>
+            <p className="font-black text-xs sm:text-sm truncate text-white leading-tight">Brindes</p>
           </div>
         </button>
 
         <button
           onClick={() => { setActiveTab('vouchers'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
+          title="Promoções e Vouchers"
+          className={`flex items-center gap-2.5 p-2.5 sm:p-3 rounded-2xl transition-all border shrink-0 min-w-[130px] sm:min-w-0 ${
             activeTab === 'vouchers'
-              ? 'bg-gradient-to-br from-amber-500/20 to-fuchsia-500/20 border-amber-400 text-white shadow-lg shadow-amber-500/10'
+              ? 'bg-gradient-to-br from-amber-500/20 to-fuchsia-500/20 border-amber-400 text-white shadow-lg shadow-amber-500/10 ring-1 ring-amber-400/30'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'vouchers' ? 'bg-gradient-to-r from-amber-500 to-fuchsia-500 text-white' : 'bg-white/5 text-amber-400'}`}>
-            <Ticket size={20} />
+          <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'vouchers' ? 'bg-gradient-to-r from-amber-500 to-fuchsia-500 text-white' : 'bg-white/5 text-amber-400'}`}>
+            <Ticket size={18} />
           </div>
-          <div className="text-left">
-            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Promoções</p>
-            <p className="font-black text-sm">Vouchers</p>
+          <div className="text-left min-w-0 flex-1">
+            <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 truncate">Promoções</p>
+            <p className="font-black text-xs sm:text-sm truncate text-white leading-tight">Vouchers</p>
           </div>
         </button>
 
         <button
           onClick={() => { setActiveTab('receber'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
+          title="Contas a Receber"
+          className={`relative flex items-center gap-2.5 p-2.5 sm:p-3 rounded-2xl transition-all border shrink-0 min-w-[130px] sm:min-w-0 ${
             activeTab === 'receber'
-              ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-lg shadow-emerald-500/10'
+              ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500/30'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'receber' ? 'bg-emerald-500 text-white' : 'bg-white/5 text-emerald-400'}`}>
-            <TrendingUp size={20} />
+          <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'receber' ? 'bg-emerald-500 text-white' : 'bg-white/5 text-emerald-400'}`}>
+            <TrendingUp size={18} />
           </div>
-          <div className="text-left">
-            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Financeiro</p>
-            <p className="font-black text-sm">A Receber</p>
+          <div className="text-left min-w-0 flex-1">
+            <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 truncate">Financeiro</p>
+            <p className="font-black text-xs sm:text-sm truncate text-white leading-tight">A Receber</p>
           </div>
+          {overdueBills.filter(b => b.type === 'Receber').length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black shadow-sm">
+              {overdueBills.filter(b => b.type === 'Receber').length}
+            </span>
+          )}
         </button>
 
         <button
           onClick={() => { setActiveTab('pagar'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
+          title="Contas a Pagar"
+          className={`relative flex items-center gap-2.5 p-2.5 sm:p-3 rounded-2xl transition-all border shrink-0 min-w-[130px] sm:min-w-0 ${
             activeTab === 'pagar'
-              ? 'bg-rose-500/20 border-rose-500 text-white shadow-lg shadow-rose-500/10'
+              ? 'bg-rose-500/20 border-rose-500 text-white shadow-lg shadow-rose-500/10 ring-1 ring-rose-500/30'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'pagar' ? 'bg-rose-500 text-white' : 'bg-white/5 text-rose-400'}`}>
-            <TrendingDown size={20} />
+          <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'pagar' ? 'bg-rose-500 text-white' : 'bg-white/5 text-rose-400'}`}>
+            <TrendingDown size={18} />
           </div>
-          <div className="text-left">
-            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Financeiro</p>
-            <p className="font-black text-sm">A Pagar</p>
+          <div className="text-left min-w-0 flex-1">
+            <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 truncate">Financeiro</p>
+            <p className="font-black text-xs sm:text-sm truncate text-white leading-tight">A Pagar</p>
           </div>
+          {overdueBills.filter(b => b.type === 'Pagar').length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black shadow-sm">
+              {overdueBills.filter(b => b.type === 'Pagar').length}
+            </span>
+          )}
         </button>
 
         <button
           onClick={() => { setActiveTab('transferencias'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
+          title="Transferências de Estoque"
+          className={`flex items-center gap-2.5 p-2.5 sm:p-3 rounded-2xl transition-all border shrink-0 min-w-[130px] sm:min-w-0 ${
             activeTab === 'transferencias'
-              ? 'bg-indigo-500/20 border-indigo-500 text-white shadow-lg shadow-indigo-500/10'
+              ? 'bg-indigo-500/20 border-indigo-500 text-white shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-500/30'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'transferencias' ? 'bg-indigo-500 text-white' : 'bg-white/5 text-indigo-400'}`}>
-            <Truck size={20} />
+          <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'transferencias' ? 'bg-indigo-500 text-white' : 'bg-white/5 text-indigo-400'}`}>
+            <Truck size={18} />
           </div>
-          <div className="text-left">
-            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Logística</p>
-            <p className="font-black text-sm">Transferências</p>
+          <div className="text-left min-w-0 flex-1">
+            <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 truncate">Logística</p>
+            <p className="font-black text-xs sm:text-sm truncate text-white leading-tight">Transferências</p>
           </div>
         </button>
 
         <button
           onClick={() => { setActiveTab('fluxo_caixa'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
+          title="Histórico de Caixa e PDV"
+          className={`flex items-center gap-2.5 p-2.5 sm:p-3 rounded-2xl transition-all border shrink-0 min-w-[130px] sm:min-w-0 ${
             activeTab === 'fluxo_caixa'
-              ? 'bg-purple-500/20 border-purple-500 text-white shadow-lg shadow-purple-500/10'
+              ? 'bg-purple-500/20 border-purple-500 text-white shadow-lg shadow-purple-500/10 ring-1 ring-purple-500/30'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'fluxo_caixa' ? 'bg-purple-500 text-white' : 'bg-white/5 text-purple-400'}`}>
-            <History size={20} />
+          <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'fluxo_caixa' ? 'bg-purple-500 text-white' : 'bg-white/5 text-purple-400'}`}>
+            <History size={18} />
           </div>
-          <div className="text-left">
-            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Tesouraria & PDV</p>
-            <p className="font-black text-sm">Histórico Caixa</p>
+          <div className="text-left min-w-0 flex-1">
+            <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 truncate">Caixa &amp; PDV</p>
+            <p className="font-black text-xs sm:text-sm truncate text-white leading-tight">Histórico Caixa</p>
           </div>
         </button>
       </div>
+
+      {/* Painel Elegante de Alertas de Parcelas Vencidas Referentes com o Nome do Cliente (Exibido SOMENTE ao clicar nas abas do Financeiro no ERP) */}
+      {(activeTab === 'receber' || activeTab === 'pagar') && overdueBills.length > 0 && (
+        <div className="relative overflow-hidden glass-card bg-gradient-to-br from-slate-900/95 via-slate-900/90 to-amber-950/30 border border-amber-500/35 shadow-[0_15px_40px_-10px_rgba(245,158,11,0.18)] p-4 sm:p-5 rounded-2xl sm:rounded-3xl space-y-3">
+          <div className="pointer-events-none absolute -top-20 -right-20 w-56 h-56 rounded-full bg-amber-500/10 blur-3xl" />
+
+          <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-amber-500/20">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400">
+                <AlertTriangle size={18} className="animate-pulse shrink-0" />
+              </div>
+              <div>
+                <h4 className="text-amber-300 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2">
+                  <span>Alertas de Parcelas Vencidas / Vencendo Hoje ({overdueBills.length})</span>
+                </h4>
+                <p className="text-[11px] text-slate-400 font-semibold">
+                  Identificação direta do cliente, Ordem de Serviço (OS) e atalho para reparcelamento
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-3 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-black">
+                Total em Atraso: {formatCurrency(overdueBills.reduce((acc, b) => acc + (b.valor || 0), 0))}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('receber');
+                  setInstallmentStartDate('');
+                  setInstallmentEndDate('');
+                  setInstallmentPeriodMode('OVERDUE');
+                  setInstallmentStatusFilter('OVERDUE');
+                }}
+                className="px-3 py-1 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 hover:text-white text-[11px] font-black transition-all cursor-pointer"
+              >
+                Filtrar Vencidas na Tabela
+              </button>
+            </div>
+          </div>
+
+          <div className="relative z-10 space-y-2 max-h-[210px] overflow-y-auto pr-1 erp-scroll">
+            {overdueBills.map((item, idx) => (
+              <div
+                key={idx}
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-950/75 hover:bg-slate-950/95 px-3.5 py-2.5 rounded-2xl border border-amber-500/25 transition-all text-xs font-bold text-slate-200"
+              >
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                  <span
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0 border ${
+                      item.type === 'Pagar'
+                        ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    }`}
+                  >
+                    {item.type === 'Pagar' ? '📉 A Pagar' : '📈 Parcela Vencida'}
+                  </span>
+
+                  <span className="flex items-center gap-1.5 text-white font-black text-xs sm:text-sm truncate">
+                    <User size={13} className="text-sky-400 shrink-0" />
+                    <span>
+                      {item.type === 'Pagar' ? 'Favorecido:' : 'Cliente:'}{' '}
+                      <span className="text-sky-300 underline decoration-sky-500/40 underline-offset-2">
+                        {item.clienteNome || 'Cliente Não Identificado'}
+                      </span>
+                    </span>
+                  </span>
+
+                  {item.osNumero && (
+                    <span className="px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono text-[11px] font-black shrink-0">
+                      OS #{item.osNumero}
+                    </span>
+                  )}
+
+                  {item.parcela && (
+                    <span className="px-2 py-0.5 rounded-md bg-white/5 text-slate-300 border border-white/10 text-[10px] font-black shrink-0">
+                      Parc. {item.parcela}
+                    </span>
+                  )}
+
+                  <span className="text-[11px] text-slate-400 font-semibold truncate">
+                    • Vencimento: <strong className="text-amber-300 font-mono">{item.vencimentoBr || item.vencimento}</strong>
+                    {item.diasAtraso > 0 ? (
+                      <span className="ml-1 text-rose-400 font-black">({item.diasAtraso}d em atraso)</span>
+                    ) : (
+                      <span className="ml-1 text-amber-400 font-black">(Vence Hoje)</span>
+                    )}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-white/5">
+                  <span className="font-black text-amber-300 text-sm">{formatCurrency(item.valor)}</span>
+
+                  {item.type === 'Receber' && item.rawItem && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleViewInstallments(item.rawItem)}
+                        className="px-2.5 py-1 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-[10px] font-black uppercase transition-all cursor-pointer"
+                        title={`Ver todas as parcelas de ${item.clienteNome}`}
+                      >
+                        Ver Parcelas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenReparcelamento(item.rawItem)}
+                        className="px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/35 text-indigo-200 border border-indigo-500/40 text-[10px] font-black uppercase flex items-center gap-1 transition-all cursor-pointer"
+                        title={`Reparcelar OS de ${item.clienteNome}`}
+                      >
+                        <RefreshCw size={11} />
+                        <span>Reparcelar OS</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Cartões Estatísticos da Aba Ativa */}
       {activeTab === 'vouchers' ? (
@@ -1422,27 +1935,41 @@ const ErpOptica = ({
         </div>
       ) : (
         <div className="space-y-6">
-          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && (
-            <div className="glass-card p-5 rounded-3xl border border-white/10 bg-slate-900/60 shadow-xl space-y-3">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-white/5 pb-3">
+          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes') && (
+            <div className="glass-card p-3.5 sm:p-4 rounded-2xl border border-white/10 bg-slate-900/60 shadow-lg">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2.5">
                   <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
-                    <PieChartIcon size={20} />
+                    <PieChartIcon size={18} />
                   </div>
                   <div>
-                    <h4 className="text-sm font-black text-white uppercase tracking-tight flex items-center gap-2">
-                      Qualidade do Ambiente de Estoque &amp; Métricas Visuais
+                    <h4 className="text-xs sm:text-sm font-black text-white uppercase tracking-tight flex items-center gap-2">
+                      Métricas Visuais de Estoque
                       <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-black border border-emerald-500/20">
-                        Interativo
+                        {currentTabRows.length} itens
                       </span>
                     </h4>
                     <p className="text-[11px] text-slate-400 font-semibold">
-                      Distribuição proporcional de {activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'} por Saúde, Loja e Marca
+                      Distribuição por Saúde, Loja e Marca ({activeTab === 'armacoes' ? 'Armações' : activeTab === 'acessorios' ? 'Acessórios' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowStockChartHeader(prev => !prev)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-black transition-all shadow-sm active:scale-95 ${
+                      showStockChartHeader
+                        ? 'bg-emerald-500/30 border-emerald-400 text-white shadow-emerald-500/20'
+                        : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300 hover:text-white'
+                    }`}
+                    title={showStockChartHeader ? "Ocultar gráfico de distribuição" : "Expandir gráfico de distribuição em pizza"}
+                  >
+                    <PieChartIcon size={14} className={showStockChartHeader ? 'text-emerald-300' : 'text-slate-400'} />
+                    <span>{showStockChartHeader ? "Ocultar Gráfico" : "Ver Gráfico de Pizza"}</span>
+                    <ChevronDown size={14} className={`transition-transform duration-200 ${showStockChartHeader ? 'rotate-180' : ''}`} />
+                  </button>
                   <button
                     type="button"
                     onClick={() => setIsStockFilterModalOpen(true)}
@@ -1450,26 +1977,18 @@ const ErpOptica = ({
                     title="Abrir Painel de Filtros Inteligentes & Relatórios"
                   >
                     <Filter size={14} />
-                    <span className="hidden sm:inline">Painel de Filtros &amp; Relatórios ⚡</span>
+                    <span className="hidden sm:inline">Filtros Avançados ⚡</span>
                     <span className="sm:hidden">Filtros ⚡</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowStockChartHeader(prev => !prev)}
-                    className="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xs transition-colors"
-                    title={showStockChartHeader ? "Ocultar gráfico" : "Exibir gráfico"}
-                  >
-                    <ChevronDown size={16} className={`transition-transform duration-200 ${showStockChartHeader ? 'rotate-180' : ''}`} />
                   </button>
                 </div>
               </div>
 
               {showStockChartHeader && (
-                <div className="pt-1">
+                <div className="pt-3 border-t border-white/5 mt-3">
                   <StockPieChart
                     items={currentTabRows}
                     compact={true}
-                    title={`Distribuição do Inventário (${activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})`}
+                    title={`Distribuição do Inventário (${activeTab === 'armacoes' ? 'Armações' : activeTab === 'acessorios' ? 'Acessórios' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})`}
                     onSliceClick={() => setIsStockFilterModalOpen(true)}
                   />
                 </div>
@@ -1477,55 +1996,36 @@ const ErpOptica = ({
             </div>
           )}
 
-          {/* BARRA DE DISTRIBUIÇÃO POR CIDADE / FILIAL (Para Armações, Lentes e Brindes) */}
-          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && stockDistributionByCity && (
-            <div className="glass-card p-4 rounded-3xl border border-white/10 bg-slate-900/70 shadow-xl space-y-3">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-white/5 pb-2.5">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-sky-500/20 text-sky-400">
-                    <Building2 size={18} />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
-                      Distribuição de Estoque por Cidade / Filial
-                      {selectedStockCity !== 'ALL' && (
-                        <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-black border border-sky-500/30">
-                          Filtrando {selectedStockCity}
-                        </span>
-                      )}
-                    </h4>
-                    <p className="text-[11px] text-slate-400 font-semibold">
-                      Saldo físico e variedade de {activeTab === 'armacoes' ? 'armações' : activeTab === 'brindes' ? 'brindes' : 'lentes'} isolados por loja
-                    </p>
-                  </div>
-                </div>
-
+          {/* BARRA DE DISTRIBUIÇÃO POR CIDADE / FILIAL (Para Armações, Lentes, Acessórios e Brindes) */}
+          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes') && stockDistributionByCity && (
+            <div className="glass-card p-3 sm:p-4 rounded-2xl border border-white/10 bg-slate-900/70 shadow-lg space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsTransferModalOpen(true)}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 hover:text-white text-xs font-bold transition-all shadow-sm"
-                    title="Transferir produtos entre lojas"
-                  >
-                    <ArrowLeftRight size={13} />
-                    <span className="hidden sm:inline">Transferir entre Lojas</span>
-                    <span className="sm:hidden">Transferir</span>
-                  </button>
+                  <Building2 size={16} className="text-sky-400 shrink-0" />
+                  <span className="text-xs font-black text-white uppercase tracking-wider">
+                    Filtrar por Cidade / Filial:
+                  </span>
                   {selectedStockCity !== 'ALL' && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedStockCity('ALL')}
-                      className="text-[11px] font-bold text-sky-400 hover:text-white flex items-center gap-1 hover:underline ml-1"
-                    >
-                      <span>Mostrar Todas</span>
-                      <span>✕</span>
-                    </button>
+                    <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-black border border-sky-500/30">
+                      {selectedStockCity}
+                    </span>
                   )}
                 </div>
+
+                {selectedStockCity !== 'ALL' && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStockCity('ALL')}
+                    className="text-[11px] font-bold text-sky-400 hover:text-white flex items-center gap-1 hover:underline"
+                  >
+                    <span>Mostrar Todas</span>
+                    <span>✕</span>
+                  </button>
+                )}
               </div>
 
               {/* Botões / Pills de cada Cidade / Filial */}
-              <div className="flex overflow-x-auto pb-1.5 sm:grid sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-0.5 erp-scroll">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
                 {[
                   { id: 'ALL', label: 'Todas as Lojas', badge: `${stockDistributionByCity.totalItems} mod · ${stockDistributionByCity.totalUnits} un` },
                   { id: 'Central', label: 'Central (Todas)', badge: `${stockDistributionByCity.stores['Central']?.items || 0} mod · ${stockDistributionByCity.stores['Central']?.units || 0} un` },
@@ -1540,13 +2040,13 @@ const ErpOptica = ({
                       key={store.id}
                       type="button"
                       onClick={() => setSelectedStockCity(store.id)}
-                      className={`flex flex-col text-left p-2.5 rounded-xl border transition-all shrink-0 min-w-[130px] sm:min-w-0 ${
+                      className={`flex flex-col text-left px-3 py-2 rounded-xl border transition-all ${
                         isSelected
                           ? 'bg-sky-500/20 border-sky-400 text-white shadow-md shadow-sky-500/10 ring-1 ring-sky-400/50'
                           : 'bg-white/[0.03] hover:bg-white/[0.08] text-slate-300 border-white/5 hover:border-white/15'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-1 mb-1">
+                      <div className="flex items-center justify-between gap-1">
                         <span className="text-xs font-black truncate">{store.label}</span>
                         {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />}
                       </div>
@@ -1560,24 +2060,24 @@ const ErpOptica = ({
             </div>
           )}
 
-          <div className={`grid gap-4 sm:gap-6 ${activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes' ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'}`}>
+          <div className={`grid gap-3 sm:gap-4 ${activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes' ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'}`}>
           {activeTab === 'lentes' && (
             <>
-              <div className="glass-card p-6 border-l-4 border-l-sky-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-sky-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total de Linhas / Marcas</p>
-                <p className="text-3xl font-black text-white mt-1">{lentesStats.total}</p>
+                <p className="text-2xl sm:text-3xl font-black text-white mt-1">{lentesStats.total}</p>
               </div>
-              <div className="glass-card p-6 border-l-4 border-l-indigo-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-indigo-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Pares em Estoque</p>
-                <p className="text-3xl font-black text-indigo-400 mt-1">{lentesStats.totalPares}</p>
+                <p className="text-2xl sm:text-3xl font-black text-indigo-400 mt-1">{lentesStats.totalPares}</p>
               </div>
-              <div className="glass-card p-6 border-l-4 border-l-emerald-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-emerald-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Custo Total em Estoque</p>
-                <p className="text-3xl font-black text-emerald-400 mt-1">{formatCurrency(lentesStats.valorEstoque)}</p>
+                <p className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1">{formatCurrency(lentesStats.valorEstoque)}</p>
               </div>
               <div
                 onClick={() => setFilterCriticalStock(prev => !prev)}
-                className={`glass-card p-6 border-l-4 cursor-pointer transition-all ${
+                className={`glass-card p-4 sm:p-5 rounded-2xl border-l-4 cursor-pointer transition-all ${
                   filterCriticalStock
                     ? 'border-l-amber-500 ring-2 ring-amber-500/50 bg-amber-500/10'
                     : 'border-l-amber-500 hover:border-amber-400 hover:bg-white/5'
@@ -1593,7 +2093,7 @@ const ErpOptica = ({
                     {filterCriticalStock ? 'Filtro Ativo' : 'Ponto de Pedido'}
                   </span>
                 </div>
-                <p className="text-3xl font-black text-amber-300 mt-1">{lentesStats.criticos} itens</p>
+                <p className="text-2xl sm:text-3xl font-black text-amber-300 mt-1">{lentesStats.criticos} itens</p>
                 <p className="text-[10px] text-slate-400 mt-1">
                   {filterCriticalStock ? 'Clique para desativar filtro' : 'Clique para isolar no catálogo'}
                 </p>
@@ -1603,21 +2103,21 @@ const ErpOptica = ({
 
           {activeTab === 'armacoes' && (
             <>
-              <div className="glass-card p-6 border-l-4 border-l-fuchsia-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-fuchsia-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Modelos Cadastrados</p>
-                <p className="text-3xl font-black text-white mt-1">{armacoesStats.total}</p>
+                <p className="text-2xl sm:text-3xl font-black text-white mt-1">{armacoesStats.total}</p>
               </div>
-              <div className="glass-card p-6 border-l-4 border-l-pink-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-pink-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Peças em Estoque</p>
-                <p className="text-3xl font-black text-pink-400 mt-1">{armacoesStats.totalPecs}</p>
+                <p className="text-2xl sm:text-3xl font-black text-pink-400 mt-1">{armacoesStats.totalPecs}</p>
               </div>
-              <div className="glass-card p-6 border-l-4 border-l-emerald-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-emerald-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Custo Total do Inventário</p>
-                <p className="text-3xl font-black text-emerald-400 mt-1">{formatCurrency(armacoesStats.valorEstoque)}</p>
+                <p className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1">{formatCurrency(armacoesStats.valorEstoque)}</p>
               </div>
               <div
                 onClick={() => setFilterCriticalStock(prev => !prev)}
-                className={`glass-card p-6 border-l-4 cursor-pointer transition-all ${
+                className={`glass-card p-4 sm:p-5 rounded-2xl border-l-4 cursor-pointer transition-all ${
                   filterCriticalStock
                     ? 'border-l-amber-500 ring-2 ring-amber-500/50 bg-amber-500/10'
                     : 'border-l-amber-500 hover:border-amber-400 hover:bg-white/5'
@@ -1633,7 +2133,47 @@ const ErpOptica = ({
                     {filterCriticalStock ? 'Filtro Ativo' : 'Ponto de Pedido'}
                   </span>
                 </div>
-                <p className="text-3xl font-black text-amber-300 mt-1">{armacoesStats.criticos} modelos</p>
+                <p className="text-2xl sm:text-3xl font-black text-amber-300 mt-1">{armacoesStats.criticos} modelos</p>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  {filterCriticalStock ? 'Clique para desativar filtro' : 'Clique para isolar no catálogo'}
+                </p>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'acessorios' && (
+            <>
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-amber-500">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Itens Cadastrados</p>
+                <p className="text-2xl sm:text-3xl font-black text-white mt-1">{acessoriosStats.total}</p>
+              </div>
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-yellow-500">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Unidades em Estoque</p>
+                <p className="text-2xl sm:text-3xl font-black text-amber-400 mt-1">{acessoriosStats.totalPecs}</p>
+              </div>
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-emerald-500">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Custo Total do Inventário</p>
+                <p className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1">{formatCurrency(acessoriosStats.valorEstoque)}</p>
+              </div>
+              <div
+                onClick={() => setFilterCriticalStock(prev => !prev)}
+                className={`glass-card p-4 sm:p-5 rounded-2xl border-l-4 cursor-pointer transition-all ${
+                  filterCriticalStock
+                    ? 'border-l-amber-500 ring-2 ring-amber-500/50 bg-amber-500/10'
+                    : 'border-l-amber-500 hover:border-amber-400 hover:bg-white/5'
+                }`}
+                title="Clique para filtrar apenas acessórios com estoque crítico (<= 2 unidades)"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-black uppercase tracking-widest text-amber-400 flex items-center gap-1.5">
+                    <AlertTriangle size={14} className={acessoriosStats.criticos > 0 ? 'animate-pulse' : ''} />
+                    Estoque Crítico (≤ 2)
+                  </p>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${filterCriticalStock ? 'bg-amber-500 text-slate-950 font-black' : 'bg-amber-500/20 text-amber-300'}`}>
+                    {filterCriticalStock ? 'Filtro Ativo' : 'Ponto de Pedido'}
+                  </span>
+                </div>
+                <p className="text-2xl sm:text-3xl font-black text-amber-300 mt-1">{acessoriosStats.criticos} itens</p>
                 <p className="text-[10px] text-slate-400 mt-1">
                   {filterCriticalStock ? 'Clique para desativar filtro' : 'Clique para isolar no catálogo'}
                 </p>
@@ -1643,21 +2183,21 @@ const ErpOptica = ({
 
           {activeTab === 'brindes' && (
             <>
-              <div className="glass-card p-6 border-l-4 border-l-pink-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-pink-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Modelos Cadastrados</p>
-                <p className="text-3xl font-black text-white mt-1">{brindesStats.total}</p>
+                <p className="text-2xl sm:text-3xl font-black text-white mt-1">{brindesStats.total}</p>
               </div>
-              <div className="glass-card p-6 border-l-4 border-l-rose-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-rose-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Peças em Estoque</p>
-                <p className="text-3xl font-black text-rose-400 mt-1">{brindesStats.totalPecs}</p>
+                <p className="text-2xl sm:text-3xl font-black text-rose-400 mt-1">{brindesStats.totalPecs}</p>
               </div>
-              <div className="glass-card p-6 border-l-4 border-l-emerald-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-emerald-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Custo Total do Inventário</p>
-                <p className="text-3xl font-black text-emerald-400 mt-1">{formatCurrency(brindesStats.valorEstoque)}</p>
+                <p className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1">{formatCurrency(brindesStats.valorEstoque)}</p>
               </div>
               <div
                 onClick={() => setFilterCriticalStock(prev => !prev)}
-                className={`glass-card p-6 border-l-4 cursor-pointer transition-all ${
+                className={`glass-card p-4 sm:p-5 rounded-2xl border-l-4 cursor-pointer transition-all ${
                   filterCriticalStock
                     ? 'border-l-amber-500 ring-2 ring-amber-500/50 bg-amber-500/10'
                     : 'border-l-amber-500 hover:border-amber-400 hover:bg-white/5'
@@ -1673,7 +2213,7 @@ const ErpOptica = ({
                     {filterCriticalStock ? 'Filtro Ativo' : 'Ponto de Pedido'}
                   </span>
                 </div>
-                <p className="text-3xl font-black text-amber-300 mt-1">{brindesStats.criticos} itens</p>
+                <p className="text-2xl sm:text-3xl font-black text-amber-300 mt-1">{brindesStats.criticos} itens</p>
                 <p className="text-[10px] text-slate-400 mt-1">
                   {filterCriticalStock ? 'Clique para desativar filtro' : 'Clique para isolar no catálogo'}
                 </p>
@@ -1683,49 +2223,49 @@ const ErpOptica = ({
 
           {activeTab === 'receber' && (
             <>
-              <div className="glass-card p-6 border-l-4 border-l-emerald-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-emerald-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Recebido / Liquidado</p>
-                <p className="text-3xl font-black text-emerald-400 mt-1">{formatCurrency(receberStats.recebido)}</p>
+                <p className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1">{formatCurrency(receberStats.recebido)}</p>
               </div>
-              <div className="glass-card p-6 border-l-4 border-l-amber-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-amber-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Pendente de Recebimento</p>
-                <p className="text-3xl font-black text-amber-400 mt-1">{formatCurrency(receberStats.pendente)}</p>
+                <p className="text-2xl sm:text-3xl font-black text-amber-400 mt-1">{formatCurrency(receberStats.pendente)}</p>
               </div>
-              <div className="glass-card p-6 border-l-4 border-l-sky-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-sky-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total de Lançamentos</p>
-                <p className="text-3xl font-black text-white mt-1">{receberStats.total}</p>
+                <p className="text-2xl sm:text-3xl font-black text-white mt-1">{receberStats.total}</p>
               </div>
             </>
           )}
 
           {activeTab === 'pagar' && (
             <>
-              <div className="glass-card p-6 border-l-4 border-l-rose-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-rose-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total Pendente a Pagar</p>
-                <p className="text-3xl font-black text-rose-400 mt-1">{formatCurrency(pagarStats.pendente)}</p>
+                <p className="text-2xl sm:text-3xl font-black text-rose-400 mt-1">{formatCurrency(pagarStats.pendente)}</p>
               </div>
-              <div className="glass-card p-6 border-l-4 border-l-emerald-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-emerald-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Contas Pagas / Liq.</p>
-                <p className="text-3xl font-black text-emerald-400 mt-1">{formatCurrency(pagarStats.pago)}</p>
+                <p className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1">{formatCurrency(pagarStats.pago)}</p>
               </div>
-              <div className="glass-card p-6 border-l-4 border-l-indigo-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-indigo-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total de Despesas Registradas</p>
-                <p className="text-3xl font-black text-white mt-1">{pagarStats.total}</p>
+                <p className="text-2xl sm:text-3xl font-black text-white mt-1">{pagarStats.total}</p>
               </div>
             </>
           )}
 
           {activeTab === 'transferencias' && (
             <>
-              <div className="glass-card p-6 border-l-4 border-l-indigo-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-indigo-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Transferências Realizadas</p>
-                <p className="text-3xl font-black text-indigo-400 mt-1">{transferStats.totalMoves}</p>
+                <p className="text-2xl sm:text-3xl font-black text-indigo-400 mt-1">{transferStats.totalMoves}</p>
               </div>
-              <div className="glass-card p-6 border-l-4 border-l-sky-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-sky-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Peças / Pares Movimentados</p>
-                <p className="text-3xl font-black text-sky-400 mt-1">{transferStats.totalItems}</p>
+                <p className="text-2xl sm:text-3xl font-black text-sky-400 mt-1">{transferStats.totalItems}</p>
               </div>
-              <div className="glass-card p-6 border-l-4 border-l-emerald-500">
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-emerald-500">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Status Operacional</p>
                 <p className="text-xl font-black text-emerald-400 mt-1 flex items-center gap-1.5">
                   <CheckCircle size={20} /> Multi-Lojas Ativo
@@ -1752,6 +2292,7 @@ const ErpOptica = ({
                 <h3 className="text-xl font-black text-white uppercase tracking-tight">
                   {activeTab === 'lentes' && 'Cadastrar Nova Lente no Estoque'}
                   {activeTab === 'armacoes' && 'Cadastrar Nova Armação no Estoque'}
+                  {activeTab === 'acessorios' && 'Cadastrar Novo Acessório no Estoque'}
                   {activeTab === 'brindes' && 'Cadastrar Novo Brinde / Cortesia no Estoque'}
                   {activeTab === 'vouchers' && 'Criar Novo Voucher / Cupom Promocional'}
                   {activeTab === 'receber' && 'Lançar Nova Conta a Receber'}
@@ -2250,6 +2791,70 @@ const ErpOptica = ({
                 </div>
               )}
 
+              {/* FORMULÁRIO DE ACESSÓRIOS */}
+              {activeTab === 'acessorios' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Unidade (Loja) *</label>
+                    <select value={acessoriosForm.UNIDADE} onChange={e => setAcessoriosForm({...acessoriosForm, UNIDADE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-amber-500/50">
+                      <option className="bg-slate-900" value="Central">Central (Todas)</option>
+                      <option className="bg-slate-900" value="Cajati">Cajati</option>
+                      <option className="bg-slate-900" value="Registro">Registro</option>
+                      <option className="bg-slate-900" value="Jacupiranga">Jacupiranga</option>
+                      <option className="bg-slate-900" value="Venda Externa">Venda Externa</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Nome / Descrição do Acessório *</label>
+                    <input required type="text" placeholder="Ex: Estojo de Couro Premium, Limpa Lentes Spray 60ml" value={acessoriosForm.NOME} onChange={e => setAcessoriosForm({...acessoriosForm, NOME: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-amber-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Categoria *</label>
+                    <select value={acessoriosForm.CATEGORIA} onChange={e => setAcessoriosForm({...acessoriosForm, CATEGORIA: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-amber-500/50">
+                      <option className="bg-slate-900" value="Estojo">Estojo / Case</option>
+                      <option className="bg-slate-900" value="Flanela">Flanela de Microfibra</option>
+                      <option className="bg-slate-900" value="Limpa Lentes">Limpa Lentes / Spray</option>
+                      <option className="bg-slate-900" value="Cordão">Cordão / Corrente</option>
+                      <option className="bg-slate-900" value="Plaquetas">Plaquetas / Parafusos</option>
+                      <option className="bg-slate-900" value="Lentes de Contato Solução">Solução Lentes de Contato</option>
+                      <option className="bg-slate-900" value="Outros">Outros Acessórios</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Código de Barras / SKU</label>
+                    <input type="text" placeholder="Ex: ACS-001 (auto se vazio)" value={acessoriosForm.REFERENCIA_SKU} onChange={e => setAcessoriosForm({...acessoriosForm, REFERENCIA_SKU: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-amber-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Marca / Fabricante</label>
+                    <input type="text" placeholder="Ex: Yasmin Care, OptiFree, Renu, Universal" value={acessoriosForm.MARCA} onChange={e => setAcessoriosForm({...acessoriosForm, MARCA: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-amber-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Cor / Variação</label>
+                    <input type="text" placeholder="Ex: Preto, Azul, Transparente, Sortido" value={acessoriosForm.COR} onChange={e => setAcessoriosForm({...acessoriosForm, COR: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-amber-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Estoque Inicial (Peças) *</label>
+                    <input required type="number" min="0" placeholder="10" value={acessoriosForm.ESTOQUE} onChange={e => setAcessoriosForm({...acessoriosForm, ESTOQUE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-amber-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Preço de Custo (R$)</label>
+                    <input type="text" placeholder="5,00" value={acessoriosForm.PRECO_COMPRA} onChange={e => setAcessoriosForm({...acessoriosForm, PRECO_COMPRA: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-amber-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Preço de Venda (R$) *</label>
+                    <input required type="text" placeholder="25,00" value={acessoriosForm.PRECO_VENDA} onChange={e => setAcessoriosForm({...acessoriosForm, PRECO_VENDA: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-emerald-400 font-bold focus:ring-2 focus:ring-emerald-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">URL / Link da Foto (Imagem)</label>
+                    <input type="text" placeholder="https://..." value={acessoriosForm.IMAGEM} onChange={e => setAcessoriosForm({...acessoriosForm, IMAGEM: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-amber-500/50" />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Observações</label>
+                    <input type="text" placeholder="Ex: Embalagem individual, compatível com óculos e lentes..." value={acessoriosForm.OBSERVACOES} onChange={e => setAcessoriosForm({...acessoriosForm, OBSERVACOES: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-amber-500/50" />
+                  </div>
+                </div>
+              )}
+
               {/* FORMULÁRIO DE BRINDES */}
               {activeTab === 'brindes' && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -2606,7 +3211,11 @@ const ErpOptica = ({
             <CashHistoryContent
               cashMovements={data?.['FLUXO_CAIXA'] || []}
               salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || []}
+              receberData={data?.['CONTAS_RECEBER'] || []}
               defaultUnit="Todas"
+              currentUser={currentUser}
+              onUpdateRow={onUpdateRow}
+              onDeleteRow={onDeleteRow}
             />
           </motion.div>
         ) : (
@@ -2621,6 +3230,7 @@ const ErpOptica = ({
               <h3 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-2">
                 {activeTab === 'lentes' && <><Eye size={18} className="text-sky-400" /> Catálogo de Lentes em Estoque</>}
                 {activeTab === 'armacoes' && <><Glasses size={18} className="text-fuchsia-400" /> Catálogo de Armações em Estoque</>}
+                {activeTab === 'acessorios' && <><Package size={18} className="text-amber-400" /> Catálogo de Acessórios em Estoque</>}
                 {activeTab === 'brindes' && <><Gift size={18} className="text-pink-400" /> Catálogo de Brindes &amp; Cortesias em Estoque</>}
                 {activeTab === 'receber' && <><TrendingUp size={18} className="text-emerald-400" /> Tabela de Contas a Receber</>}
                 {activeTab === 'pagar' && <><TrendingDown size={18} className="text-rose-400" /> Tabela de Contas a Pagar</>}
@@ -2628,15 +3238,18 @@ const ErpOptica = ({
               </h3>
 
               <div className="flex flex-wrap items-center gap-2">
-                {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && (
+                {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes') && (
                   <button
-                    onClick={() => setIsStockFilterModalOpen(true)}
+                    onClick={() => {
+                      setStockFilterInitialTab('stock');
+                      setIsStockFilterModalOpen(true);
+                    }}
                     className={`flex items-center gap-1.5 px-3 py-1.5 border text-xs font-black rounded-xl transition-all shadow-sm active:scale-95 ${
                       appliedStockFilter
                         ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 ring-2 ring-emerald-500/20'
                         : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-300 hover:text-white'
                     }`}
-                    title={`Filtros e Relatórios de Estoque (${activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})`}
+                    title={`Filtros e Relatórios de Estoque (${activeTab === 'armacoes' ? 'Armações' : activeTab === 'acessorios' ? 'Acessórios' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})`}
                   >
                     <Filter size={14} className="text-emerald-400" />
                     <span>Filtros de Estoque</span>
@@ -2646,7 +3259,21 @@ const ErpOptica = ({
                   </button>
                 )}
 
-                {(appliedStockFilter || filterCriticalStock) && (activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && (
+                {(activeTab === 'armacoes' || activeTab === 'lentes') && (
+                  <button
+                    onClick={() => {
+                      setStockFilterInitialTab('brand_sales');
+                      setIsStockFilterModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 border text-xs font-black rounded-xl transition-all shadow-sm active:scale-95 bg-purple-500/15 hover:bg-purple-500/25 border-purple-500/30 text-purple-200 hover:text-white"
+                    title={activeTab === 'armacoes' ? "Ver todas as armações vendidas por grife e por loja" : "Ver vendas por fabricante e por loja"}
+                  >
+                    <Trophy size={14} className="text-amber-300" />
+                    <span>{activeTab === 'armacoes' ? 'Vendas por Grife' : 'Vendas por Fabricante'}</span>
+                  </button>
+                )}
+
+                {(appliedStockFilter || filterCriticalStock) && (activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes') && (
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500/15 to-emerald-500/15 border border-sky-500/30 text-sky-200 text-xs font-black shadow-sm">
                     <Filter size={14} className="text-sky-400 shrink-0" />
                     <span>
@@ -2670,8 +3297,180 @@ const ErpOptica = ({
                     </button>
                   </div>
                 )}
+                {(activeTab === 'receber' || activeTab === 'pagar') && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenReparcelamento(null)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-indigo-600/20 transition-all active:scale-95 cursor-pointer"
+                    title="Abrir Módulo de Reparcelamento referente à OS no Financeiro"
+                  >
+                    <RefreshCw size={14} />
+                    <span>Reparcelar OS</span>
+                  </button>
+                )}
               </div>
             </div>
+
+            {/* PAINEL ELEGANTE DE FILTRO COM AS DATAS DA PARCELA (MODO DE BUSCA COM DATAS PERSONALIZADAS) */}
+            {(activeTab === 'receber' || activeTab === 'pagar') && (
+              <div className="relative overflow-hidden mb-5 p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-slate-950/90 via-slate-900/90 to-indigo-950/40 border border-sky-500/25 shadow-[0_12px_35px_-10px_rgba(14,165,233,0.18)] space-y-3.5">
+                <div className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full bg-sky-500/10 blur-3xl" />
+                <div className="pointer-events-none absolute -bottom-16 -left-16 w-48 h-48 rounded-full bg-indigo-500/10 blur-3xl" />
+
+                <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-white/10">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-400">
+                      <Calendar size={18} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                        <span>Filtro de Datas da Parcela — Busca Personalizada</span>
+                        <span className="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[10px] font-black">
+                          {currentTabRows.length} parcela(s)
+                        </span>
+                      </h4>
+                      <p className="text-[11px] text-slate-400 font-semibold">
+                        Filtre mensalidades e boletos por vencimento, pagamento, cadastro ou intervalo de datas personalizado
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Atalhos Rápidos de Período */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[
+                      { id: 'ALL', label: 'Todas as Datas' },
+                      { id: 'OVERDUE', label: '⚠️ Vencidas' },
+                      { id: 'TODAY', label: 'Hoje' },
+                      { id: 'NEXT_7_DAYS', label: 'Próx. 7 Dias' },
+                      { id: 'THIS_MONTH', label: 'Mês Atual' },
+                      { id: 'CUSTOM', label: '📅 Datas Personalizadas' }
+                    ].map(preset => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => {
+                          setInstallmentPeriodMode(preset.id);
+                          if (preset.id !== 'CUSTOM') {
+                            setInstallmentStartDate('');
+                            setInstallmentEndDate('');
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all border cursor-pointer ${
+                          installmentPeriodMode === preset.id
+                            ? 'bg-sky-500/25 border-sky-400 text-white shadow-md shadow-sky-500/15'
+                            : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Linha de Campos de Busca com Datas Personalizadas */}
+                <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-sky-300 flex items-center gap-1">
+                      <Calendar size={11} /> Data Inicial (De)
+                    </label>
+                    <input
+                      type="date"
+                      value={installmentStartDate}
+                      onChange={e => {
+                        setInstallmentStartDate(e.target.value);
+                        if (e.target.value) setInstallmentPeriodMode('CUSTOM');
+                      }}
+                      className="w-full bg-slate-950/90 border border-white/15 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-sky-400"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-sky-300 flex items-center gap-1">
+                      <Calendar size={11} /> Data Final (Até)
+                    </label>
+                    <input
+                      type="date"
+                      value={installmentEndDate}
+                      onChange={e => {
+                        setInstallmentEndDate(e.target.value);
+                        if (e.target.value) setInstallmentPeriodMode('CUSTOM');
+                      }}
+                      className="w-full bg-slate-950/90 border border-white/15 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-sky-400"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Referência da Data
+                    </label>
+                    <select
+                      value={installmentDateField}
+                      onChange={e => setInstallmentDateField(e.target.value)}
+                      className="w-full bg-slate-950/90 border border-white/15 rounded-xl px-3 py-2 text-xs font-bold text-slate-200 focus:outline-none focus:border-sky-400"
+                    >
+                      <option value="VENCIMENTO">Data de Vencimento da Parcela</option>
+                      <option value="PAGAMENTO">Data de Pagamento / Recebimento</option>
+                      <option value="CADASTRO">Data de Emissão / Cadastro</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Status da Parcela
+                    </label>
+                    <select
+                      value={installmentStatusFilter}
+                      onChange={e => setInstallmentStatusFilter(e.target.value)}
+                      className="w-full bg-slate-950/90 border border-white/15 rounded-xl px-3 py-2 text-xs font-bold text-slate-200 focus:outline-none focus:border-sky-400"
+                    >
+                      <option value="ALL">Todos os Status</option>
+                      <option value="PENDING">Apenas Pendentes / Em Aberto</option>
+                      <option value="OVERDUE">Apenas Vencidas / Em Atraso</option>
+                      <option value="PAID">Apenas Pagas / Recebidas</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Cliente / Nº da OS / Parcela
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <div className="relative flex-1">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                        <input
+                          type="text"
+                          placeholder="Buscar cliente ou OS..."
+                          value={installmentSearchQuery}
+                          onChange={e => setInstallmentSearchQuery(e.target.value)}
+                          className="w-full bg-slate-950/90 border border-white/15 rounded-xl pl-8 pr-2.5 py-2 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-sky-400"
+                        />
+                      </div>
+                      {(installmentPeriodMode !== 'ALL' ||
+                        installmentStartDate ||
+                        installmentEndDate ||
+                        installmentStatusFilter !== 'ALL' ||
+                        installmentSearchQuery) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInstallmentPeriodMode('ALL');
+                            setInstallmentStartDate('');
+                            setInstallmentEndDate('');
+                            setInstallmentDateField('VENCIMENTO');
+                            setInstallmentStatusFilter('ALL');
+                            setInstallmentSearchQuery('');
+                          }}
+                          className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-black shrink-0 transition-all cursor-pointer"
+                          title="Limpar filtro de datas"
+                        >
+                          Limpar ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <DataTable
               sheetName={getSheetName()}
@@ -2679,9 +3478,10 @@ const ErpOptica = ({
               onRowUpdate={handleRowUpdateWithSync}
               onDeleteRow={onDeleteRow}
               onViewInstallments={activeTab === 'receber' ? handleViewInstallments : undefined}
+              onReparcelarOS={activeTab === 'receber' ? handleOpenReparcelamento : undefined}
               onViewVoucherUsage={activeTab === 'vouchers' ? handleViewVoucherUsage : undefined}
               currentUser={currentUser}
-              showPrintLabel={activeTab === 'armacoes' || activeTab === 'lentes' || activeTab === 'brindes'}
+              showPrintLabel={activeTab === 'armacoes' || activeTab === 'lentes' || activeTab === 'acessorios' || activeTab === 'brindes'}
             />
           </motion.div>
         )}
@@ -2708,8 +3508,8 @@ const ErpOptica = ({
       <StockFilterModal
         isOpen={isStockFilterModalOpen}
         onClose={() => setIsStockFilterModalOpen(false)}
-        type={activeTab === 'armacoes' ? 'armacoes' : activeTab === 'brindes' ? 'brindes' : 'lentes'}
-        items={activeTab === 'armacoes' ? armacoesData : activeTab === 'brindes' ? brindesData : lentesData}
+        type={activeTab === 'armacoes' ? 'armacoes' : activeTab === 'acessorios' ? 'acessorios' : activeTab === 'brindes' ? 'brindes' : 'lentes'}
+        items={activeTab === 'armacoes' ? armacoesData : activeTab === 'acessorios' ? acessoriosData : activeTab === 'brindes' ? brindesData : lentesData}
         salesData={salesData}
         activeFilter={appliedStockFilter}
         onApplyFilter={(filterConfig) => {
@@ -2717,6 +3517,7 @@ const ErpOptica = ({
           setFilterCriticalStock(false);
         }}
         currentUser={currentUser}
+        initialModalTab={stockFilterInitialTab}
       />
 
       {/* Modal de Mensalidades do Cliente */}
@@ -2725,23 +3526,54 @@ const ErpOptica = ({
         onClose={() => setClientInstallmentsInfo(null)}
         clientName={clientInstallmentsInfo?.clientName}
         rows={(data['CONTAS_RECEBER'] || []).filter(r => {
-          if (!clientInstallmentsInfo) return false;
+          if (!clientInstallmentsInfo || !r || typeof r !== 'object') return false;
           if (clientInstallmentsInfo.clientId && (r.CLIENTE_ID === clientInstallmentsInfo.clientId || r.cliente_id === clientInstallmentsInfo.clientId)) return true;
-          if (clientInstallmentsInfo.clientCpf && (r.CLIENTE_CPF === clientInstallmentsInfo.clientCpf || r.cliente_cpf === clientInstallmentsInfo.clientCpf || r.CPF === clientInstallmentsInfo.clientCpf || r.cpf === clientInstallmentsInfo.clientCpf)) return true;
-          const rName = r.CLIENTE || r.cliente || r.NOME || r.Nome || r['NOME DO CLIENTE'];
-          if (clientInstallmentsInfo.clientName && clientInstallmentsInfo.clientName !== 'Cliente Desconhecido' && rName === clientInstallmentsInfo.clientName) return true;
+          const cleanTargetCpf = String(clientInstallmentsInfo.clientCpf || '').replace(/\D/g, '');
+          const cleanRowCpf = String(r.CLIENTE_CPF || r.cliente_cpf || r.CPF || r.cpf || '').replace(/\D/g, '');
+          if (cleanTargetCpf && cleanRowCpf && cleanTargetCpf === cleanRowCpf) return true;
+          const rName = resolveInstallmentClientName(r, clientsData, salesData);
+          if (
+            clientInstallmentsInfo.clientName &&
+            clientInstallmentsInfo.clientName !== 'Cliente Desconhecido' &&
+            clientInstallmentsInfo.clientName !== 'Cliente não identificado' &&
+            rName.toLowerCase() === clientInstallmentsInfo.clientName.toLowerCase()
+          ) {
+            return true;
+          }
+          if (clientInstallmentsInfo.osNumero && extractOSFromRow(r) === clientInstallmentsInfo.osNumero) {
+            return true;
+          }
           return false;
         }).sort((a, b) => {
-          // Sort by VENCIMENTO
-          const dateA = a.DATA_VENCIMENTO || a['DATA VENCIMENTO'] || a.VENCIMENTO;
-          const dateB = b.DATA_VENCIMENTO || b['DATA VENCIMENTO'] || b.VENCIMENTO;
-          if (!dateA) return 1;
-          if (!dateB) return -1;
-          return new Date(dateA) - new Date(dateB);
+          const isoA = normalizeInstallmentDateIso(a.DATA_VENCIMENTO || a['DATA VENCIMENTO'] || a.VENCIMENTO);
+          const isoB = normalizeInstallmentDateIso(b.DATA_VENCIMENTO || b['DATA VENCIMENTO'] || b.VENCIMENTO);
+          if (!isoA) return 1;
+          if (!isoB) return -1;
+          return isoA.localeCompare(isoB);
         })}
         onRowUpdate={handleRowUpdateWithSync}
         onDeleteRow={onDeleteRow}
+        onOpenReparcelamento={(row) => {
+          setClientInstallmentsInfo(null);
+          handleOpenReparcelamento(row);
+        }}
         currentUser={currentUser}
+      />
+
+      {/* Modal de Reparcelamento de OS no Financeiro */}
+      <ReparcelamentoOSModal
+        isOpen={isReparcelamentoModalOpen}
+        onClose={() => {
+          setIsReparcelamentoModalOpen(false);
+          setReparcelamentoTargetRow(null);
+        }}
+        initialRow={reparcelamentoTargetRow}
+        receberData={receberData}
+        clientsData={clientsData}
+        salesData={salesData}
+        currentUser={currentUser}
+        onConfirmReparcelamento={handleConfirmReparcelamento}
+        onTriggerPrintAgreement={(agr) => setReparcelamentoAgreementPrintData(agr)}
       />
 
       {/* Modal Quem Usou / Histórico de Uso do Voucher */}
@@ -2910,6 +3742,9 @@ const ErpOptica = ({
           </div>
         </div>
       )}
+
+      {/* Componente Oficial de Impressão do Termo de Acordo e Confissão de Dívida (A4) */}
+      <PrintableReparcelamentoAgreement agreementData={reparcelamentoAgreementPrintData} />
     </motion.div>
   );
 };

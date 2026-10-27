@@ -3,7 +3,7 @@
 // Permite que o sistema abra, opere e finalize vendas mesmo sem internet!
 // ══════════════════════════════════════════════════════════════════
 
-const CACHE_NAME = 'yasmin-otica-offline-v4';
+const CACHE_NAME = 'yasmin-otica-offline-v7';
 
 // Recursos visuais estáticos para a casca do app (ícones e logotipos)
 const STATIC_ASSETS = [
@@ -46,6 +46,17 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
+
+  // Não interceptar requisições em ambiente de desenvolvimento local (localhost)
+  if (
+    url.hostname === 'localhost' ||
+    url.hostname === '127.0.0.1' ||
+    url.port === '5173' ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.includes('node_modules')
+  ) {
+    return;
+  }
 
   // Não interceptar requisições para o Firebase / Firestore (o SDK possui persistência própria em IndexedDB)
   if (

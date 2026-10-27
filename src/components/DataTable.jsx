@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Search, Table2, Edit2, Save, X, ClipboardList, Eye, Trash2, Printer, Tag, AlertTriangle, Paperclip, Upload, FileText } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Table2, Edit2, Save, X, ClipboardList, Eye, Trash2, Printer, Tag, AlertTriangle, Paperclip, Upload, FileText, RefreshCw } from 'lucide-react';
 import RowEditModal from './RowEditModal';
 import PrintableOS from './PrintableOS';
 import { PrintableLabelModal } from './PrintableLabel';
@@ -18,7 +18,9 @@ export const COLUMN_LABELS = {
   'VALOR PARCELA': 'Valor Parcela', 'PARCELA': 'Parcela', 'MOVIMENTAÇÃO': 'Moviment.',
   'N': 'Nº', 'DATA ORÇAMENTO': 'Data Orç.', 'NOME DO CLIENTE': 'Cliente',
   'VALOR DO ORÇAMENTO': 'Valor', 'ARMAÇÃO': 'Armação', 'LENTE': 'Lente',
-  'OS DA VENDA': 'OS Venda', 'DATA  DA VENDA': 'Dt. Venda',
+  'OS DA VENDA': 'OS Venda', 'DATA  DA VENDA': 'Data da Venda',
+  'DATA DA VENDA': 'Data da Venda', 'DATA_VENDA': 'Data da Venda',
+  'data_venda': 'Data da Venda', 'Data da Venda': 'Data da Venda',
   'DATA DO CADASTRAMENTO': 'Dt. Cadastro', 'DIOPTRIA': 'Dioptria',
   'TIPO PRODUTO': 'Tipo', 'QTD (PAR)': 'Qtd.',
   // Campos ERP Ótica
@@ -152,6 +154,12 @@ export const CANONICAL_ALIASES = [
     canonical: 'VALOR',
     label: 'Valor (R$)',
     keys: ['VALOR', 'valor', 'VALOR (R$)', 'VALOR TOTAL', 'VALOR DA VENDA', 'Valor']
+  },
+  {
+    id: 'data_venda',
+    canonical: 'DATA  DA VENDA',
+    label: 'Data da Venda',
+    keys: ['DATA  DA VENDA', 'DATA DA VENDA', 'DATA_VENDA', 'data_venda', 'Data da Venda', 'DATA', 'Data', 'data']
   },
   {
     id: 'vencimento',
@@ -332,7 +340,7 @@ export const isMeaningfulRow = (row) => {
   });
 };
 
-const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onViewInstallments, onViewProfile, onViewVoucherUsage, onDeleteRow, currentUser, allowEdit = true, showPrintOS = false, showPrintLabel = false }) => {
+const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onViewInstallments, onReparcelarOS, onViewProfile, onViewVoucherUsage, onDeleteRow, currentUser, allowEdit = true, showPrintOS = false, showPrintLabel = false }) => {
   const isAdmin = ['admin', 'administrativo'].includes(currentUser?.role);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -369,15 +377,18 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
 
     const forbiddenCols = ['password', 'senha', 'pass', 'hash', 'token', 'secret'];
 
-    targetRows.forEach(r => Object.keys(r).forEach(k => {
-      if (!k || k.startsWith('_')) return;
-      const kLower = k.toLowerCase().trim();
-      if (forbiddenCols.some(f => kLower.includes(f))) return; // Filtro de segurança: nunca exibir senhas ou credenciais
+    targetRows.forEach(r => {
+      if (!r || typeof r !== 'object') return;
+      Object.keys(r).forEach(k => {
+        if (!k || k.startsWith('_')) return;
+        const kLower = k.toLowerCase().trim();
+        if (forbiddenCols.some(f => kLower.includes(f))) return; // Filtro de segurança: nunca exibir senhas ou credenciais
 
-      // Preserva e inclui todas as colunas preenchidas na planilha (com emojis e caracteres especiais)
-      const hasVal = targetRows.some(row => row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '');
-      if (hasVal) keys.add(k);
-    }));
+        // Preserva e inclui todas as colunas preenchidas na planilha (com emojis e caracteres especiais)
+        const hasVal = targetRows.some(row => row && typeof row === 'object' && row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '');
+        if (hasVal) keys.add(k);
+      });
+    });
     if (sheetName === 'CAD_ARMACOES') {
       ['IMAGEM', 'MARCA', 'MODELO', 'REFERENCIA_SKU', 'COR', 'TAMANHO', 'MATERIAL', 'ESTOQUE', 'PRECO_VENDA', 'PRECO_COMPRA', 'UNIDADE', 'OBSERVACOES'].forEach(col => keys.add(col));
     }
@@ -657,6 +668,16 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                     {onViewInstallments && (
                       <button onClick={() => onViewInstallments(row)} className="p-1.5 flex items-center gap-1.5 px-2.5 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 rounded-lg transition-colors font-black text-xs" title="Ver Todas as Mensalidades / Boletos do Cliente">
                         <Table2 size={14} /> Mensalidades
+                      </button>
+                    )}
+                    {onReparcelarOS && sheetName === 'CONTAS_RECEBER' && (
+                      <button
+                        onClick={() => onReparcelarOS(row)}
+                        className="p-1.5 flex items-center gap-1.5 px-2.5 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 border border-indigo-500/30 rounded-lg transition-all font-black text-xs shadow-sm"
+                        title="Reparcelar / Renegociar Parcelas referente à OS no Financeiro"
+                      >
+                        <RefreshCw size={13} className="text-indigo-400" />
+                        <span>Reparcelar OS</span>
                       </button>
                     )}
                     {onViewVoucherUsage && sheetName === 'VOUCHERS' && (

@@ -24,6 +24,7 @@ import {
   Clock,
   AlertOctagon
 } from 'lucide-react';
+import { buildNormalizedDateTime } from '../dateSyncUtils';
 
 const cleanVal = (v) => {
   if (v === null || v === undefined || v === '') return 0;
@@ -77,21 +78,37 @@ const getInstallmentDate = (firstDateStr, offset) => {
   return firstDateStr;
 };
 
-const buildPaymentObject = (method, val, cashReceivedVal, installmentsCount, dueDate, customDates = {}) => {
+const formatEditMethodLabel = (method, installments = 1) => {
+  const m = String(method || '').toLowerCase();
+  const n = parseInt(installments, 10) || 1;
+  if (m === 'pix') return 'PIX';
+  if (m === 'debito') return 'Cartão de Débito';
+  if (m === 'credito') return n > 1 ? `Cartão de Crédito (${n}x)` : 'Cartão de Crédito';
+  if (m === 'carne' || m === 'boleto') return n > 1 ? `Boleto (${n}x)` : 'Boleto';
+  if (m === 'dinheiro') return 'Dinheiro';
+  if (m === 'combinar' || /combinar|retirada/i.test(m)) return 'A Combinar na Retirada';
+  return method || '';
+};
+
+const buildPaymentObject = (method, val, cashReceivedVal, installmentsCount, dueDate, customDates = {}, stage = 'entrada') => {
   let texto = '';
   let parcelasDetalhe = [];
   let trocoLocal = 0;
   const n = parseInt(installmentsCount, 10) || 1;
   const valorNumerico = Math.max(0, cleanVal(val));
+  const isBoletoMethod = method === 'carne' || method === 'boleto';
+  const isCombinarMethod = method === 'combinar';
+  const effectiveStage = (isBoletoMethod || isCombinarMethod) ? 'restante' : (stage === 'restante' ? 'restante' : 'entrada');
+  const stageTag = effectiveStage === 'restante' && !isBoletoMethod && !isCombinarMethod ? ' (Restante)' : '';
 
   if (method === 'dinheiro') {
     const recebido = cleanVal(cashReceivedVal) || valorNumerico;
     trocoLocal = Math.max(0, recebido - valorNumerico);
-    texto = `💵 Dinheiro: ${fmtMoeda(valorNumerico)}${trocoLocal > 0 ? ` (Recebido: ${fmtMoeda(recebido)} | Troco: ${fmtMoeda(trocoLocal)})` : ''}`;
+    texto = `💵 Dinheiro${stageTag}: ${fmtMoeda(valorNumerico)}${trocoLocal > 0 ? ` (Recebido: ${fmtMoeda(recebido)} | Troco: ${fmtMoeda(trocoLocal)})` : ''}`;
   } else if (method === 'pix') {
-    texto = `⚡ PIX: ${fmtMoeda(valorNumerico)}`;
+    texto = `⚡ PIX${stageTag}: ${fmtMoeda(valorNumerico)}`;
   } else if (method === 'debito') {
-    texto = `💳 Cartão Débito: ${fmtMoeda(valorNumerico)}`;
+    texto = `💳 Cartão Débito${stageTag}: ${fmtMoeda(valorNumerico)}`;
   } else if (method === 'credito') {
     const vParc = n > 0 ? valorNumerico / n : valorNumerico;
     if (n > 1) {
@@ -102,10 +119,12 @@ const buildPaymentObject = (method, val, cashReceivedVal, installmentsCount, due
           valor: vParc.toFixed(2).replace('.', ',')
         });
       }
-      texto = `💳 Cartão Crédito (${n}x de ${fmtMoeda(vParc)}): ${fmtMoeda(valorNumerico)}`;
+      texto = `💳 Cartão Crédito (${effectiveStage === 'restante' ? 'Restante - ' : ''}${n}x de ${fmtMoeda(vParc)}): ${fmtMoeda(valorNumerico)}`;
     } else {
-      texto = `💳 Cartão Crédito (1x à vista): ${fmtMoeda(valorNumerico)}`;
+      texto = `💳 Cartão Crédito (${effectiveStage === 'restante' ? 'Restante - ' : ''}1x à vista): ${fmtMoeda(valorNumerico)}`;
     }
+  } else if (method === 'combinar') {
+    texto = `🤝 A Combinar na Retirada (Restante): ${fmtMoeda(valorNumerico)}`;
   } else if (method === 'carne' || method === 'boleto') {
     const vParc = n > 0 ? valorNumerico / n : valorNumerico;
     for (let i = 1; i <= n; i++) {
@@ -125,6 +144,8 @@ const buildPaymentObject = (method, val, cashReceivedVal, installmentsCount, due
   return {
     id: `pay_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
     metodo: method,
+    stage: effectiveStage,
+    installments: n,
     valor: valorNumerico,
     texto,
     parcelas: parcelasDetalhe,
@@ -133,11 +154,12 @@ const buildPaymentObject = (method, val, cashReceivedVal, installmentsCount, due
   };
 };
 
-const parsePaymentsFromString = (fpStr, totalExpected, defaultDue) => {
+const parsePaymentsFromString = (fpStr, totalExpected, defaultDue, entradaExpected = 0, restanteExpected = 0) => {
   if (!fpStr || typeof fpStr !== 'string') return null;
-  const parts = fpStr.split(' + ').map(s => s.trim()).filter(Boolean);
+  const parts = fpStr.split(/\n|\s*\+\s*/).map(s => s.trim()).filter(Boolean);
   if (parts.length <= 1) return null;
   
+  let accEntrada = 0;
   const parsed = [];
   for (const part of parts) {
     let metodo = 'dinheiro';
@@ -145,6 +167,7 @@ const parsePaymentsFromString = (fpStr, totalExpected, defaultDue) => {
     else if (/d[eé]bito/i.test(part)) metodo = 'debito';
     else if (/cr[eé]dito/i.test(part)) metodo = 'credito';
     else if (/boleto|carn[eê]/i.test(part)) metodo = 'carne';
+    else if (/combinar|retirada/i.test(part)) metodo = 'combinar';
     
     const xMatch = part.match(/(\d+)x/i);
     const n = xMatch ? parseInt(xMatch[1], 10) : 1;
@@ -156,7 +179,14 @@ const parsePaymentsFromString = (fpStr, totalExpected, defaultDue) => {
     }
     
     if (val > 0) {
-      parsed.push(buildPaymentObject(metodo, val, val, n, defaultDue));
+      let stage = 'entrada';
+      if (metodo === 'carne' || metodo === 'combinar' || /restante|falta|na retirada|na entrega|a pagar|a prazo/i.test(part)) {
+        stage = 'restante';
+      } else if (!/entrada|sinal/i.test(part) && restanteExpected > 0 && entradaExpected > 0 && accEntrada >= entradaExpected - 0.05 && Math.abs(val - restanteExpected) < 0.05) {
+        stage = 'restante';
+      }
+      if (stage === 'entrada') accEntrada += val;
+      parsed.push(buildPaymentObject(metodo, val, val, n, defaultDue, {}, stage));
     }
   }
   return parsed.length > 0 ? parsed : null;
@@ -182,6 +212,8 @@ const EditOSModal = ({
     valorTotal: '',
     valorEntrada: '',
     restante: '',
+    formaPagamentoEntrada: '',
+    formaPagamentoRestante: '',
     formasPagamento: '',
     observacoes: '',
     odEsf: '',
@@ -194,6 +226,16 @@ const EditOSModal = ({
     oeEixo: '',
     oeDnp: '',
     oeAlt: '',
+    odPertoEsf: '',
+    odPertoCil: '',
+    odPertoEixo: '',
+    odPertoDnp: '',
+    odPertoAlt: '',
+    oePertoEsf: '',
+    oePertoCil: '',
+    oePertoEixo: '',
+    oePertoDnp: '',
+    oePertoAlt: '',
     adicao: ''
   });
 
@@ -202,6 +244,7 @@ const EditOSModal = ({
   // Construtor Dinâmico de Formas de Pagamento (Idêntico ao Caixa / PDV)
   const [payments, setPayments] = useState([]);
   const [currentMethod, setCurrentMethod] = useState('dinheiro'); // 'dinheiro', 'pix', 'debito', 'credito', 'carne'
+  const [currentStage, setCurrentStage] = useState('entrada'); // 'entrada' | 'restante'
   const [paymentInputVal, setPaymentInputVal] = useState('');
   const [payInstallments, setPayInstallments] = useState(1);
   const [payFirstDueDate, setPayFirstDueDate] = useState(() => {
@@ -222,6 +265,8 @@ const EditOSModal = ({
       const rawRestante = osData['RESTANTE'] || '';
       const restanteNum = cleanVal(rawRestante) || Math.max(0, totalNum - entradaNum);
       const fpStr = osData['FORMAS_PAGAMENTO'] || osData['FORMA_PAGTO'] || osData['FORMA DE PAGAMENTO'] || osData['MEIO_PAGAMENTO'] || '';
+      const rawFormaEntrada = osData['FORMA_ENTRADA'] || osData['formaPagamentoEntrada'] || '';
+      const rawFormaRestante = osData['FORMA_RESTANTE'] || osData['formaPagamentoRestante'] || '';
 
       setFormData({
         numeroOS: numOS,
@@ -230,11 +275,13 @@ const EditOSModal = ({
         lente: osData['LENTE'] || osData['Lente'] || '',
         laboratorio: osData['LABORATORIO'] || osData['Laboratório'] || osData['LAB'] || '',
         medico: osData['MEDICO'] || osData['Médico'] || '',
-        dataVenda: osData['DATA  DA VENDA'] || osData['DATA'] || osData['Data da Venda'] || '',
+        dataVenda: osData['DATA  DA VENDA'] || osData['DATA DA VENDA'] || osData['DATA_VENDA'] || osData['Data da Venda'] || osData['data_venda'] || osData['dataVenda'] || osData['DATA'] || osData['Data'] || '',
         dataEntrega: osData['DATA ENTREGA ÓCULOS'] || osData['DATA_ENTREGA'] || osData['Previsão Entrega'] || osData['DATA VENCIMENTO'] || '',
         valorTotal: formatMoney(totalNum),
         valorEntrada: formatMoney(entradaNum),
         restante: formatMoney(restanteNum),
+        formaPagamentoEntrada: rawFormaEntrada,
+        formaPagamentoRestante: rawFormaRestante,
         formasPagamento: fpStr,
         observacoes: osData['OBSERVACOES'] || osData['OBS'] || osData['Observações'] || '',
         // Prescrição OD
@@ -249,6 +296,18 @@ const EditOSModal = ({
         oeEixo: osData['OE_EIXO'] || osData['oeEixo'] || osData['OE EIXO'] || '',
         oeDnp: osData['OE_DNP'] || osData['oeDnp'] || osData['OE DNP'] || '',
         oeAlt: osData['OE_ALT'] || osData['oeAlt'] || osData['OE ALT'] || '',
+        // Perto OD
+        odPertoEsf: osData['OD_PERTO_ESF'] || osData['odPertoEsf'] || '',
+        odPertoCil: osData['OD_PERTO_CIL'] || osData['odPertoCil'] || '',
+        odPertoEixo: osData['OD_PERTO_EIXO'] || osData['odPertoEixo'] || '',
+        odPertoDnp: osData['OD_PERTO_DNP'] || osData['odPertoDnp'] || '',
+        odPertoAlt: osData['OD_PERTO_ALT'] || osData['odPertoAlt'] || '',
+        // Perto OE
+        oePertoEsf: osData['OE_PERTO_ESF'] || osData['oePertoEsf'] || '',
+        oePertoCil: osData['OE_PERTO_CIL'] || osData['oePertoCil'] || '',
+        oePertoEixo: osData['OE_PERTO_EIXO'] || osData['oePertoEixo'] || '',
+        oePertoDnp: osData['OE_PERTO_DNP'] || osData['oePertoDnp'] || '',
+        oePertoAlt: osData['OE_PERTO_ALT'] || osData['oePertoAlt'] || '',
         // Adição
         adicao: osData['ADICAO'] || osData['adicao'] || osData['ADIÇÃO'] || ''
       });
@@ -262,7 +321,7 @@ const EditOSModal = ({
       if (Array.isArray(rawPayments) && rawPayments.length > 0) {
         initialPays = rawPayments;
       } else {
-        const parsedFromString = parsePaymentsFromString(fpStr, totalNum, payFirstDueDate);
+        const parsedFromString = parsePaymentsFromString(fpStr, totalNum, payFirstDueDate, entradaNum, restanteNum);
         if (parsedFromString && parsedFromString.length > 0) {
           initialPays = parsedFromString;
         } else {
@@ -280,6 +339,7 @@ const EditOSModal = ({
           initialPays.push({
             id: 'init_carne',
             metodo: 'carne',
+            stage: 'restante',
             valor: boletoVal,
             texto: `📄 Boleto (${n}x de ${fmtMoeda(vParc)} | Venc: ${vencsTexto}): ${fmtMoeda(boletoVal)}`,
             parcelas: boletoParcs
@@ -287,10 +347,10 @@ const EditOSModal = ({
 
           if (entradaNum > 0) {
             let m = 'dinheiro';
-            if (/pix/i.test(fpStr)) m = 'pix';
-            else if (/d[eé]bito/i.test(fpStr)) m = 'debito';
-            else if (/cr[eé]dito/i.test(fpStr)) m = 'credito';
-            initialPays.unshift(buildPaymentObject(m, entradaNum, entradaNum, 1, ''));
+            if (/pix/i.test(rawFormaEntrada || fpStr)) m = 'pix';
+            else if (/d[eé]bito/i.test(rawFormaEntrada || fpStr)) m = 'debito';
+            else if (/cr[eé]dito/i.test(rawFormaEntrada || fpStr)) m = 'credito';
+            initialPays.unshift(buildPaymentObject(m, entradaNum, entradaNum, 1, '', {}, 'entrada'));
           }
         } else if (totalNum > 0) {
           const isApenasBoleto = /boleto|carn[eê]/i.test(fpStr) && !/dinheiro|pix|d[eé]bito|cr[eé]dito/i.test(fpStr);
@@ -299,25 +359,45 @@ const EditOSModal = ({
             const n = match ? parseInt(match[1], 10) : 1;
             const defDue = new Date();
             defDue.setDate(defDue.getDate() + 30);
-            initialPays.push(buildPaymentObject('carne', totalNum, totalNum, n, defDue.toISOString().split('T')[0]));
+            initialPays.push(buildPaymentObject('carne', totalNum, totalNum, n, defDue.toISOString().split('T')[0], {}, 'restante'));
           } else if (entradaNum > 0 && restanteNum > 0) {
-            let m = 'dinheiro';
-            if (/pix/i.test(fpStr)) m = 'pix';
-            else if (/d[eé]bito/i.test(fpStr)) m = 'debito';
-            else if (/cr[eé]dito/i.test(fpStr)) m = 'credito';
-            initialPays.push(buildPaymentObject(m, entradaNum, entradaNum, 1, ''));
+            let mEnt = 'dinheiro';
+            const entRef = rawFormaEntrada || fpStr;
+            if (/pix/i.test(entRef)) mEnt = 'pix';
+            else if (/d[eé]bito/i.test(entRef)) mEnt = 'debito';
+            else if (/cr[eé]dito/i.test(entRef)) mEnt = 'credito';
+            initialPays.push(buildPaymentObject(mEnt, entradaNum, entradaNum, 1, '', {}, 'entrada'));
+
+            let mRest = 'carne';
+            const restRef = rawFormaRestante || fpStr;
+            if (rawFormaRestante || /combinar|retirada/i.test(fpStr)) {
+              const targetRestStr = rawFormaRestante || fpStr;
+              if (/pix/i.test(targetRestStr)) mRest = 'pix';
+              else if (/d[eé]bito/i.test(targetRestStr)) mRest = 'debito';
+              else if (/cr[eé]dito/i.test(targetRestStr)) mRest = 'credito';
+              else if (/dinheiro/i.test(targetRestStr)) mRest = 'dinheiro';
+              else if (/combinar|retirada/i.test(targetRestStr)) mRest = 'combinar';
+              else if (/boleto|carn[eê]/i.test(targetRestStr)) mRest = 'carne';
+            }
+            const xRestMatch = String(restRef).match(/(\d+)x/i);
+            const nRest = xRestMatch ? parseInt(xRestMatch[1], 10) : 1;
             const defDue = new Date();
             defDue.setDate(defDue.getDate() + 30);
-            initialPays.push(buildPaymentObject('carne', restanteNum, restanteNum, 1, defDue.toISOString().split('T')[0]));
+            initialPays.push(buildPaymentObject(mRest, restanteNum, restanteNum, nRest, defDue.toISOString().split('T')[0], {}, 'restante'));
           } else {
+            const singleRef = (entradaNum === 0 && restanteNum > 0) ? (rawFormaRestante || fpStr) : (rawFormaEntrada || fpStr);
             let m = 'dinheiro';
-            if (/pix/i.test(fpStr)) m = 'pix';
-            else if (/d[eé]bito/i.test(fpStr)) m = 'debito';
-            else if (/cr[eé]dito/i.test(fpStr)) m = 'credito';
-            else if (/boleto|carn[eê]/i.test(fpStr)) m = 'carne';
+            if (/pix/i.test(singleRef)) m = 'pix';
+            else if (/d[eé]bito/i.test(singleRef)) m = 'debito';
+            else if (/cr[eé]dito/i.test(singleRef)) m = 'credito';
+            else if (/combinar|retirada/i.test(singleRef)) m = 'combinar';
+            else if (/boleto|carn[eê]/i.test(singleRef)) m = 'carne';
+            const xSingleMatch = String(singleRef || fpStr).match(/(\d+)x/i);
+            const nSingle = xSingleMatch ? parseInt(xSingleMatch[1], 10) : 1;
             const defDue = new Date();
             defDue.setDate(defDue.getDate() + 30);
-            initialPays.push(buildPaymentObject(m, totalNum, totalNum, 1, defDue.toISOString().split('T')[0]));
+            const stageInit = (m === 'carne' || m === 'combinar' || (entradaNum === 0 && restanteNum > 0)) ? 'restante' : 'entrada';
+            initialPays.push(buildPaymentObject(m, totalNum, totalNum, nSingle, defDue.toISOString().split('T')[0], {}, stageInit));
           }
         }
       }
@@ -336,13 +416,13 @@ const EditOSModal = ({
 
   const totalPagoImediato = payments.reduce((acc, p) => {
     const m = String(p.metodo || '').toLowerCase();
-    if (m === 'boleto' || m === 'carne') return acc;
+    if (m === 'boleto' || m === 'carne' || p.stage === 'restante') return acc;
     return acc + (cleanVal(p.valor) || 0);
   }, 0);
 
   const totalBoletoCarne = payments.reduce((acc, p) => {
     const m = String(p.metodo || '').toLowerCase();
-    if (m === 'boleto' || m === 'carne') return acc + (cleanVal(p.valor) || 0);
+    if (m === 'boleto' || m === 'carne' || p.stage === 'restante') return acc + (cleanVal(p.valor) || 0);
     return acc;
   }, 0);
 
@@ -373,12 +453,33 @@ const EditOSModal = ({
       return;
     }
 
-    const newPay = buildPaymentObject(currentMethod, val, cashTendered, payInstallments, payFirstDueDate, customDueDates);
-    setPayments(prev => [...prev, newPay]);
+    const effectiveStage = (currentMethod === 'carne' || currentMethod === 'combinar') ? 'restante' : currentStage;
+    const newPay = buildPaymentObject(currentMethod, val, cashTendered, payInstallments, payFirstDueDate, customDueDates, effectiveStage);
+    const nextList = [...payments, newPay];
+    setPayments(nextList);
     setPaymentInputVal('');
     setCashTendered('');
     setPayInstallments(1);
     setCustomDueDates({});
+    const nextCov = nextList.reduce((acc, p) => acc + (cleanVal(p.valor) || 0), 0);
+    if (effectiveStage === 'entrada' && totalFinal > nextCov + 0.01) {
+      setCurrentStage('restante');
+    } else {
+      setCurrentStage('entrada');
+    }
+  };
+
+  const togglePaymentStage = (id) => {
+    setPayments(prev => prev.map(p => {
+      if (p.id !== id || p.metodo === 'carne' || p.metodo === 'boleto' || p.metodo === 'combinar') return p;
+      const nextStage = p.stage === 'restante' ? 'entrada' : 'restante';
+      const rebuilt = buildPaymentObject(p.metodo, p.valor, p.valorRecebido || p.valor, p.installments || (p.parcelas?.length || 1), payFirstDueDate, {}, nextStage);
+      return {
+        ...p,
+        stage: nextStage,
+        texto: rebuilt.texto
+      };
+    }));
   };
 
   const removePayment = (id) => {
@@ -398,6 +499,7 @@ const EditOSModal = ({
     );
 
     if (isSecondary) {
+      const secNormDate = buildNormalizedDateTime(formData.dataVenda, osData.hora || osData.HORA);
       const updatedRow = {
         ...osData,
         'OS DA VENDA': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
@@ -418,8 +520,19 @@ const EditOSModal = ({
         'PRODUTO': [formData.armacao, formData.lente].filter(Boolean).join(' + ') || osData['PRODUTO'] || 'Óculos Completo',
         'LABORATORIO': formData.laboratorio,
         'MEDICO': formData.medico,
-        'DATA  DA VENDA': formData.dataVenda,
-        'DATA': formData.dataVenda,
+        'DATA  DA VENDA': secNormDate.brDate,
+        'DATA DA VENDA': secNormDate.brDate,
+        'DATA_VENDA': secNormDate.brDate,
+        'Data da Venda': secNormDate.brDate,
+        'data_venda': secNormDate.brDate,
+        'DATA': secNormDate.brDate,
+        dataVenda: secNormDate.isoDate,
+        data: secNormDate.brDate,
+        dataHora: secNormDate.isoDateTime,
+        DATA_HORA: secNormDate.brDateTime,
+        timestamp: secNormDate.timestamp,
+        hora: secNormDate.timeStr,
+        HORA: secNormDate.timeStr,
         'DATA ENTREGA ÓCULOS': formData.dataEntrega,
         'DATA_ENTREGA': formData.dataEntrega,
         'VALOR TOTAL': '0,00',
@@ -440,6 +553,16 @@ const EditOSModal = ({
         'OE_EIXO': formData.oeEixo,
         'OE_DNP': formData.oeDnp,
         'OE_ALT': formData.oeAlt,
+        'OD_PERTO_ESF': formData.odPertoEsf,
+        'OD_PERTO_CIL': formData.odPertoCil,
+        'OD_PERTO_EIXO': formData.odPertoEixo,
+        'OD_PERTO_DNP': formData.odPertoDnp,
+        'OD_PERTO_ALT': formData.odPertoAlt,
+        'OE_PERTO_ESF': formData.oePertoEsf,
+        'OE_PERTO_CIL': formData.oePertoCil,
+        'OE_PERTO_EIXO': formData.oePertoEixo,
+        'OE_PERTO_DNP': formData.oePertoDnp,
+        'OE_PERTO_ALT': formData.oePertoAlt,
         'ADICAO': formData.adicao,
         'OBSERVACOES': formData.observacoes,
         'DATA_EDICAO': new Date().toISOString(),
@@ -468,7 +591,7 @@ const EditOSModal = ({
         setActiveTab('financeiro');
         return;
       }
-      const autoPay = buildPaymentObject(currentMethod, totalVal, cashTendered, payInstallments, payFirstDueDate, customDueDates);
+      const autoPay = buildPaymentObject(currentMethod, totalVal, cashTendered, payInstallments, payFirstDueDate, customDueDates, currentStage);
       effectivePayments = [autoPay];
     }
 
@@ -479,18 +602,31 @@ const EditOSModal = ({
       return;
     }
 
-    // Cálculo exato de Entrada vs Restante conforme padrão do sistema (Test 12)
-    const entradaFinal = effectivePayments.reduce((acc, p) => {
+    // Cálculo exato de Entrada vs Restante (suportando tanto Boleto quanto Restante em PIX/Cartão/Dinheiro)
+    const entradaPays = effectivePayments.filter(p => {
       const m = String(p.metodo || '').toLowerCase();
-      if (m === 'boleto' || m === 'carne') return acc;
-      return acc + (cleanVal(p.valor) || 0);
-    }, 0);
+      return m !== 'boleto' && m !== 'carne' && p.stage !== 'restante';
+    });
+    const restantePays = effectivePayments.filter(p => {
+      const m = String(p.metodo || '').toLowerCase();
+      return m === 'boleto' || m === 'carne' || p.stage === 'restante';
+    });
+
+    const entradaFinal = entradaPays.reduce((acc, p) => acc + (cleanVal(p.valor) || 0), 0);
     const restanteFinal = Math.max(0, totalVal - entradaFinal);
+
+    const derivedFormaEntrada = [...new Set(entradaPays.map(p => formatEditMethodLabel(p.metodo, p.installments || (p.parcelas?.length || 1))).filter(Boolean))].join(' + ');
+    const derivedFormaRestante = [...new Set(restantePays.map(p => formatEditMethodLabel(p.metodo, p.installments || (p.parcelas?.length || 1))).filter(Boolean))].join(' + ');
+
+    const finalFormaEntrada = entradaFinal > 0 ? (derivedFormaEntrada || formData.formaPagamentoEntrada || '') : '';
+    const finalFormaRestante = restanteFinal > 0 ? (derivedFormaRestante || formData.formaPagamentoRestante || '') : '';
 
     // Extração de parcelas estruturadas de boleto
     const allBoletoParcelas = effectivePayments
       .filter(p => p.metodo === 'carne' || p.metodo === 'boleto')
       .flatMap(p => p.parcelas || []);
+
+    const normDate = buildNormalizedDateTime(formData.dataVenda, osData.hora || osData.HORA);
 
     const updatedRow = {
       ...osData,
@@ -513,8 +649,19 @@ const EditOSModal = ({
       'PRODUTO': formData.lente ? `${formData.armacao || 'Armação'} + ${formData.lente}` : (formData.armacao || osData['PRODUTO'] || 'Óculos Completo'),
       'LABORATORIO': formData.laboratorio,
       'MEDICO': formData.medico,
-      'DATA  DA VENDA': formData.dataVenda,
-      'DATA': formData.dataVenda,
+      'DATA  DA VENDA': normDate.brDate,
+      'DATA DA VENDA': normDate.brDate,
+      'DATA_VENDA': normDate.brDate,
+      'Data da Venda': normDate.brDate,
+      'data_venda': normDate.brDate,
+      'DATA': normDate.brDate,
+      dataVenda: normDate.isoDate,
+      data: normDate.brDate,
+      dataHora: normDate.isoDateTime,
+      DATA_HORA: normDate.brDateTime,
+      timestamp: normDate.timestamp,
+      hora: normDate.timeStr,
+      HORA: normDate.timeStr,
       'DATA ENTREGA ÓCULOS': formData.dataEntrega,
       'DATA_ENTREGA': formData.dataEntrega,
       'VALOR TOTAL': formatMoney(totalVal),
@@ -523,6 +670,10 @@ const EditOSModal = ({
       'VALOR ENTRADA': formatMoney(entradaFinal),
       'SINAL': formatMoney(entradaFinal),
       'RESTANTE': formatMoney(restanteFinal),
+      'FORMA_ENTRADA': finalFormaEntrada,
+      'formaPagamentoEntrada': finalFormaEntrada,
+      'FORMA_RESTANTE': finalFormaRestante,
+      'formaPagamentoRestante': finalFormaRestante,
       'FORMAS_PAGAMENTO': effectivePayments.map(p => p.texto).join(' + '),
       'FORMA_PAGTO': effectivePayments.map(p => p.texto).join(' + '),
       'PARCELAS_JSON': JSON.stringify(allBoletoParcelas),
@@ -538,6 +689,16 @@ const EditOSModal = ({
       'OE_EIXO': formData.oeEixo,
       'OE_DNP': formData.oeDnp,
       'OE_ALT': formData.oeAlt,
+      'OD_PERTO_ESF': formData.odPertoEsf,
+      'OD_PERTO_CIL': formData.odPertoCil,
+      'OD_PERTO_EIXO': formData.odPertoEixo,
+      'OD_PERTO_DNP': formData.odPertoDnp,
+      'OD_PERTO_ALT': formData.odPertoAlt,
+      'OE_PERTO_ESF': formData.oePertoEsf,
+      'OE_PERTO_CIL': formData.oePertoCil,
+      'OE_PERTO_EIXO': formData.oePertoEixo,
+      'OE_PERTO_DNP': formData.oePertoDnp,
+      'OE_PERTO_ALT': formData.oePertoAlt,
       'ADICAO': formData.adicao,
       'OBSERVACOES': formData.observacoes,
       'DATA_EDICAO': new Date().toISOString(),
@@ -651,15 +812,20 @@ const EditOSModal = ({
                 {/* Banner de Semáforo Azul e Número da OS */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
                   <div>
-                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 block">
-                      Número da OS
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
+                      <span>Número da OS</span>
+                      {formData.numeroOS && (
+                        <span className="text-[9px] font-mono text-pink-400 font-bold">
+                          #{formData.numeroOS}
+                        </span>
+                      )}
                     </label>
                     <input
                       type="text"
                       value={formData.numeroOS}
-                      onChange={e => handleChange('numeroOS', e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-pink-300 font-mono font-bold focus:outline-none focus:border-pink-500"
-                      placeholder="Ex: CAJ-12"
+                      onChange={e => handleChange('numeroOS', e.target.value.toUpperCase().trim())}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-pink-300 font-mono font-bold uppercase focus:outline-none focus:border-pink-500 shadow-inner"
+                      placeholder="Ex: CAJ-001"
                     />
                   </div>
 
@@ -786,11 +952,11 @@ const EditOSModal = ({
                   <span>Dioptrias vinculadas a esta Ordem de Serviço. Os dados impressos no A4 e na OS do Laboratório usarão estes parâmetros.</span>
                 </div>
 
-                {/* Tabela Olho Direito (OD) */}
+                {/* Tabela Olho Direito (OD) - Longe */}
                 <div className="bg-slate-950/70 p-4 rounded-2xl border border-slate-800 space-y-3">
                   <h4 className="text-xs font-black uppercase tracking-widest text-sky-400 flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-sky-400" />
-                    Olho Direito (OD)
+                    1. Visão de Longe — Olho Direito (OD)
                   </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-3">
                     <div>
@@ -846,11 +1012,11 @@ const EditOSModal = ({
                   </div>
                 </div>
 
-                {/* Tabela Olho Esquerdo (OE) */}
+                {/* Tabela Olho Esquerdo (OE) - Longe */}
                 <div className="bg-slate-950/70 p-4 rounded-2xl border border-slate-800 space-y-3">
                   <h4 className="text-xs font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-indigo-400" />
-                    Olho Esquerdo (OE)
+                    1. Visão de Longe — Olho Esquerdo (OE)
                   </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-3">
                     <div>
@@ -906,18 +1072,141 @@ const EditOSModal = ({
                   </div>
                 </div>
 
-                {/* Adição */}
-                <div className="bg-slate-950/70 p-4 rounded-2xl border border-slate-800 max-w-xs">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1.5">
-                    Adição (Perto)
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.adicao}
-                    onChange={e => handleChange('adicao', e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-pink-500"
-                    placeholder="+2.00"
-                  />
+                {/* ─── VISÃO DE PERTO & ADIÇÃO ─── */}
+                <div className="bg-slate-950/70 p-4 rounded-2xl border border-amber-500/25 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-2">
+                    <h4 className="text-xs font-black uppercase tracking-widest text-amber-300 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-amber-400" />
+                      2. Visão de Perto (OD / OE) &amp; Adição
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                        Adição (Perto)
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.adicao}
+                        onChange={e => handleChange('adicao', e.target.value)}
+                        className="w-24 bg-slate-900 border border-amber-500/40 rounded-lg px-2.5 py-1 text-xs text-amber-300 font-mono text-center focus:outline-none focus:border-amber-400 font-bold"
+                        placeholder="+2.00"
+                      />
+                    </div>
+                  </div>
+
+                  {/* OD Perto */}
+                  <div className="space-y-2">
+                    <h5 className="text-[11px] font-bold text-amber-400 uppercase">Olho Direito (OD - Perto)</h5>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-3">
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Esférico</label>
+                        <input
+                          type="text"
+                          value={formData.odPertoEsf}
+                          onChange={e => handleChange('odPertoEsf', e.target.value)}
+                          className="w-full bg-slate-900 border border-amber-500/30 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-amber-400"
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Cilíndrico</label>
+                        <input
+                          type="text"
+                          value={formData.odPertoCil}
+                          onChange={e => handleChange('odPertoCil', e.target.value)}
+                          className="w-full bg-slate-900 border border-amber-500/30 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-amber-400"
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Eixo (°)</label>
+                        <input
+                          type="text"
+                          value={formData.odPertoEixo}
+                          onChange={e => handleChange('odPertoEixo', e.target.value)}
+                          className="w-full bg-slate-900 border border-amber-500/30 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-amber-400"
+                          placeholder="180"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">DNP (mm)</label>
+                        <input
+                          type="text"
+                          value={formData.odPertoDnp}
+                          onChange={e => handleChange('odPertoDnp', e.target.value)}
+                          className="w-full bg-slate-900 border border-amber-500/30 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-amber-400"
+                          placeholder="31"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Altura (mm)</label>
+                        <input
+                          type="text"
+                          value={formData.odPertoAlt}
+                          onChange={e => handleChange('odPertoAlt', e.target.value)}
+                          className="w-full bg-slate-900 border border-amber-500/30 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-amber-400"
+                          placeholder="18"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* OE Perto */}
+                  <div className="space-y-2 pt-2 border-t border-white/5">
+                    <h5 className="text-[11px] font-bold text-orange-400 uppercase">Olho Esquerdo (OE - Perto)</h5>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-3">
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Esférico</label>
+                        <input
+                          type="text"
+                          value={formData.oePertoEsf}
+                          onChange={e => handleChange('oePertoEsf', e.target.value)}
+                          className="w-full bg-slate-900 border border-orange-500/30 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-orange-400"
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Cilíndrico</label>
+                        <input
+                          type="text"
+                          value={formData.oePertoCil}
+                          onChange={e => handleChange('oePertoCil', e.target.value)}
+                          className="w-full bg-slate-900 border border-orange-500/30 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-orange-400"
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Eixo (°)</label>
+                        <input
+                          type="text"
+                          value={formData.oePertoEixo}
+                          onChange={e => handleChange('oePertoEixo', e.target.value)}
+                          className="w-full bg-slate-900 border border-orange-500/30 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-orange-400"
+                          placeholder="180"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">DNP (mm)</label>
+                        <input
+                          type="text"
+                          value={formData.oePertoDnp}
+                          onChange={e => handleChange('oePertoDnp', e.target.value)}
+                          className="w-full bg-slate-900 border border-orange-500/30 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-orange-400"
+                          placeholder="31"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Altura (mm)</label>
+                        <input
+                          type="text"
+                          value={formData.oePertoAlt}
+                          onChange={e => handleChange('oePertoAlt', e.target.value)}
+                          className="w-full bg-slate-900 border border-orange-500/30 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-orange-400"
+                          placeholder="18"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
 
               </div>
@@ -939,45 +1228,70 @@ const EditOSModal = ({
                 )}
 
                 {/* Bloco 1: Valor Total e Resumo de Entrada / Restante */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
-                  <div>
-                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5">
-                      <DollarSign size={13} className="text-emerald-400" /> Valor Total da OS (R$)
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={formData.valorTotal}
-                      onChange={e => handleChange('valorTotal', e.target.value)}
-                      onBlur={e => {
-                        const v = cleanVal(e.target.value);
-                        if (v > 0) handleChange('valorTotal', formatMoney(v));
-                      }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-emerald-400 font-black focus:outline-none focus:border-emerald-500"
-                      placeholder="0,00"
-                    />
-                  </div>
+                {(() => {
+                  const entradaMethodLabel = [...new Set(payments.filter(p => p.metodo !== 'carne' && p.metodo !== 'boleto' && p.stage !== 'restante').map(p => formatEditMethodLabel(p.metodo, p.installments || (p.parcelas?.length || 1))).filter(Boolean))].join(' + ') || formData.formaPagamentoEntrada || '';
+                  const restanteMethodLabel = [...new Set(payments.filter(p => p.metodo === 'carne' || p.metodo === 'boleto' || p.stage === 'restante').map(p => formatEditMethodLabel(p.metodo, p.installments || (p.parcelas?.length || 1))).filter(Boolean))].join(' + ') || formData.formaPagamentoRestante || '';
 
-                  <div>
-                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5">
-                      <DollarSign size={13} className="text-teal-400" /> Entrada / Imediato
-                    </label>
-                    <div className="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-teal-300 font-bold">
-                      {fmtMoeda(totalPagoImediato)}
-                    </div>
-                    <span className="text-[9px] text-slate-500 mt-0.5 block">Dinheiro, PIX, Débito e Crédito</span>
-                  </div>
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5">
+                          <DollarSign size={13} className="text-emerald-400" /> Valor Total da OS (R$)
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={formData.valorTotal}
+                          onChange={e => handleChange('valorTotal', e.target.value)}
+                          onBlur={e => {
+                            const v = cleanVal(e.target.value);
+                            if (v > 0) handleChange('valorTotal', formatMoney(v));
+                          }}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-emerald-400 font-black focus:outline-none focus:border-emerald-500"
+                          placeholder="0,00"
+                        />
+                      </div>
 
-                  <div>
-                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5">
-                      <DollarSign size={13} className="text-amber-400" /> A Prazo / Boleto
-                    </label>
-                    <div className="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-amber-300 font-bold">
-                      {fmtMoeda(totalBoletoCarne)}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                            <DollarSign size={13} className="text-teal-400" /> Entrada / Imediato
+                          </label>
+                          {totalPagoImediato > 0 && entradaMethodLabel && (
+                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-300 border border-teal-500/30">
+                              {entradaMethodLabel}
+                            </span>
+                          )}
+                        </div>
+                        <div className="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-teal-300 font-bold">
+                          {fmtMoeda(totalPagoImediato)}
+                        </div>
+                        <span className="text-[9px] text-slate-500 mt-0.5 block">
+                          {entradaMethodLabel ? `Forma da Entrada: ${entradaMethodLabel}` : 'Dinheiro, PIX, Débito e Crédito'}
+                        </span>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                            <DollarSign size={13} className="text-amber-400" /> Restante / A Prazo / Boleto
+                          </label>
+                          {totalBoletoCarne > 0 && restanteMethodLabel && (
+                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                              {restanteMethodLabel}
+                            </span>
+                          )}
+                        </div>
+                        <div className="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-amber-300 font-bold">
+                          {fmtMoeda(totalBoletoCarne)}
+                        </div>
+                        <span className="text-[9px] text-slate-500 mt-0.5 block">
+                          {restanteMethodLabel ? `Forma do Restante: ${restanteMethodLabel}` : 'Gera duplicatas no Financeiro'}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-[9px] text-slate-500 mt-0.5 block">Gera duplicatas no Financeiro</span>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 {/* Banner de Validação da Soma das Formas de Pagamento */}
                 <div className={`p-3.5 rounded-2xl border flex items-center justify-between text-xs font-bold transition-all ${
@@ -1015,27 +1329,60 @@ const EditOSModal = ({
 
                 {/* Seletor de Método de Pagamento (Idêntico ao PDV) */}
                 <div className="space-y-3 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black uppercase tracking-wider text-slate-400">
-                      Adicionar Forma de Pagamento
-                    </span>
-                    <span className="text-[10px] text-slate-500 font-medium">
-                      Construtor Dinâmico PDV
-                    </span>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-400 block">
+                        Adicionar Forma de Pagamento
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        Construtor Dinâmico PDV (Entrada e Restante)
+                      </span>
+                    </div>
+
+                    {currentMethod !== 'carne' && (
+                      <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentStage('entrada')}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${
+                            currentStage === 'entrada'
+                              ? 'bg-teal-500 text-slate-950 shadow-sm'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          🟢 Entrada (Sinal)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentStage('restante')}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${
+                            currentStage === 'restante'
+                              ? 'bg-amber-500 text-slate-950 shadow-sm'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          🟡 Restante (Falta)
+                        </button>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
                     {[
                       { id: 'dinheiro', label: '💵 Dinheiro' },
                       { id: 'pix', label: '⚡ PIX' },
                       { id: 'debito', label: '💳 Débito' },
                       { id: 'credito', label: '💳 Crédito' },
-                      { id: 'carne', label: '📄 Boleto' }
+                      { id: 'carne', label: '📄 Boleto' },
+                      { id: 'combinar', label: '🤝 A Combinar' }
                     ].map(p => (
                       <button
                         key={p.id}
                         type="button"
-                        onClick={() => setCurrentMethod(p.id)}
+                        onClick={() => {
+                          setCurrentMethod(p.id);
+                          if (p.id === 'combinar') setCurrentStage('restante');
+                        }}
                         className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border text-center ${
                           currentMethod === p.id
                             ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-black shadow-lg shadow-emerald-500/20'
@@ -1192,7 +1539,7 @@ const EditOSModal = ({
                         <>
                           <Plus size={14} />
                           <span>
-                            + Dividir / Adicionar Pagamento {
+                            + Dividir / Adicionar Pagamento {currentMethod === 'carne' ? '(Restante no Boleto)' : (currentStage === 'restante' ? '(Restante)' : '(Entrada)')} {
                               (cleanVal(paymentInputVal) || (currentMethod === 'dinheiro' ? cleanVal(cashTendered) : 0)) > 0
                                 ? `de ${fmtMoeda(cleanVal(paymentInputVal) || cleanVal(cashTendered))}`
                                 : (remaining > 0 ? `de ${fmtMoeda(remaining)}` : '')
@@ -1221,24 +1568,41 @@ const EditOSModal = ({
                     </div>
 
                     <div className="space-y-1.5">
-                      {payments.map(p => (
-                        <div key={p.id} className="p-3 bg-slate-900 rounded-xl border border-slate-800 flex justify-between items-center text-xs">
-                          <div className="min-w-0 pr-2">
-                            <p className="font-bold text-white leading-relaxed">{p.texto}</p>
+                      {payments.map(p => {
+                        const isRestantePay = p.metodo === 'carne' || p.metodo === 'boleto' || p.stage === 'restante';
+                        const isBoletoFixed = p.metodo === 'carne' || p.metodo === 'boleto';
+                        return (
+                          <div key={p.id} className="p-3 bg-slate-900 rounded-xl border border-slate-800 flex justify-between items-center gap-2 text-xs">
+                            <div className="flex items-center gap-2 min-w-0 pr-2 flex-wrap">
+                              <button
+                                type="button"
+                                disabled={isBoletoFixed}
+                                onClick={() => togglePaymentStage(p.id)}
+                                title={isBoletoFixed ? 'Boleto é sempre contabilizado no Restante / A Prazo' : 'Clique para alternar entre Entrada e Restante'}
+                                className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border transition-all ${
+                                  isRestantePay
+                                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/35 hover:bg-amber-500/25'
+                                    : 'bg-teal-500/15 text-teal-300 border-teal-500/35 hover:bg-teal-500/25'
+                                } ${isBoletoFixed ? 'cursor-default' : 'cursor-pointer'}`}
+                              >
+                                {isRestantePay ? 'Restante' : 'Entrada'}
+                              </button>
+                              <p className="font-bold text-white leading-relaxed">{p.texto}</p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="font-black text-emerald-400 font-mono text-sm">{fmtMoeda(p.valor)}</span>
+                              <button
+                                type="button"
+                                onClick={() => removePayment(p.id)}
+                                className="text-slate-500 hover:text-rose-400 transition-colors p-1.5 rounded-lg hover:bg-rose-500/10"
+                                title="Remover este pagamento"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="font-black text-emerald-400 font-mono text-sm">{fmtMoeda(p.valor)}</span>
-                            <button
-                              type="button"
-                              onClick={() => removePayment(p.id)}
-                              className="text-slate-500 hover:text-rose-400 transition-colors p-1.5 rounded-lg hover:bg-rose-500/10"
-                              title="Remover este pagamento"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}

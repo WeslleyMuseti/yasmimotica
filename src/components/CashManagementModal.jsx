@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   DollarSign, ArrowDownRight, ArrowUpRight, Lock, Unlock, 
   Printer, CheckCircle2, AlertTriangle, AlertCircle, X, ShieldAlert,
   Calendar, Clock, User, Building, FileText, Check, ChevronRight
 } from 'lucide-react';
+import PrintableCashClosingReport from './PrintableCashClosingReport';
 
 const formatCurrency = (val) => {
   const n = typeof val === 'number' ? val : parseCurrency(val);
@@ -29,9 +30,9 @@ const parseCurrency = (val) => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
-const parseItemDate = (item) => {
+export const parseItemDate = (item) => {
   if (!item) return null;
-  const raw = item.dataHora || item.timestamp || item.DATA || item['DATA  DA VENDA'] || item['DATA DA VENDA'] || item.data;
+  const raw = item.dataHora || item.timestamp || item.DATA || item['DATA  DA VENDA'] || item['DATA DA VENDA'] || item.DATA_HORA || item.dataHoraAbertura || item.dataHoraFechamento || item.data;
   if (!raw) return null;
   if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
   if (typeof raw === 'string') {
@@ -52,6 +53,16 @@ const parseItemDate = (item) => {
         return isNaN(dateObj.getTime()) ? null : dateObj;
       }
     }
+    if (trimmed.includes('-') && !trimmed.includes('T')) {
+      const parts = trimmed.split('-');
+      if (parts.length === 3) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const d = parseInt(parts[2], 10);
+        const dateObj = new Date(y, m, d, 12, 0, 0);
+        return isNaN(dateObj.getTime()) ? null : dateObj;
+      }
+    }
     const d = new Date(trimmed);
     if (!isNaN(d.getTime())) return d;
   }
@@ -67,6 +78,16 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
   if (!data) return null;
 
   const nowFormatted = new Date().toLocaleDateString('pt-BR') + ' às ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const getOpDateTimeFormatted = () => {
+    const raw = data.dataHora || data.dataHoraFechamento || data.dataHoraAbertura || data.dataFechamento || data.dataAbertura || data.data;
+    const parsed = parseItemDate({ dataHora: raw });
+    if (parsed) {
+      return parsed.toLocaleDateString('pt-BR') + ' às ' + parsed.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+    return nowFormatted;
+  };
+  const opDateTimeFormatted = getOpDateTimeFormatted();
   const authCode = `AUT-${(data.id || Date.now()).toString().slice(-6).toUpperCase()}`;
 
   return (
@@ -113,7 +134,7 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
           <div className="flex items-center justify-center gap-2 text-[9px] text-gray-600 mt-1 font-semibold">
             <span>📍 Loja: <strong className="text-black">{unit || data.unidade || 'Cajati'}</strong></span>
             <span>•</span>
-            <span>{nowFormatted}</span>
+            <span>{opDateTimeFormatted}</span>
           </div>
         </div>
 
@@ -133,6 +154,7 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
                 <p><strong>Operador:</strong> {operator || data.operador}</p>
                 <p><strong>Loja:</strong> {unit || data.unidade}</p>
               </div>
+              <p className="text-[10px]"><strong>Data e Horário:</strong> {opDateTimeFormatted}</p>
               <p className="text-[10px]"><strong>Motivo:</strong> {data.motivo || 'Recolhimento para Cofre'}</p>
               {data.despesaCategoria && (
                 <p className="text-[10px]"><strong>Categoria:</strong> {data.despesaCategoria}</p>
@@ -176,6 +198,7 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
                 <p><strong>Operador:</strong> {operator || data.operador}</p>
                 <p><strong>Loja:</strong> {unit || data.unidade}</p>
               </div>
+              <p className="text-[10px]"><strong>Data e Horário:</strong> {opDateTimeFormatted}</p>
               <p className="text-[10px]"><strong>Origem / Motivo:</strong> {data.motivo || 'Fundo de Troco Adicional'}</p>
               {data.saldoGavetaApos !== undefined && (
                 <p className="text-[10px] pt-1 border-t border-gray-200"><strong>Saldo da Gaveta Atualizado:</strong> R$ {formatCurrency(data.saldoGavetaApos)}</p>
@@ -209,7 +232,7 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
                 <p><strong>Operador:</strong> {operator || data.operador}</p>
                 <p><strong>Loja:</strong> {unit || data.unidade}</p>
                 <p><strong>Início:</strong> {data.dataAbertura || '---'}</p>
-                <p><strong>Fechamento:</strong> {data.dataFechamento || nowFormatted}</p>
+                <p><strong>Fechamento:</strong> {data.dataFechamento || opDateTimeFormatted}</p>
               </div>
               
               {/* 1. Valores Realmente Recebidos em Caixa */}
@@ -418,6 +441,17 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
 };
 
 // ─── COMPONENTE PRINCIPAL DOS MODAIS DE CAIXA ─────────────────────────
+const getNowDateTimeLocal = () => {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const year = now.getFullYear();
+  const month = pad(now.getMonth() + 1);
+  const day = pad(now.getDate());
+  const hours = pad(now.getHours());
+  const minutes = pad(now.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
 const CashManagementModal = ({
   isOpen,
   modalType, // 'ABERTURA', 'SANGRIA', 'SUPRIMENTO', 'FECHAMENTO', 'EXTRATO'
@@ -437,20 +471,62 @@ const CashManagementModal = ({
 
   // Estados locais dos formulários
   const [fundoInicialInput, setFundoInicialInput] = useState('100,00');
+  const [dataAberturaInput, setDataAberturaInput] = useState(getNowDateTimeLocal);
   const [obsAberturaInput, setObsAberturaInput] = useState('');
   
   const [sangriaValorInput, setSangriaValorInput] = useState('');
+  const [sangriaDataHoraInput, setSangriaDataHoraInput] = useState(getNowDateTimeLocal);
   const [sangriaMotivoInput, setSangriaMotivoInput] = useState('Recolhimento para Cofre / Depósito');
   const [sangriaDespesaCategoria, setSangriaDespesaCategoria] = useState('');
   const [sangriaObsInput, setSangriaObsInput] = useState('');
 
   const [suprimentoValorInput, setSuprimentoValorInput] = useState('');
+  const [suprimentoDataHoraInput, setSuprimentoDataHoraInput] = useState(getNowDateTimeLocal);
   const [suprimentoMotivoInput, setSuprimentoMotivoInput] = useState('Fundo de Troco Adicional (Moedas/Cédulas)');
 
   const [fechamentoContadoInput, setFechamentoContadoInput] = useState('');
+  const [fechamentoDataHoraInput, setFechamentoDataHoraInput] = useState(getNowDateTimeLocal);
   const [fechamentoObsInput, setFechamentoObsInput] = useState('');
 
   const [printData, setPrintData] = useState(null);
+  const [pdfReportData, setPdfReportData] = useState(null);
+  const [fechamentoPrintMode, setFechamentoPrintMode] = useState('pdf');
+
+  // Sugere o saldo do último fechamento da loja como Fundo Inicial da nova Abertura
+  const lastClosingCash = useMemo(() => {
+    const unit = selectedCity || 'Central';
+    const closings = (cashMovements || [])
+      .filter(m => (m.unidade === unit || unit === 'ALL') && String(m.tipo || '').toUpperCase() === 'FECHAMENTO')
+      .sort((a, b) => {
+        const da = parseItemDate(a)?.getTime() || 0;
+        const db = parseItemDate(b)?.getTime() || 0;
+        return db - da; // mais recente primeiro
+      });
+    if (closings.length > 0) {
+      const last = closings[0];
+      const val = parseCurrency(last.dinheiroContado !== undefined ? last.dinheiroContado : (last.dinheiroEsperado !== undefined ? last.dinheiroEsperado : last.valor));
+      return val > 0 ? val : null;
+    }
+    return null;
+  }, [cashMovements, selectedCity]);
+
+  useEffect(() => {
+    if (isOpen) {
+      const nowStr = getNowDateTimeLocal();
+      setDataAberturaInput(nowStr);
+      setSangriaDataHoraInput(nowStr);
+      setSuprimentoDataHoraInput(nowStr);
+      setFechamentoDataHoraInput(nowStr);
+
+      if (modalType === 'ABERTURA') {
+        if (lastClosingCash !== null && lastClosingCash !== undefined) {
+          setFundoInicialInput(formatCurrency(lastClosingCash));
+        } else {
+          setFundoInicialInput('100,00');
+        }
+      }
+    }
+  }, [isOpen, modalType, lastClosingCash]);
 
   // ─── CÁLCULOS DO TURNO ATUAL DA CIDADE SELECIONADA ─────────────────
   const sessionStats = useMemo(() => {
@@ -471,17 +547,19 @@ const CashManagementModal = ({
       };
     }
 
-    const sessionStart = new Date(activeSession.dataHoraAbertura || activeSession.timestamp || Date.now());
+    const sessionStart = parseItemDate({ dataHora: activeSession.dataHoraAbertura || activeSession.timestamp }) || new Date(0);
+    const sessionEnd = (modalType === 'FECHAMENTO' && fechamentoDataHoraInput) ? new Date(fechamentoDataHoraInput) : new Date(Date.now() + 86400000);
     const unit = selectedCity || activeSession.unidade || 'Central';
 
-    // Movimentações deste turno
+    // Movimentações deste turno (utiliza parseItemDate para suporte perfeito a DD/MM/YYYY e ISO com fidelidade de data/horário)
     const sessionMovements = cashMovements.filter(m => {
       if (m.unidade !== unit && unit !== 'ALL') return false;
-      const mDate = new Date(m.dataHora || m.timestamp || 0);
-      return mDate >= sessionStart;
+      const mDate = parseItemDate(m);
+      if (!mDate) return false;
+      return mDate >= sessionStart && mDate <= sessionEnd;
     });
 
-    // Vendas deste turno (com filtro de data >= início do turno)
+    // Vendas deste turno (com filtro de data >= início do turno e <= encerramento do turno)
     const sessionSales = salesData.filter(s => {
       const sUnit = s["UNIDADE"] || s["CIDADE"] || s["LOJA"] || "Central";
       if (sUnit !== unit && unit !== "ALL") return false;
@@ -490,10 +568,11 @@ const CashManagementModal = ({
       const rawStr = String(s.dataHora || s.timestamp || s.DATA_HORA || s.data || s.DATA || s['DATA  DA VENDA'] || s['DATA DA VENDA'] || '');
       const hasTime = rawStr.includes(':') || (typeof s.timestamp === 'number');
       if (hasTime) {
-        if (sDate < sessionStart) return false;
+        if (sDate < sessionStart || sDate > sessionEnd) return false;
       } else {
         const startOfDay = new Date(sessionStart.getFullYear(), sessionStart.getMonth(), sessionStart.getDate());
-        if (sDate < startOfDay) return false;
+        const endOfDay = new Date(sessionEnd.getFullYear(), sessionEnd.getMonth(), sessionEnd.getDate(), 23, 59, 59);
+        if (sDate < startOfDay || sDate > endOfDay) return false;
       }
       return true;
     });
@@ -620,12 +699,25 @@ const CashManagementModal = ({
   const handleAberturaSubmit = (e) => {
     e.preventDefault();
     const val = parseCurrency(fundoInicialInput);
+    const dt = dataAberturaInput ? new Date(dataAberturaInput) : new Date();
+    const dtIso = dt.toISOString();
+    const dtFormatted = dt.toLocaleDateString('pt-BR');
+    const dtDateTime = dt.toLocaleString('pt-BR');
+    const dtTime = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
     onOpenCash({
       unidade: selectedCity,
       operador: currentUser?.username || 'Caixa',
       fundoInicial: val,
       observacoes: obsAberturaInput,
-      dataHoraAbertura: new Date().toISOString()
+      dataHoraAbertura: dtIso,
+      dataHora: dtIso,
+      timestamp: dt.getTime(),
+      data: dtFormatted,
+      DATA: dtFormatted,
+      DATA_HORA: dtDateTime,
+      hora: dtTime,
+      HORA: dtTime
     });
     onClose();
   };
@@ -639,10 +731,15 @@ const CashManagementModal = ({
       return;
     }
     if (val > sessionStats.dinheiroEsperado) {
-      if (!window.confirm(`Atenção: O valor da sangria (R$ ${formatCurrency(val)}) é maior que o dinheiro disponível na gaveta (R$ ${formatCurrency(sessionStats.dinheiroEsperado)}). Deseja continuar mesmo assim?`)) {
-        return;
-      }
+      alert(`⚠️ Saldo Insuficiente na Gaveta!\n\nVocê está tentando retirar R$ ${formatCurrency(val)}, mas o saldo físico atual em dinheiro na gaveta é de R$ ${formatCurrency(sessionStats.dinheiroEsperado)}.\n\nNão é permitido realizar uma sangria com valor superior ao dinheiro existente na gaveta.`);
+      return;
     }
+
+    const dt = sangriaDataHoraInput ? new Date(sangriaDataHoraInput) : new Date();
+    const dtIso = dt.toISOString();
+    const dtFormatted = dt.toLocaleDateString('pt-BR');
+    const dtDateTime = dt.toLocaleString('pt-BR');
+    const dtTime = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
     const sangriaData = {
       unidade: selectedCity,
@@ -651,7 +748,13 @@ const CashManagementModal = ({
       motivo: sangriaMotivoInput,
       despesaCategoria: sangriaDespesaCategoria,
       detalhes: sangriaObsInput,
-      dataHora: new Date().toISOString(),
+      dataHora: dtIso,
+      timestamp: dt.getTime(),
+      data: dtFormatted,
+      DATA: dtFormatted,
+      DATA_HORA: dtDateTime,
+      hora: dtTime,
+      HORA: dtTime,
       saldoGavetaApos: Math.max(0, sessionStats.dinheiroEsperado - val)
     };
 
@@ -679,12 +782,24 @@ const CashManagementModal = ({
       return;
     }
 
+    const dt = suprimentoDataHoraInput ? new Date(suprimentoDataHoraInput) : new Date();
+    const dtIso = dt.toISOString();
+    const dtFormatted = dt.toLocaleDateString('pt-BR');
+    const dtDateTime = dt.toLocaleString('pt-BR');
+    const dtTime = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
     const suprimentoData = {
       unidade: selectedCity,
       operador: currentUser?.username || 'Caixa',
       valor: val,
       motivo: suprimentoMotivoInput,
-      dataHora: new Date().toISOString(),
+      dataHora: dtIso,
+      timestamp: dt.getTime(),
+      data: dtFormatted,
+      DATA: dtFormatted,
+      DATA_HORA: dtDateTime,
+      hora: dtTime,
+      HORA: dtTime,
       saldoGavetaApos: sessionStats.dinheiroEsperado + val
     };
 
@@ -703,16 +818,29 @@ const CashManagementModal = ({
   };
 
   // 4. Fechamento de Caixa
-  const handleFechamentoSubmit = (e) => {
+  const handleFechamentoSubmit = (e, forcedMode = null) => {
     e.preventDefault();
     const contado = parseCurrency(fechamentoContadoInput);
     const diferenca = contado - sessionStats.dinheiroEsperado;
+    const dt = fechamentoDataHoraInput ? new Date(fechamentoDataHoraInput) : new Date();
+    const dtIso = dt.toISOString();
+    const dtFormatted = dt.toLocaleDateString('pt-BR');
+    const dtDateTime = dt.toLocaleString('pt-BR');
+    const dtTime = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
     const fechamentoData = {
       unidade: selectedCity,
       operador: currentUser?.username || 'Caixa',
       dataAbertura: activeSession?.dataHoraAbertura ? new Date(activeSession.dataHoraAbertura).toLocaleString('pt-BR') : '---',
-      dataFechamento: new Date().toLocaleString('pt-BR'),
+      dataFechamento: dtDateTime,
+      dataHoraFechamento: dtIso,
+      dataHora: dtIso,
+      timestamp: dt.getTime(),
+      DATA_HORA: dtDateTime,
+      data: dtFormatted,
+      DATA: dtFormatted,
+      hora: dtTime,
+      HORA: dtTime,
       fundoInicial: sessionStats.fundoInicial,
       vendasDinheiro: sessionStats.vendasDinheiro,
       vendasPix: sessionStats.vendasPix,
@@ -727,6 +855,7 @@ const CashManagementModal = ({
       totalVendas: sessionStats.totalVendas,
       totalSangrias: sessionStats.totalSangrias,
       totalSuprimentos: sessionStats.totalSuprimentos,
+      totalSaidas: sessionStats.totalSaidas,
       dinheiroEsperado: sessionStats.dinheiroEsperado,
       dinheiroContado: contado,
       diferenca: diferenca,
@@ -736,20 +865,125 @@ const CashManagementModal = ({
 
     onCloseCash(fechamentoData);
 
-    // Dispara impressão do Relatório Z
-    if (onTriggerPrint) {
-      onTriggerPrint({ type: 'FECHAMENTO', data: fechamentoData });
-      onClose();
-    } else {
-      setPrintData({ type: 'FECHAMENTO', data: fechamentoData });
-      setTimeout(() => {
-        window.print();
+    const mode = forcedMode || fechamentoPrintMode;
+
+    if (mode === 'pdf') {
+      const combinedMovements = buildCombinedShiftMovements(sessionStats.listaMovimentos, sessionStats.vendasDoTurno, selectedCity, currentUser?.username || 'Caixa');
+      const reportPayload = {
+        type: 'PDF_REPORT',
+        closingData: fechamentoData,
+        movements: combinedMovements,
+        storeName: selectedCity,
+        periodLabel: `${fechamentoData.dataAbertura} até ${fechamentoData.dataFechamento}`,
+        reportTitle: 'RELATÓRIO DE FECHAMENTO DE CAIXA (RELATÓRIO Z)'
+      };
+
+      setPrintData(null);
+      if (onTriggerPrint) {
+        onTriggerPrint(reportPayload);
         onClose();
-      }, 300);
+      } else {
+        setPdfReportData(reportPayload);
+        setTimeout(() => {
+          window.print();
+          onClose();
+        }, 300);
+      }
+    } else {
+      // Dispara impressão do Relatório Z em Cupom Térmico (80mm)
+      setPdfReportData(null);
+      if (onTriggerPrint) {
+        onTriggerPrint({ type: 'FECHAMENTO', data: fechamentoData });
+        onClose();
+      } else {
+        setPrintData({ type: 'FECHAMENTO', data: fechamentoData });
+        setTimeout(() => {
+          window.print();
+          onClose();
+        }, 300);
+      }
     }
   };
 
-  // 5. Imprimir Extrato Parcial
+  // Helper para unificar e desduplicar movimentações do turno (FLUXO_CAIXA + Registro_Vendas)
+  const buildCombinedShiftMovements = (movList = [], salesList = [], unitName = 'Central', defaultOp = 'Caixa') => {
+    const cleanKey = (v) => String(v || '').replace(/^#|^os[-_ ]?/i, '').trim().toLowerCase();
+    const salesByOs = new Map();
+    const salesById = new Map();
+
+    (salesList || []).forEach(s => {
+      if (!s || typeof s !== 'object') return;
+      const osK = cleanKey(s['OS DA VENDA'] || s['Nº DA OS'] || s.OS);
+      const idK = cleanKey(s.id || s.saleId);
+      if (osK) salesByOs.set(osK, s);
+      if (idK) salesById.set(idK, s);
+    });
+
+    const seenSaleKeys = new Set();
+
+    const mappedMovs = (movList || []).map(m => {
+      const osK = cleanKey(m.osNumero || m['OS DA VENDA'] || m.OS);
+      const idK = cleanKey(m.saleId || m.id);
+      if (osK) seenSaleKeys.add(osK);
+      if (idK) seenSaleKeys.add(idK);
+
+      const matchedSale = (osK && salesByOs.get(osK)) || (idK && salesById.get(idK)) || null;
+      return {
+        ...m,
+        unidade: m.unidade || unitName,
+        tipo: m.tipo || 'MOVIMENTO',
+        valor: m.valor,
+        forma: m.formaPagamento || m.forma,
+        formaPagamento: m.formaPagamento || m.forma,
+        dataHora: m.dataHora || m.timestamp || m.DATA || m.data,
+        cliente: m.cliente || (matchedSale && (matchedSale.CLIENTE || matchedSale.NOME || matchedSale['NOME CLIENTE'])) || m.motivo || m.descricao || m.favorecido,
+        vendedor: m.vendedor || m.operador || (matchedSale && matchedSale.VENDEDOR) || defaultOp,
+        osNumero: m.osNumero || (matchedSale && (matchedSale['OS DA VENDA'] || matchedSale['Nº DA OS'] || matchedSale.OS)) || ''
+      };
+    });
+
+    (salesList || []).forEach(s => {
+      if (!s || typeof s !== 'object') return;
+      if (s.MULTI_OS_PRINCIPAL === false || s.isSecondaryOS === true || s.FATURAMENTO_UNIFICADO === 'SECUNDARIA') return;
+      const osRaw = s['OS DA VENDA'] || s['Nº DA OS'] || s.OS || '';
+      const idRaw = s.id || s.saleId || '';
+      const osK = cleanKey(osRaw);
+      const idK = cleanKey(idRaw);
+
+      if ((osK && seenSaleKeys.has(osK)) || (idK && seenSaleKeys.has(idK))) {
+        return;
+      }
+      if (osK) seenSaleKeys.add(osK);
+      if (idK) seenSaleKeys.add(idK);
+
+      const totalVal = parseCurrency(s['VALOR TOTAL'] || s['VALOR DA VENDA'] || s.valorTotal || 0);
+      const entradaVal = parseCurrency(s['VALOR ENTRADA'] ?? s['ENTRADA'] ?? 0);
+      const restanteVal = parseCurrency(s['RESTANTE'] ?? s['VALOR RESTANTE'] ?? 0);
+      const fp = String(s['FORMA_PAGTO'] || s['FORMAS_PAGAMENTO'] || s.formaPagamento || 'Dinheiro');
+      const hasBoleto = /boleto|carn[eê]/i.test(fp) || restanteVal > 0;
+      const valorCaixa = hasBoleto ? (entradaVal > 0 ? entradaVal : (restanteVal > 0 ? Math.max(0, totalVal - restanteVal) : 0)) : totalVal;
+      const saldoBoleto = hasBoleto ? (restanteVal > 0 ? restanteVal : Math.max(0, totalVal - valorCaixa)) : 0;
+
+      mappedMovs.push({
+        ...s,
+        unidade: s.UNIDADE || s.CIDADE || s.LOJA || unitName,
+        tipo: 'VENDA',
+        valor: valorCaixa,
+        valorTotalOS: totalVal,
+        valorRestanteBoleto: saldoBoleto,
+        forma: fp,
+        formaPagamento: fp,
+        dataHora: s.dataHora || s.timestamp || s['DATA  DA VENDA'] || s['DATA DA VENDA'] || s.DATA,
+        cliente: s.CLIENTE || s.NOME || s['NOME CLIENTE'] || 'Consumidor Final',
+        vendedor: s.VENDEDOR || s.OPERADOR || defaultOp,
+        osNumero: osRaw || idRaw
+      });
+    });
+
+    return mappedMovs;
+  };
+
+  // 5. Imprimir Extrato Parcial em Cupom Térmico (80mm)
   const handlePrintExtratoParcial = () => {
     const extratoData = {
       unidade: selectedCity,
@@ -772,10 +1006,59 @@ const CashManagementModal = ({
       dinheiroEsperado: sessionStats.dinheiroEsperado
     };
 
+    setPdfReportData(null);
     if (onTriggerPrint) {
       onTriggerPrint({ type: 'EXTRATO_PARCIAL', data: extratoData });
     } else {
       setPrintData({ type: 'EXTRATO_PARCIAL', data: extratoData });
+      setTimeout(() => {
+        window.print();
+      }, 300);
+    }
+  };
+
+  // 6. Imprimir Extrato Parcial em PDF (A4)
+  const handlePrintExtratoPdf = () => {
+    const combinedMovements = buildCombinedShiftMovements(sessionStats.listaMovimentos, sessionStats.vendasDoTurno, selectedCity, currentUser?.username || 'Caixa');
+
+    const reportPayload = {
+      type: 'PDF_REPORT',
+      closingData: {
+        unidade: selectedCity,
+        operador: currentUser?.username || 'Caixa',
+        dataAbertura: activeSession?.dataHoraAbertura ? new Date(activeSession.dataHoraAbertura).toLocaleString('pt-BR') : '---',
+        dataFechamento: new Date().toLocaleString('pt-BR'),
+        fundoInicial: sessionStats.fundoInicial,
+        vendasDinheiro: sessionStats.vendasDinheiro,
+        vendasPix: sessionStats.vendasPix,
+        vendasDebito: sessionStats.vendasDebito,
+        vendasCredito: sessionStats.vendasCredito,
+        vendasBoleto: sessionStats.vendasBoleto,
+        vendasBoletoTotal: sessionStats.vendasBoletoTotal,
+        vendasBoletoQtd: sessionStats.vendasBoletoQtd,
+        totalRecebidosCaixa: sessionStats.totalRecebidosCaixa,
+        totalRecebimentosDinheiro: sessionStats.totalRecebimentosDinheiro,
+        totalEntradasEspecie: sessionStats.totalEntradasEspecie,
+        totalVendas: sessionStats.totalVendas,
+        totalSangrias: sessionStats.totalSangrias,
+        totalSaidas: sessionStats.totalSaidas,
+        totalSuprimentos: sessionStats.totalSuprimentos,
+        dinheiroEsperado: sessionStats.dinheiroEsperado,
+        dinheiroContado: sessionStats.dinheiroEsperado,
+        diferenca: 0,
+        observacoes: 'Extrato Parcial de Turno para Auditoria e Conferência'
+      },
+      movements: combinedMovements,
+      storeName: selectedCity,
+      periodLabel: `Extrato Parcial do Turno (${new Date().toLocaleDateString('pt-BR')})`,
+      reportTitle: 'EXTRATO PARCIAL DE TURNO • MOVIMENTAÇÕES DE CAIXA'
+    };
+
+    setPrintData(null);
+    if (onTriggerPrint) {
+      onTriggerPrint(reportPayload);
+    } else {
+      setPdfReportData(reportPayload);
       setTimeout(() => {
         window.print();
       }, 300);
@@ -834,10 +1117,29 @@ const CashManagementModal = ({
                 <p className="text-emerald-400/80">Informe a quantidade de dinheiro físico disponível na gaveta para iniciar as operações do dia.</p>
               </div>
 
+              {/* Data e Horário da Abertura */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Calendar size={14} className="text-emerald-400" /> Data e Horário da Abertura
+                </label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={dataAberturaInput}
+                  onChange={e => setDataAberturaInput(e.target.value)}
+                  className="w-full bg-black/40 border border-emerald-500/30 rounded-xl px-4 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-400 shadow-inner"
+                />
+              </div>
+
               <div className="space-y-1.5">
                 <label className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
                   <DollarSign size={14} className="text-emerald-400" /> Fundo de Troco Inicial (R$)
                 </label>
+                {lastClosingCash !== null && lastClosingCash !== undefined && (
+                  <span className="text-[10px] text-emerald-400 font-bold block mb-1">
+                    💡 Saldo conferido no último fechamento desta loja: <strong>R$ {formatCurrency(lastClosingCash)}</strong>
+                  </span>
+                )}
                 <div className="relative">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 font-bold">R$</span>
                   <input
@@ -885,6 +1187,20 @@ const CashManagementModal = ({
                   <p>Fundo: R$ {formatCurrency(sessionStats.fundoInicial)}</p>
                   <p>Vendas (Espécie): R$ {formatCurrency(sessionStats.vendasDinheiro)}</p>
                 </div>
+              </div>
+
+              {/* Data e Horário da Sangria */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Calendar size={14} className="text-rose-400" /> Data e Horário da Sangria
+                </label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={sangriaDataHoraInput}
+                  onChange={e => setSangriaDataHoraInput(e.target.value)}
+                  className="w-full bg-black/40 border border-rose-500/30 rounded-xl px-4 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-rose-400 shadow-inner"
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -959,6 +1275,20 @@ const CashManagementModal = ({
               <div className="bg-sky-500/10 border border-sky-500/20 rounded-2xl p-4 text-xs text-sky-300 space-y-1">
                 <p className="font-bold flex items-center gap-1.5"><ArrowUpRight size={15} /> Entrada Avulsa de Troco</p>
                 <p className="text-sky-400/80">Utilize para registrar a entrada de troco adicional (moedas/notas) trazidas para a gaveta.</p>
+              </div>
+
+              {/* Data e Horário do Suprimento */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Calendar size={14} className="text-sky-400" /> Data e Horário do Suprimento
+                </label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={suprimentoDataHoraInput}
+                  onChange={e => setSuprimentoDataHoraInput(e.target.value)}
+                  className="w-full bg-black/40 border border-sky-500/30 rounded-xl px-4 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-sky-400 shadow-inner"
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -1048,6 +1378,20 @@ const CashManagementModal = ({
                 </p>
               </div>
 
+              {/* Data e Horário do Fechamento */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Calendar size={14} className="text-amber-400" /> Data e Horário do Fechamento
+                </label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={fechamentoDataHoraInput}
+                  onChange={e => setFechamentoDataHoraInput(e.target.value)}
+                  className="w-full bg-black/40 border border-amber-500/30 rounded-xl px-4 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-amber-400 shadow-inner"
+                />
+              </div>
+
               {/* Campo para Digitar a Contagem */}
               <div className="space-y-1.5">
                 <label className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
@@ -1099,12 +1443,25 @@ const CashManagementModal = ({
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
-                <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold">
+              <div className="flex flex-wrap items-center justify-end gap-2.5 pt-3 border-t border-white/10">
+                <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold">
                   Cancelar
                 </button>
-                <button type="submit" className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black shadow-lg shadow-amber-500/25 flex items-center gap-2 transition-all">
-                  <Printer size={16} /> Fechar Caixa & Imprimir Relatório Z
+                <button
+                  type="button"
+                  onClick={(e) => handleFechamentoSubmit(e, 'cupom')}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all"
+                  title="Fechar caixa e imprimir comprovante em bobina térmica (80mm)"
+                >
+                  <Printer size={15} /> Cupom Térmico (80mm)
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => handleFechamentoSubmit(e, 'pdf')}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-black shadow-lg shadow-purple-600/30 flex items-center gap-2 transition-all active:scale-95"
+                  title="Fechar caixa e gerar Relatório Oficial em PDF A4 com todas as movimentações detalhadas"
+                >
+                  <FileText size={16} /> Fechar &amp; Relatório PDF (A4)
                 </button>
               </div>
             </form>
@@ -1163,14 +1520,25 @@ const CashManagementModal = ({
                 </div>
               </div>
 
-              <div className="flex items-center justify-between pt-3 border-t border-white/10">
-                <button 
-                  type="button" 
-                  onClick={handlePrintExtratoParcial}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all"
-                >
-                  <Printer size={15} /> Imprimir Extrato Parcial
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-white/10">
+                <div className="flex items-center gap-2">
+                  <button 
+                    type="button" 
+                    onClick={handlePrintExtratoParcial}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white border border-white/10 text-xs font-bold transition-all"
+                    title="Imprimir extrato resumido em bobina térmica (80mm)"
+                  >
+                    <Printer size={15} /> Cupom (80mm)
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={handlePrintExtratoPdf}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-black shadow-md shadow-purple-600/25 transition-all"
+                    title="Gerar extrato completo em folha A4 com movimentações para salvar em PDF"
+                  >
+                    <FileText size={15} /> Extrato em PDF (A4)
+                  </button>
+                </div>
                 <button type="button" onClick={onClose} className="px-5 py-2 rounded-xl bg-white/10 text-white text-xs font-bold hover:bg-white/20">
                   Fechar Extrato
                 </button>
@@ -1181,13 +1549,24 @@ const CashManagementModal = ({
         </div>
       </div>
 
-      {/* Componente Invisível de Impressão */}
+      {/* Componente Invisível de Impressão de Cupom Térmico (80mm) */}
       {printData && (
         <PrintableCashVoucher
           type={printData.type}
           data={printData.data}
           unit={selectedCity}
           operator={currentUser?.username || 'Caixa'}
+        />
+      )}
+
+      {/* Componente Invisível de Impressão Oficial em PDF A4 */}
+      {pdfReportData && (
+        <PrintableCashClosingReport
+          closingData={pdfReportData.closingData}
+          movements={pdfReportData.movements}
+          storeName={pdfReportData.storeName}
+          periodLabel={pdfReportData.periodLabel}
+          reportTitle={pdfReportData.reportTitle || 'RELATÓRIO DE FECHAMENTO DE CAIXA (RELATÓRIO Z)'}
         />
       )}
     </>

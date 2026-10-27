@@ -13,6 +13,7 @@ import ClientProfileModal from './ClientProfileModal';
 import DocumentAttachmentInput from './DocumentAttachmentInput';
 import * as XLSX from 'xlsx';
 import { isSameClient } from '../firebaseSync';
+import { executeOSCascadeDeletion } from '../osDeletionUtils';
 
 const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -139,9 +140,10 @@ const checkClientDuplicate = (form, editingClient, clients) => {
   };
 };
 
-const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesData = [], armacoesData = [], receberData = [], onAddClient, onUpdateClient, onDeleteClient, onAddSale, onUpdateSale, onDeleteSale, onAddRow, onUpdateRow, onDeleteRow, onBack, initialTab = 'todos' }) => {
+const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesData = [], armacoesData = [], receberData = [], data = {}, onAddClient, onUpdateClient, onDeleteClient, onAddSale, onUpdateSale, onDeleteSale, onAddRow, onUpdateRow, onDeleteRow, onBack, initialTab = 'todos' }) => {
   const [activeTab, setActiveTab] = useState(() => initialTab === 'novo' ? 'todos' : initialTab);
   const [osClientData, setOsClientData] = useState(null);
+  const [osSaleData, setOsSaleData] = useState(null);
   const [osDataForPrint, setOsDataForPrint] = useState(null);
   const [profileClientData, setProfileClientData] = useState(null);
   const [isAdding, setIsAdding] = useState(() => initialTab === 'novo');
@@ -346,6 +348,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     setDuplicateNameError('');
     setDuplicateCpfError('');
     setOsClientData(null);
+    setOsSaleData(null);
     setProfileClientData(null);
     setIsAdding(true);
   };
@@ -453,8 +456,11 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         });
       }
     } else {
+      const effectiveCity = formData['Cidade'] || userCity || 'Cajati';
       const newRowWithId = {
         ...formData,
+        'Cidade': effectiveCity,
+        'CIDADE': effectiveCity,
         id: formData.id || `client_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
       };
       onAddClient(newRowWithId);
@@ -639,79 +645,216 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     });
   }, [enrichedClients, activeTab]);
 
-  const handleSaveAndPrintOS = (osData) => {
-    setOsDataForPrint(osData);
-    
-    // Automatically fallback to subtracting valorTotal - valorEntrada if restante is somehow missing or malformed
-    let osRestante = parseCurrency(osData.restante);
-    if (osRestante === 0 && parseCurrency(osData.valorTotal) > 0) {
-      osRestante = Math.max(0, parseCurrency(osData.valorTotal) - parseCurrency(osData.valorEntrada));
+  const handleOpenOSModal = (client) => {
+    if (!client) return;
+
+    let recentSale = null;
+    if (Array.isArray(salesData) && salesData.length > 0) {
+      const clientSales = salesData.filter(sale => isSameClient(client, sale));
+      if (clientSales.length > 0) {
+        const getSaleTime = (s) => {
+          if (s.timestamp && typeof s.timestamp === 'number') return s.timestamp;
+          if (s.dataHora) {
+            const t = new Date(s.dataHora).getTime();
+            if (!isNaN(t)) return t;
+          }
+          const rawDate = s['DATA  DA VENDA'] || s['DATA DA VENDA'] || s['DATA_VENDA'] || s['Data da Venda'] || s['DATA'] || '';
+          if (rawDate) {
+            if (/^\d{4}-\d{2}-\d{2}/.test(rawDate)) {
+              const t = new Date(rawDate).getTime();
+              if (!isNaN(t)) return t;
+            } else if (/^\d{2}\/\d{2}\/\d{4}/.test(rawDate)) {
+              const parts = String(rawDate).split(/[\/\s,:]+/);
+              if (parts.length >= 3) {
+                const [d, m, y] = parts;
+                const hh = parts[3] || '00';
+                const mm = parts[4] || '00';
+                const ss = parts[5] || '00';
+                const t = new Date(`${y}-${m}-${d}T${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:${ss.padStart(2, '0')}`).getTime();
+                if (!isNaN(t)) return t;
+              }
+            }
+          }
+          return 0;
+        };
+
+        const activeSales = clientSales.filter(sale => {
+          const st = String(sale['STATUS_OS'] || sale['SITUAÇÃO'] || sale['STATUS'] || '').toLowerCase();
+          return !['cancelado', 'cancelada'].includes(st);
+        });
+        const pool = activeSales.length > 0 ? activeSales : clientSales;
+        recentSale = [...pool].reverse().sort((a, b) => getSaleTime(b) - getSaleTime(a))[0];
+      }
     }
-    
+
+    if (recentSale) {
+      const rawTotal = recentSale['VALOR TOTAL'] || recentSale['VALOR DA VENDA'] || recentSale.valorTotal || '';
+      const rawEntrada = recentSale['VALOR ENTRADA'] !== undefined && recentSale['VALOR ENTRADA'] !== '' 
+        ? recentSale['VALOR ENTRADA'] 
+        : (recentSale['SINAL'] !== undefined && recentSale['SINAL'] !== '' ? recentSale['SINAL'] : (recentSale.valorEntrada ?? ''));
+      const rawRestante = recentSale['RESTANTE'] !== undefined && recentSale['RESTANTE'] !== '' 
+        ? recentSale['RESTANTE'] 
+        : (recentSale.restante ?? '');
+      const rawFormas = recentSale['FORMAS_PAGAMENTO'] || recentSale['FORMA_PAGTO'] || recentSale['FORMA DE PAGAMENTO'] || recentSale.formasPagamento || '';
+      const rawFormaEntrada = recentSale['FORMA_ENTRADA'] || recentSale.formaPagamentoEntrada || '';
+      const rawFormaRestante = recentSale['FORMA_RESTANTE'] || recentSale.formaPagamentoRestante || '';
+      let rawParcelas = [];
+      try {
+        if (Array.isArray(recentSale.parcelas) && recentSale.parcelas.length > 0) {
+          rawParcelas = recentSale.parcelas;
+        } else if (recentSale['PARCELAS_JSON']) {
+          rawParcelas = typeof recentSale['PARCELAS_JSON'] === 'string' ? JSON.parse(recentSale['PARCELAS_JSON']) : recentSale['PARCELAS_JSON'];
+        }
+      } catch (e) {}
+      const rawItens = recentSale.itens || recentSale.cart || client.itens || [];
+      const rawSaleId = recentSale.id || recentSale['_id'] || recentSale.saleId || recentSale['ID'] || '';
+
+      const numTotal = parseCurrency(rawTotal);
+      const numEntrada = parseCurrency(rawEntrada);
+      let calculatedRestante = typeof rawRestante === 'number' ? rawRestante.toFixed(2).replace('.', ',') : String(rawRestante || '');
+      if ((!calculatedRestante || calculatedRestante === '0,00' || calculatedRestante === '0') && numTotal > numEntrada) {
+        calculatedRestante = (numTotal - numEntrada).toFixed(2).replace('.', ',');
+      }
+
+      const enrichedClient = {
+        ...client,
+        'Marca de Lente': client['Marca de Lente'] || recentSale['LENTE'] || recentSale['Marca de Lente'] || client['Lente'] || '',
+        'Modelo de Armação': client['Modelo de Armação'] || recentSale['ARMAÇÃO'] || recentSale['Modelo de Armação'] || client['Armação'] || '',
+        valorTotal: typeof rawTotal === 'number' ? rawTotal.toFixed(2).replace('.', ',') : String(rawTotal || ''),
+        valorEntrada: typeof rawEntrada === 'number' ? rawEntrada.toFixed(2).replace('.', ',') : String(rawEntrada || ''),
+        restante: calculatedRestante || '0,00',
+        formasPagamento: rawFormas,
+        formaPagamentoEntrada: rawFormaEntrada,
+        formaPagamentoRestante: rawFormaRestante,
+        parcelas: rawParcelas,
+        itens: rawItens,
+        saleId: rawSaleId
+      };
+
+      setOsClientData(enrichedClient);
+      setOsSaleData(recentSale);
+    } else {
+      setOsClientData(client);
+      setOsSaleData(null);
+    }
+  };
+
+  const handleSaveAndPrintOS = (osData) => {
+    const isMulti = Boolean(osData?.isMultiOS && Array.isArray(osData?.orders) && osData.orders.length > 0);
+    const ordersList = isMulti ? osData.orders : [osData];
+    const primaryOrder = ordersList[0] || osData;
+
+    setOsDataForPrint(isMulti ? { ...primaryOrder, multiOrders: ordersList, orders: ordersList } : osData);
+
+    // Automatically fallback to subtracting valorTotal - valorEntrada if restante is somehow missing or malformed
+    let osRestante = parseCurrency(primaryOrder.restante ?? osData.restante);
+    const primaryTotalStr = primaryOrder.valorTotal ?? osData.valorTotal;
+    const primaryEntradaStr = primaryOrder.valorEntrada ?? osData.valorEntrada;
+    if (osRestante === 0 && parseCurrency(primaryTotalStr) > 0) {
+      osRestante = Math.max(0, parseCurrency(primaryTotalStr) - parseCurrency(primaryEntradaStr));
+    }
+
     // NOTA: As duplicatas no financeiro (CONTAS_RECEBER) e o débito na ficha do cliente (Valor Devido)
     // NÃO são gerados no momento da emissão da OS. A nova OS entra com status "Aguardando Confirmação" (Azul).
     // A administração/financeiro confere o pagamento na tela de Gestão de OS e, ao confirmar,
     // as duplicatas são geradas no financeiro e a OS é liberada para montagem no laboratório!
 
-    // Salvar automaticamente a nova OS em Registro_Vendas com status 'Aguardando Confirmação'
+    // Salvar automaticamente a(s) nova(s) OS em Registro_Vendas com status 'Aguardando Confirmação'
     if (onAddSale && osClientData) {
-      const saleCity = osData.selectedCity || osData.unidade || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || osClientData['Cidade'] || 'Cajati';
+      const saleCity = primaryOrder.selectedCity || primaryOrder.unidade || osData.selectedCity || osData.unidade || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || osClientData['Cidade'] || 'Cajati';
       const clientId = osClientData.id || osClientData['_id'] || osClientData.CLIENTE_ID || '';
       const clientCpf = String(osClientData['CPF / CNPJ'] || osClientData['CPF'] || '').trim();
       const clientName = osClientData['Nome Completo'] || osClientData['NOME'] || 'Cliente';
       const todayStr = new Date().toLocaleDateString('pt-BR');
+      const dataVendaStr = primaryOrder.dataVenda || osData.dataVenda || todayStr;
+      const resolvedFormaEntrada = primaryOrder.formaPagamentoEntrada || primaryOrder.FORMA_ENTRADA || osData.formaPagamentoEntrada || osData.FORMA_ENTRADA || '';
+      const resolvedFormaRestante = primaryOrder.formaPagamentoRestante || primaryOrder.FORMA_RESTANTE || osData.formaPagamentoRestante || osData.FORMA_RESTANTE || '';
+      const primaryNumOS = primaryOrder.numeroOS || osData.numeroOS;
 
-      onAddSale({
-        'CLIENTE_ID': clientId,
-        'CLIENTE_CPF': clientCpf,
-        'CPF': clientCpf,
-        'DATA  DA VENDA': todayStr,
-        'DATA': todayStr,
-        'PRODUTO': (osData.lente + (osData.armacao ? ` + ${osData.armacao}` : '')).trim() || 'Óculos Completo',
-        'LENTE': osData.lente || '',
-        'ARMAÇÃO': osData.armacao || '',
-        'VALOR TOTAL': osData.valorTotal,
-        'VALOR DA VENDA': osData.valorTotal,
-        'VALOR ENTRADA': osData.valorEntrada || '0,00',
-        'SINAL': osData.valorEntrada || '0,00',
-        'RESTANTE': osData.restante || (osRestante > 0 ? osRestante.toFixed(2).replace('.', ',') : '0,00'),
-        'FORMAS_PAGAMENTO': osData.formasPagamento || '',
-        'SITUAÇÃO': 'Aguardando Confirmação',
-        'STATUS_OS': 'Aguardando Confirmação',
-        'OS DA VENDA': osData.numeroOS,
-        'OS': osData.numeroOS,
-        'PREVISAO_ENTREGA': osData.dataEntrega || todayStr,
-        'LABORATORIO': osData.laboratorio || '',
-        'NOME CLIENTE': clientName,
-        'CLIENTE': clientName,
-        'NOME': clientName,
-        'TELEFONE': osClientData['WhatsApp'] || osClientData['TELEFONE'] || '',
-        'CIDADE': saleCity,
-        'LOJA': saleCity,
-        'UNIDADE': saleCity,
-        'PAGAMENTO_CONFERIDO': 'Não',
-        'DUPLICATAS_GERADAS': false,
-        'PARCELAS_JSON': JSON.stringify(osData.parcelas || []),
-        'DIOPTRIA': `OD: ${osData.odEsf || ''}/${osData.odCil || ''} OE: ${osData.oeEsf || ''}/${osData.oeCil || ''} AD: ${osData.adicao || ''}`,
-        'OD_ESF': osData.odEsf || '',
-        'OD_CIL': osData.odCil || '',
-        'OD_EIXO': osData.odEixo || '',
-        'OD_DNP': osData.odDnp || '',
-        'OD_ALT': osData.odAlt || '',
-        'OE_ESF': osData.oeEsf || '',
-        'OE_CIL': osData.oeCil || '',
-        'OE_EIXO': osData.oeEixo || '',
-        'OE_DNP': osData.oeDnp || '',
-        'OE_ALT': osData.oeAlt || '',
-        'ADICAO': osData.adicao || '',
-        'MEDICO': osData.medico || '',
-        'OBSERVACOES': osData.observacoes || ''
+      ordersList.forEach((orderItem, idx) => {
+        const isSecondary = idx > 0 || Boolean(orderItem.isSecondaryOS);
+        const itemOsNum = orderItem.numeroOS || (idx === 0 ? primaryNumOS : `${primaryNumOS}-${idx + 1}`);
+        const itemTotal = isSecondary ? '0,00' : (orderItem.valorTotal || primaryTotalStr || '0,00');
+        const itemEntrada = isSecondary ? '0,00' : (orderItem.valorEntrada || primaryEntradaStr || '0,00');
+        const itemRestante = isSecondary ? '0,00' : (orderItem.restante || (osRestante > 0 ? osRestante.toFixed(2).replace('.', ',') : '0,00'));
+        const itemFormas = isSecondary
+          ? `Faturamento Unificado (Ver OS #${primaryNumOS})`
+          : (orderItem.formasPagamento || osData.formasPagamento || '');
+        const itemObservacoes = isSecondary
+          ? `${orderItem.observacoes ? orderItem.observacoes + ' | ' : ''}[Faturamento Unificado na OS #${primaryNumOS}]`
+          : (orderItem.observacoes || '');
+
+        onAddSale({
+          'CLIENTE_ID': clientId,
+          'CLIENTE_CPF': clientCpf,
+          'CPF': clientCpf,
+          'DATA  DA VENDA': dataVendaStr,
+          'DATA DA VENDA': dataVendaStr,
+          'DATA_VENDA': dataVendaStr,
+          'Data da Venda': dataVendaStr,
+          'data_venda': dataVendaStr,
+          'DATA': dataVendaStr,
+          'PRODUTO': ((orderItem.lente || '') + (orderItem.armacao ? ` + ${orderItem.armacao}` : '')).trim() || 'Óculos Completo',
+          'LENTE': orderItem.lente || '',
+          'ARMAÇÃO': orderItem.armacao || '',
+          'VALOR TOTAL': itemTotal,
+          'VALOR DA VENDA': itemTotal,
+          'VALOR ENTRADA': itemEntrada,
+          'SINAL': itemEntrada,
+          'RESTANTE': itemRestante,
+          'FORMAS_PAGAMENTO': itemFormas,
+          'FORMA_ENTRADA': resolvedFormaEntrada,
+          'formaPagamentoEntrada': resolvedFormaEntrada,
+          'FORMA_RESTANTE': resolvedFormaRestante,
+          'formaPagamentoRestante': resolvedFormaRestante,
+          'SITUAÇÃO': 'Aguardando Confirmação',
+          'STATUS_OS': 'Aguardando Confirmação',
+          'OS DA VENDA': itemOsNum,
+          'OS': itemOsNum,
+          'PREVISAO_ENTREGA': orderItem.dataEntrega || primaryOrder.dataEntrega || todayStr,
+          'LABORATORIO': orderItem.laboratorio || primaryOrder.laboratorio || '',
+          'NOME CLIENTE': clientName,
+          'CLIENTE': clientName,
+          'NOME': clientName,
+          'PACIENTE': orderItem.nomePessoa || orderItem.PACIENTE || clientName,
+          'NOME_BENEFICIARIO': orderItem.nomePessoa || orderItem.PACIENTE || clientName,
+          'TELEFONE': osClientData['WhatsApp'] || osClientData['TELEFONE'] || '',
+          'CIDADE': saleCity,
+          'LOJA': saleCity,
+          'UNIDADE': saleCity,
+          'PAGAMENTO_CONFERIDO': 'Não',
+          'DUPLICATAS_GERADAS': false,
+          'PARCELAS_JSON': isSecondary ? '[]' : JSON.stringify(orderItem.parcelas || primaryOrder.parcelas || []),
+          'FINANCEIRO_UNIFICADO': isSecondary,
+          'isSecondaryOS': isSecondary,
+          'DIOPTRIA': `OD: ${orderItem.odEsf || ''}/${orderItem.odCil || ''} OE: ${orderItem.oeEsf || ''}/${orderItem.oeCil || ''} AD: ${orderItem.adicao || ''}`,
+          'OD_ESF': orderItem.odEsf || '',
+          'OD_CIL': orderItem.odCil || '',
+          'OD_EIXO': orderItem.odEixo || '',
+          'OD_DNP': orderItem.odDnp || '',
+          'OD_ALT': orderItem.odAlt || '',
+          'OE_ESF': orderItem.oeEsf || '',
+          'OE_CIL': orderItem.oeCil || '',
+          'OE_EIXO': orderItem.oeEixo || '',
+          'OE_DNP': orderItem.oeDnp || '',
+          'OE_ALT': orderItem.oeAlt || '',
+          'ADICAO': orderItem.adicao || '',
+          'MEDICO': orderItem.medico || '',
+          'OBSERVACOES': itemObservacoes
+        });
       });
 
-      // 🛡️ Fix 6: Se houver sinal / valor de entrada na OS, registrar no FLUXO_CAIXA como VENDA em DINHEIRO
-      const valorEntradaNum = parseCurrency(osData.valorEntrada);
+      // 🛡️ Fix 6: Se houver sinal / valor de entrada na OS, registrar no FLUXO_CAIXA respeitando o método de pagamento da Entrada
+      const valorEntradaNum = parseCurrency(primaryEntradaStr);
       if (valorEntradaNum > 0 && onAddRow) {
-        const numeroOS = osData.numeroOS || 'OS';
+        const numeroOS = primaryNumOS || 'OS';
+        const rawEntradaMethod = String(resolvedFormaEntrada || primaryOrder.formasPagamento || osData.formasPagamento || 'DINHEIRO').toUpperCase();
+        let cashMethod = 'DINHEIRO';
+        if (rawEntradaMethod.includes('PIX')) cashMethod = 'PIX';
+        else if (rawEntradaMethod.includes('DEBITO') || rawEntradaMethod.includes('DÉBITO')) cashMethod = 'DEBITO';
+        else if (rawEntradaMethod.includes('CREDITO') || rawEntradaMethod.includes('CRÉDITO')) cashMethod = 'CREDITO';
+        else if (rawEntradaMethod.includes('DINHEIRO')) cashMethod = 'DINHEIRO';
+
         onAddRow('FLUXO_CAIXA', {
           id: `mov_sinal_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
           saleId: `os_${numeroOS}`,
@@ -722,20 +865,21 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           unidade: saleCity,
           operador: currentUser?.username || 'Caixa',
           valor: valorEntradaNum,
-          formaPagamento: 'DINHEIRO',
+          formaPagamento: cashMethod,
           motivo: `Sinal OS #${numeroOS}`,
-          detalhes: `Sinal/Entrada OS #${numeroOS} - ${clientName}`,
+          detalhes: `Sinal/Entrada OS #${numeroOS} - ${clientName}${resolvedFormaEntrada ? ` (${resolvedFormaEntrada})` : ''}`,
           CLIENTE_ID: clientId,
           CLIENTE_CPF: clientCpf,
           CPF: clientCpf
         });
       }
     }
-    
+
     // Pequeno delay para garantir que o componente PrintableOS renderize antes de chamar o print
     setTimeout(() => {
       window.print();
       setOsClientData(null);
+      setOsSaleData(null);
       setTimeout(() => setOsDataForPrint(null), 1000);
     }, 300);
   };
@@ -1020,7 +1164,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
                   sheetName="CLIENTES_CADASTRADOS" 
                   rows={filteredData} 
                   onEditRow={(row) => handleStartEditClient(row)}
-                  onGenerateOS={setOsClientData} 
+                  onGenerateOS={handleOpenOSModal} 
                   onViewProfile={setProfileClientData}
                   currentUser={currentUser}
                   onDeleteRow={onDeleteClient ? (sheet, row) => onDeleteClient(row) : null}
@@ -1881,11 +2025,17 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
       <OSGeneratorModal 
         isOpen={!!osClientData} 
         clientData={osClientData} 
+        saleData={osSaleData}
         lentesData={filteredLentes}
         armacoesData={filteredArmacoes}
         salesData={salesData}
         currentUser={currentUser}
-        onClose={() => setOsClientData(null)} 
+        receberData={receberData}
+        clientsData={clientsData}
+        onClose={() => {
+          setOsClientData(null);
+          setOsSaleData(null);
+        }} 
         onSaveAndPrint={handleSaveAndPrintOS} 
       />
       
@@ -1954,36 +2104,41 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           handleStartEditClient(profileClientData);
         }}
         onGenerateOS={(clientData) => {
-          setOsClientData(clientData);
+          handleOpenOSModal(clientData);
           setProfileClientData(null);
         }}
-        onDeleteSale={(historyIndex) => {
+        onDeleteSale={async (historyIndex) => {
           const clientSales = salesData.filter(sale => isSameClient(profileClientData, sale));
           const saleToDelete = clientSales[historyIndex];
           if (saleToDelete) {
-            // Limpeza de duplicatas pendentes no Contas a Receber vinculadas a esta OS/venda
             const osNum = String(saleToDelete['OS DA VENDA'] || saleToDelete['OS'] || saleToDelete['VENDA_OS'] || '').trim();
-            if (osNum && osNum !== '—' && receberData && onDeleteRow) {
-              const targetOS = osNum.toLowerCase();
-              const pendingInvoices = receberData.filter(inv => {
-                const vOS = String(inv.VENDA_OS || inv.OS || '').toLowerCase();
-                const matchesOS = vOS && (vOS === targetOS || vOS.replace(/^os-?/i, '') === targetOS.replace(/^os-?/i, ''));
-                const doc = String(inv.DOCUMENTO || '').toLowerCase();
-                const desc = String(inv.DESCRICAO || '').toLowerCase();
-                return (matchesOS || doc.includes(targetOS) || desc.includes(targetOS)) && inv.STATUS !== 'Recebido' && inv.STATUS !== 'Pago';
+            const fullData = data && Object.keys(data).length > 0 ? data : {
+              Registro_Vendas: salesData,
+              CONTAS_RECEBER: receberData,
+              CAD_ARMACOES: armacoesData,
+              CAD_LENTES: lentesData,
+              CLIENTES_CADASTRADOS: clientsData
+            };
+
+            try {
+              await executeOSCascadeDeletion({
+                osNumber: osNum,
+                saleRow: saleToDelete,
+                data: fullData,
+                clientsData,
+                onDeleteRow,
+                onUpdateRow
               });
-
-              for (const inv of pendingInvoices) {
-                onDeleteRow('CONTAS_RECEBER', inv);
+            } catch (err) {
+              console.warn('Aviso ao excluir venda em cascata:', err);
+              if (onDeleteSale) {
+                onDeleteSale(saleToDelete);
               }
-            }
-
-            if (onDeleteSale) {
-              onDeleteSale(saleToDelete);
             }
           }
         }}
         onRegisterPayment={handleConfirmPayment}
+        data={data}
         receberData={receberData}
         onUpdateRow={onUpdateRow}
         onAddRow={onAddRow}
