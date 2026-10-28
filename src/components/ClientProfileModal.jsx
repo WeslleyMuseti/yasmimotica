@@ -128,6 +128,17 @@ const ClientProfileModal = ({
   const [localHistory, setLocalHistory] = useState(clientHistory);
   const [receiptModalInvoice, setReceiptModalInvoice] = useState(null);
 
+  // Modal de Quitação de Parcela com Opção de Contar no Caixa
+  const [settleModalInvoice, setSettleModalInvoice] = useState(null);
+  const [settlePaymentDate, setSettlePaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [settleCountInCash, setSettleCountInCash] = useState(true);
+  const [isSubmittingSettle, setIsSubmittingSettle] = useState(false);
+
+  // Modal de Exclusão de Venda / OS com Opção de Apagar ou Manter Dívida
+  const [saleDeleteModalData, setSaleDeleteModalData] = useState(null);
+  const [saleDeleteDebtChoice, setSaleDeleteDebtChoice] = useState(true);
+  const [isDeletingSale, setIsDeletingSale] = useState(false);
+
   useEffect(() => {
     setLocalHistory(clientHistory);
   }, [clientHistory]);
@@ -340,14 +351,22 @@ const ClientProfileModal = ({
     };
   }, [clientErpInvoices, currentClient]);
 
-  const handleSettleSingleInvoice = async (inv) => {
+  const handleSettleSingleInvoice = (inv) => {
+    setSettleModalInvoice(inv);
+    setSettlePaymentDate(new Date().toISOString().split('T')[0]);
+    setSettleCountInCash(true);
+  };
+
+  const handleConfirmSettleModal = async () => {
+    if (!settleModalInvoice || isSubmittingSettle) return;
+    setIsSubmittingSettle(true);
+    const inv = settleModalInvoice;
     const val = parseCurrency(inv.VALOR || inv.valor);
     const osNum = inv.VENDA_OS || inv.OS || inv.venda_os || '';
-    const desc = inv.DESCRICAO || inv.descricao || (osNum ? `OS #${osNum}` : 'Parcela');
-    
-    if (window.confirm(`Confirmar recebimento da parcela no valor de R$ ${formatMoney(val)} (${desc})?\nO valor entrará no Fluxo de Caixa e o saldo do cliente será atualizado.`)) {
+
+    try {
       if (onRegisterPayment) {
-        onRegisterPayment(val, osNum, inv);
+        onRegisterPayment(val, osNum, inv, settleCountInCash);
         const currentDebt = parseCurrency(currentClient?.['Valor Devido']);
         const newDebt = Math.max(0, currentDebt - val);
         const newStatus = newDebt === 0 ? 'Em dia' : currentClient?.['Status de Pagamento'];
@@ -357,16 +376,15 @@ const ClientProfileModal = ({
           'Status de Pagamento': newStatus
         }));
       } else {
-        const todayIso = new Date().toISOString().split('T')[0];
-
-        // (a) update installment in CONTAS_RECEBER to STATUS: 'Recebido' e sincroniza no FLUXO_CAIXA
+        // (a) update installment in CONTAS_RECEBER to STATUS: 'Recebido' e sincroniza no FLUXO_CAIXA apenas se settleCountInCash for true
         await syncInstallmentPaymentDate({
           installmentRow: inv,
-          newPaymentDate: todayIso,
+          newPaymentDate: settlePaymentDate || new Date().toISOString().split('T')[0],
           data,
           onUpdateRow,
           onAddRow,
-          currentUser
+          currentUser,
+          contarNoCaixa: settleCountInCash
         });
 
         // (b) decrement client's 'Valor Devido' in CLIENTES_CADASTRADOS
@@ -385,6 +403,28 @@ const ClientProfileModal = ({
         }
         setCurrentClient(updatedClient);
       }
+      setSettleModalInvoice(null);
+    } catch (err) {
+      console.error('Erro ao registrar recebimento de parcela:', err);
+      alert('Erro ao registrar quitação da parcela.');
+    } finally {
+      setIsSubmittingSettle(false);
+    }
+  };
+
+  const handleConfirmSaleDelete = async () => {
+    if (!saleDeleteModalData || isDeletingSale) return;
+    setIsDeletingSale(true);
+    try {
+      if (onDeleteSale) {
+        await onDeleteSale(saleDeleteModalData.index, saleDeleteDebtChoice);
+      }
+      setSaleDeleteModalData(null);
+    } catch (err) {
+      console.error('Erro ao excluir venda/OS:', err);
+      alert('Erro ao excluir venda/OS.');
+    } finally {
+      setIsDeletingSale(false);
     }
   };
 
@@ -1411,26 +1451,17 @@ const ClientProfileModal = ({
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-bold text-slate-400">OS: {compra['OS DA VENDA'] || compra['OS'] || '—'}</span>
                                 {onDeleteSale && (
-                                  confirmDeleteIndex === index ? (
-                                    <div className="flex items-center gap-1">
-                                      <button
-                                        onClick={() => { onDeleteSale(index); setConfirmDeleteIndex(null); }}
-                                        className="px-2 py-0.5 bg-rose-500 hover:bg-rose-400 text-white text-[10px] font-black rounded-lg transition-all"
-                                      >Confirmar</button>
-                                      <button
-                                        onClick={() => setConfirmDeleteIndex(null)}
-                                        className="px-2 py-0.5 bg-white/10 hover:bg-white/20 text-slate-300 text-[10px] font-bold rounded-lg transition-all"
-                                      >Não</button>
-                                    </div>
-                                  ) : (
-                                    <button
-                                      onClick={() => setConfirmDeleteIndex(index)}
-                                      className="w-5 h-5 flex items-center justify-center rounded-full bg-white/0 hover:bg-rose-500/20 text-slate-600 hover:text-rose-400 transition-all"
-                                      title="Apagar registro"
-                                    >
-                                      <X size={12} />
-                                    </button>
-                                  )
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSaleDeleteModalData({ index, compra, osNum: compra['OS DA VENDA'] || compra['OS'] || '—' });
+                                      setSaleDeleteDebtChoice(true);
+                                    }}
+                                    className="w-5 h-5 flex items-center justify-center rounded-full bg-white/0 hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-all cursor-pointer"
+                                    title="Excluir OS / Venda com opção para dívidas"
+                                  >
+                                    <X size={13} />
+                                  </button>
                                 )}
                               </div>
                             </div>
@@ -1916,6 +1947,215 @@ const ClientProfileModal = ({
           }
         }}
       />
+
+      {/* ─── MODAL DE QUITAÇÃO DE PARCELA COM OPÇÃO DE CONTABILIZAR NO CAIXA ─── */}
+      <AnimatePresence>
+        {settleModalInvoice && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 10 }}
+              className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <CheckCircle size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white">Recebimento de Parcela</h3>
+                    <p className="text-xs text-slate-400 font-mono">
+                      {settleModalInvoice.VENDA_OS || settleModalInvoice.OS ? `OS #${settleModalInvoice.VENDA_OS || settleModalInvoice.OS}` : 'Conta a Receber'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSettleModalInvoice(null)}
+                  className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="bg-slate-950/70 p-3.5 rounded-2xl border border-white/5 space-y-1.5">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-400">Descrição:</span>
+                  <span className="text-white font-bold">{settleModalInvoice.DESCRICAO || settleModalInvoice.descricao || 'Parcela'}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-400">Valor da Parcela:</span>
+                  <span className="text-emerald-400 font-black text-sm">
+                    R$ {formatMoney(parseCurrency(settleModalInvoice.VALOR || settleModalInvoice.valor))}
+                  </span>
+                </div>
+                {settleModalInvoice.DATA_VENCIMENTO && (
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-400">Vencimento Original:</span>
+                    <span className="text-slate-300 font-mono">{settleModalInvoice.DATA_VENCIMENTO}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black uppercase tracking-wider text-slate-300">
+                  Data Efetiva do Pagamento
+                </label>
+                <input
+                  type="date"
+                  value={settlePaymentDate}
+                  onChange={(e) => setSettlePaymentDate(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Opção para Contar no Caixa ou Não */}
+              <div className="p-3.5 bg-slate-950/90 border border-slate-800 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-white flex items-center gap-1.5">
+                    <DollarSign size={14} className="text-emerald-400" />
+                    Contabilizar no Fluxo de Caixa?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSettleCountInCash(prev => !prev)}
+                    className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${
+                      settleCountInCash
+                        ? 'bg-emerald-500 text-white shadow-sm'
+                        : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    }`}
+                  >
+                    {settleCountInCash ? 'SIM (No Caixa)' : 'NÃO (Apenas Baixa)'}
+                  </button>
+                </div>
+                <p className="text-[10.5px] leading-relaxed text-slate-400">
+                  {settleCountInCash
+                    ? '✅ O valor entrará como RECEBIMENTO no livro caixa da loja e somará no fechamento diário.'
+                    : '⚠️ Apenas baixa administrativa/contábil: o saldo devedor do cliente será abatido, mas o dinheiro NÃO entrará no caixa da loja.'}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSettleModalInvoice(null)}
+                  className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 font-bold text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmSettleModal}
+                  disabled={isSubmittingSettle}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black text-xs shadow-lg shadow-emerald-500/20"
+                >
+                  {isSubmittingSettle ? 'Processando...' : 'Confirmar Recebimento'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── MODAL DE EXCLUSÃO DE OS COM OPÇÃO DE APAGAR OU MANTER DÍVIDA ─── */}
+      <AnimatePresence>
+        {saleDeleteModalData && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 10 }}
+              className="bg-slate-900 border border-rose-500/30 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                    <Trash2 size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white">Exclusão de Ordem de Serviço</h3>
+                    <p className="text-xs text-slate-400 font-mono">
+                      OS #{saleDeleteModalData.osNum}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSaleDeleteModalData(null)}
+                  className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Você solicitou a exclusão desta Ordem de Serviço. Como deseja tratar as <strong>dívidas / parcelas</strong> vinculadas a ela?
+              </p>
+
+              <div className="space-y-2.5">
+                <button
+                  type="button"
+                  onClick={() => setSaleDeleteDebtChoice(true)}
+                  className={`w-full text-left p-3.5 rounded-2xl border transition-all ${
+                    saleDeleteDebtChoice
+                      ? 'bg-rose-500/15 border-rose-500/50 shadow-sm'
+                      : 'bg-slate-950/50 border-white/5 hover:border-white/10'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${saleDeleteDebtChoice ? 'border-rose-400 bg-rose-500' : 'border-slate-600'}`}>
+                      {saleDeleteDebtChoice && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                    </div>
+                    <span className="text-xs font-black text-white">🔴 Apagar a OS e ELIMINAR a dívida (Padrão)</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 pl-6">
+                    Exclui a OS, apaga as parcelas em Contas a Receber e zera a cobrança desta OS na ficha do cliente.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSaleDeleteDebtChoice(false)}
+                  className={`w-full text-left p-3.5 rounded-2xl border transition-all ${
+                    !saleDeleteDebtChoice
+                      ? 'bg-amber-500/15 border-amber-500/50 shadow-sm'
+                      : 'bg-slate-950/50 border-white/5 hover:border-white/10'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${!saleDeleteDebtChoice ? 'border-amber-400 bg-amber-500' : 'border-slate-600'}`}>
+                      {!saleDeleteDebtChoice && <div className="w-1.5 h-1.5 bg-slate-950 rounded-full" />}
+                    </div>
+                    <span className="text-xs font-black text-white">🟡 Apagar a OS e MANTER a dívida ativa</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 pl-6">
+                    Exclui a OS da produção/laboratório, mas preserva os boletos e o saldo devedor do cliente para cobrança ativa.
+                  </p>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSaleDeleteModalData(null)}
+                  className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 font-bold text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmSaleDelete}
+                  disabled={isDeletingSale}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-white font-black text-xs shadow-lg shadow-rose-500/20"
+                >
+                  {isDeletingSale ? 'Excluindo...' : 'Confirmar Exclusão'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </>
   );
 };

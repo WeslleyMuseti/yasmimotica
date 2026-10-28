@@ -346,6 +346,51 @@ const RowEditModal = ({
             className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-sky-500"
             placeholder="Outro status personalizado..."
           />
+
+          {sheetName === 'CONTAS_RECEBER' && ['pago', 'recebido', 'em dia'].includes(currentStatus.toLowerCase()) && (
+            <div className="mt-2 p-2.5 bg-slate-950/80 border border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-300 block">
+                  Contabilizar no Fluxo de Caixa?
+                </span>
+                <span className="text-[9px] text-slate-500 font-medium block">
+                  {formData.CONTAR_NO_CAIXA === 'Não'
+                    ? '⚠️ Apenas baixa no título (não gera movimentação no caixa).'
+                    : '✅ O valor será lançado como entrada no Fluxo de Caixa.'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-800 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleChange('CONTAR_NO_CAIXA', 'Sim');
+                    handleChange('contarNoCaixa', true);
+                  }}
+                  className={`px-2.5 py-1 text-[10px] font-black rounded-md transition-all ${
+                    formData.CONTAR_NO_CAIXA !== 'Não'
+                      ? 'bg-emerald-500 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Sim
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleChange('CONTAR_NO_CAIXA', 'Não');
+                    handleChange('contarNoCaixa', false);
+                  }}
+                  className={`px-2.5 py-1 text-[10px] font-black rounded-md transition-all ${
+                    formData.CONTAR_NO_CAIXA === 'Não'
+                      ? 'bg-amber-500 text-slate-950 shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Não
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       );
     }

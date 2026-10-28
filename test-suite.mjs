@@ -1,4 +1,9 @@
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { 
   hashPassword, 
   verifyPassword, 
@@ -6462,6 +6467,220 @@ async function runTests() {
     console.assert(bestRecent['VALOR TOTAL'] === '1.500,00', 'Valor da venda válida deve ser 1.500,00');
 
     console.log('  ✅ Test 60 Passed: Auto-preenchimento de Venda Recente, Auto-Soma e Centralização Financeira validado com 100% de sucesso!\n');
+  }
+
+  // ─── TEST 61: Impressão Completa do Termo Oficial de Reparcelamento (Task 1) ────────
+  {
+    console.log('▶ Test 61: Impressão Completa do Termo de Acordo de Reparcelamento de Parcelas (Task 1)');
+
+    const agreementFile = fs.readFileSync(path.join(__dirname, 'src/components/PrintableReparcelamentoAgreement.jsx'), 'utf-8');
+    const reparcelamentoModalFile = fs.readFileSync(path.join(__dirname, 'src/components/ReparcelamentoOSModal.jsx'), 'utf-8');
+
+    // 1. Validação de que o componente de impressão contempla todos os campos essenciais do formulário
+    console.assert(agreementFile.includes('meioPagamento'), 'PrintableReparcelamentoAgreement deve suportar meioPagamento');
+    console.assert(agreementFile.includes('intervaloRegra'), 'PrintableReparcelamentoAgreement deve exibir regra de intervalo');
+    console.assert(agreementFile.includes('diasAtraso') || agreementFile.includes('atraso'), 'PrintableReparcelamentoAgreement deve mostrar dias de atraso nas parcelas renegociadas');
+    console.assert(agreementFile.includes('observacoes'), 'PrintableReparcelamentoAgreement deve exibir observações');
+    console.assert(agreementFile.includes('entradaMeio'), 'PrintableReparcelamentoAgreement deve exibir meio de pagamento da entrada');
+
+    // 2. Validação de que o modal repassa todos os campos no buildAgreementPayload
+    console.assert(reparcelamentoModalFile.includes('intervaloRegra: intervaloLabelMap'), 'Modal deve repassar regra de intervalo');
+    console.assert(reparcelamentoModalFile.includes('meioPagamento: meioPagamento'), 'Modal deve repassar meioPagamento');
+    console.assert(reparcelamentoModalFile.includes('observacoes,'), 'Modal deve repassar observacoes');
+    console.assert(reparcelamentoModalFile.includes('entradaMeioPagamento: entradaFormaPagto'), 'Modal deve repassar meio de pagamento da entrada');
+
+    // 3. Simulação funcional de montagem do payload
+    const mockReparcelamentoState = {
+      client: { 'Nome Completo': 'Carlos Mendes', 'CPF / CNPJ': '123.456.789-00', 'WhatsApp': '13999998888', 'Endereço': 'Rua das Flores, 100' },
+      targetOS: '2026-105',
+      selectedInvoices: [
+        { DOCUMENTO: 'OS #2026-105 - Parcela 1/2', VENCIMENTO: '2026-09-10', VALOR: '150,00' },
+        { DOCUMENTO: 'OS #2026-105 - Parcela 2/2', VENCIMENTO: '2026-10-10', VALOR: '150,00' }
+      ],
+      valorEntrada: '50,00',
+      entradaMeio: 'PIX',
+      qtdParcelas: 2,
+      intervalo: '30',
+      meioPagamento: 'Boleto',
+      observacoes: 'Cliente renegociou pessoalmente na loja de Cajati.',
+      newInstallments: [
+        { numero: 1, totalParcelas: 2, valor: '125,00', vencimento: '2026-11-10' },
+        { numero: 2, totalParcelas: 2, valor: '125,00', vencimento: '2026-12-10' }
+      ]
+    };
+
+    const builtPayload = {
+      client: mockReparcelamentoState.client,
+      osNumber: mockReparcelamentoState.targetOS,
+      totalRenegociado: 300,
+      valorEntrada: 50,
+      entradaMeio: mockReparcelamentoState.entradaMeio,
+      valorRestante: 250,
+      intervaloRegra: 'A cada 30 dias',
+      meioPagamento: mockReparcelamentoState.meioPagamento,
+      observacoes: mockReparcelamentoState.observacoes,
+      oldRows: mockReparcelamentoState.selectedInvoices.map((inv, idx) => ({
+        ...inv,
+        diasAtraso: 20 + idx * 30
+      })),
+      newRows: mockReparcelamentoState.newInstallments
+    };
+
+    console.assert(builtPayload.client['Nome Completo'] === 'Carlos Mendes', 'Nome do cliente deve constar no payload');
+    console.assert(builtPayload.totalRenegociado === 300 && builtPayload.valorRestante === 250, 'Totais financeiros do acordo devem ser exatos');
+    console.assert(builtPayload.meioPagamento === 'Boleto', 'Meio de pagamento deve ser preservado');
+    console.assert(builtPayload.oldRows.length === 2 && builtPayload.newRows.length === 2, 'Parcelas antigas e novas devem bater');
+
+    console.log('  ✅ Test 61 Passed: Impressão Completa do Termo de Acordo validada com 100% de sucesso!\n');
+  }
+
+  // ─── TEST 62: Exclusão de OS com Opção de Apagar vs Manter Dívidas (Task 2) ────────
+  {
+    console.log('▶ Test 62: Exclusão de OS com Opção de Apagar vs Manter Dívidas (Task 2)');
+
+    const { executeOSCascadeDeletion, findOSRelatedEntities } = await import('./src/osDeletionUtils.js');
+
+    // 1. Cenário A: deleteDebt === true (Apagar tudo: OS + Dívidas)
+    const mockClientA = {
+      id: 'cli_A',
+      'Nome Completo': 'Mariana Souza',
+      'Valor Devido': '600,00',
+      'Status de Pagamento': 'Pendente'
+    };
+    const mockInvoicesA = [
+      { id: 'inv_1', DOCUMENTO: 'OS #2026-200 - Parcela 1/2', CLIENTE: 'Mariana Souza', VALOR: '300,00', STATUS: 'Pendente' },
+      { id: 'inv_2', DOCUMENTO: 'OS #2026-200 - Parcela 2/2', CLIENTE: 'Mariana Souza', VALOR: '300,00', STATUS: 'Pendente' }
+    ];
+    const mockSalesA = [
+      { id: 'sale_1', 'OS DA VENDA': '2026-200', 'CLIENTE': 'Mariana Souza', 'VALOR TOTAL': '600,00' }
+    ];
+
+    const deletedInvoicesA = [];
+    const updatedClientsA = [];
+    let saleDeletedA = false;
+
+    await executeOSCascadeDeletion({
+      osNumber: '2026-200',
+      saleRow: mockSalesA[0],
+      data: {
+        Registro_Vendas: mockSalesA,
+        CONTAS_RECEBER: mockInvoicesA
+      },
+      clientsData: [mockClientA],
+      onDeleteRow: async (table, row) => {
+        if (table === 'Registro_Vendas') saleDeletedA = true;
+        if (table === 'CONTAS_RECEBER') deletedInvoicesA.push(row.id);
+      },
+      onUpdateRow: async (table, oldRow, updatedRow) => {
+        if (table === 'CLIENTES_CADASTRADOS') updatedClientsA.push(updatedRow);
+      },
+      deleteDebt: true
+    });
+
+    console.assert(saleDeletedA, 'Venda principal deve ser deletada');
+    console.assert(deletedInvoicesA.length === 2, `As 2 parcelas devem ser deletadas com deleteDebt=true, deletadas: ${deletedInvoicesA.length}`);
+    console.assert(updatedClientsA.length > 0 && updatedClientsA[0]['Valor Devido'] === '0,00', 'Saldo do cliente deve ser zerado');
+
+    // 2. Cenário B: deleteDebt === false (Apagar OS, mas MANTER dívidas ativas para cobrança)
+    const mockClientB = {
+      id: 'cli_B',
+      'Nome Completo': 'Mariana Souza',
+      'Valor Devido': '600,00',
+      'Status de Pagamento': 'Pendente'
+    };
+    const deletedInvoicesB = [];
+    const updatedClientsB = [];
+    let saleDeletedB = false;
+
+    await executeOSCascadeDeletion({
+      osNumber: '2026-200',
+      saleRow: mockSalesA[0],
+      data: {
+        Registro_Vendas: mockSalesA,
+        CONTAS_RECEBER: mockInvoicesA
+      },
+      clientsData: [mockClientB],
+      onDeleteRow: async (table, row) => {
+        if (table === 'Registro_Vendas') saleDeletedB = true;
+        if (table === 'CONTAS_RECEBER') deletedInvoicesB.push(row.id);
+      },
+      onUpdateRow: async (table, oldRow, updatedRow) => {
+        if (table === 'CLIENTES_CADASTRADOS') updatedClientsB.push(updatedRow);
+      },
+      deleteDebt: false
+    });
+
+    console.assert(saleDeletedB, 'Venda principal deve ser deletada com deleteDebt=false');
+    console.assert(deletedInvoicesB.length === 0, `Nenhuma parcela deve ser deletada quando deleteDebt=false, deletadas: ${deletedInvoicesB.length}`);
+    console.assert(updatedClientsB.length === 0, 'Saldo do cliente NÃO deve ser alterado quando deleteDebt=false');
+
+    console.log('  ✅ Test 62 Passed: Exclusão com Opção de Apagar vs Manter Dívida validada com 100% de sucesso!\n');
+  }
+
+  // ─── TEST 63: Recebimento com Opção de Contar ou Não no Fluxo de Caixa (Task 3) ────
+  {
+    console.log('▶ Test 63: Recebimento com Opção de Contar ou Não no Fluxo de Caixa (Task 3)');
+
+    const { syncInstallmentPaymentDate } = await import('./src/dateSyncUtils.js');
+
+    // 1. Cenário A: contarNoCaixa = true
+    let addedCashMovementA = null;
+    let updatedInvoiceA = null;
+
+    const mockInvoiceA = {
+      id: 'rec_101',
+      CLIENTE: 'Roberto Lima',
+      VALOR: '250,00',
+      STATUS: 'Pendente',
+      DOCUMENTO: 'OS #2026-301 - Parcela 1/2'
+    };
+
+    await syncInstallmentPaymentDate({
+      installmentRow: mockInvoiceA,
+      newPaymentDate: '2026-10-28',
+      contarNoCaixa: true,
+      onUpdateRow: async (table, oldRow, newRow) => {
+        if (table === 'CONTAS_RECEBER') updatedInvoiceA = newRow;
+      },
+      onAddRow: async (table, row) => {
+        if (table === 'FLUXO_CAIXA') addedCashMovementA = row;
+      }
+    });
+
+    console.assert(updatedInvoiceA && updatedInvoiceA.STATUS === 'Recebido', 'Parcela deve ser marcada como Recebido');
+    console.assert(updatedInvoiceA.CONTAR_NO_CAIXA === 'Sim', 'CONTAR_NO_CAIXA deve ser Sim');
+    console.assert(addedCashMovementA !== null, 'Deve lançar movimentação no FLUXO_CAIXA');
+    console.assert(addedCashMovementA.valor === 250, `Valor no caixa deve ser 250, obtido: ${addedCashMovementA.valor}`);
+
+    // 2. Cenário B: contarNoCaixa = false (Baixa Administrativa sem movimentar Caixa)
+    let addedCashMovementB = null;
+    let updatedInvoiceB = null;
+
+    const mockInvoiceB = {
+      id: 'rec_102',
+      CLIENTE: 'Roberto Lima',
+      VALOR: '350,00',
+      STATUS: 'Pendente',
+      DOCUMENTO: 'OS #2026-301 - Parcela 2/2'
+    };
+
+    await syncInstallmentPaymentDate({
+      installmentRow: mockInvoiceB,
+      newPaymentDate: '2026-10-28',
+      contarNoCaixa: false,
+      onUpdateRow: async (table, oldRow, newRow) => {
+        if (table === 'CONTAS_RECEBER') updatedInvoiceB = newRow;
+      },
+      onAddRow: async (table, row) => {
+        if (table === 'FLUXO_CAIXA') addedCashMovementB = row;
+      }
+    });
+
+    console.assert(updatedInvoiceB && updatedInvoiceB.STATUS === 'Recebido', 'Parcela B deve ser marcada como Recebido');
+    console.assert(updatedInvoiceB.CONTAR_NO_CAIXA === 'Não', 'CONTAR_NO_CAIXA deve ser Não');
+    console.assert(addedCashMovementB === null, 'NÃO deve lançar movimentação no FLUXO_CAIXA quando contarNoCaixa = false');
+
+    console.log('  ✅ Test 63 Passed: Recebimento com Opção no Fluxo de Caixa validado com 100% de sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');

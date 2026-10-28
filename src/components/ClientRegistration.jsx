@@ -2107,7 +2107,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           handleOpenOSModal(clientData);
           setProfileClientData(null);
         }}
-        onDeleteSale={async (historyIndex) => {
+        onDeleteSale={async (historyIndex, deleteDebt = true) => {
           const clientSales = salesData.filter(sale => isSameClient(profileClientData, sale));
           const saleToDelete = clientSales[historyIndex];
           if (saleToDelete) {
@@ -2127,7 +2127,8 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
                 data: fullData,
                 clientsData,
                 onDeleteRow,
-                onUpdateRow
+                onUpdateRow,
+                deleteDebt
               });
             } catch (err) {
               console.warn('Aviso ao excluir venda em cascata:', err);

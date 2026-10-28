@@ -266,9 +266,9 @@ export const findOSRelatedEntities = ({
 };
 
 /**
- * Executa a Exclusão Cirúrgica Total em Cascata (Opção A):
- * Deleta venda, todas as parcelas, todas as entradas e baixas no Fluxo de Caixa,
- * devolve o estoque e atualiza a ficha do cliente.
+ * Executa a Exclusão da OS com opção flexível para a dívida:
+ * @param {boolean} deleteDebt - Se true (padrão): Apaga todas as parcelas em CONTAS_RECEBER e zera a dívida desta OS no cliente.
+ *                               Se false: Exclui a OS da produção, mas mantém as parcelas em CONTAS_RECEBER e o saldo devedor do cliente ativo para cobrança.
  */
 export const executeOSCascadeDeletion = async ({
   osNumber,
@@ -276,7 +276,8 @@ export const executeOSCascadeDeletion = async ({
   data = {},
   clientsData = [],
   onDeleteRow,
-  onUpdateRow
+  onUpdateRow,
+  deleteDebt = true
 }) => {
   if (!onDeleteRow) {
     throw new Error('Função onDeleteRow é obrigatória para exclusão em cascata.');
@@ -291,25 +292,31 @@ export const executeOSCascadeDeletion = async ({
 
   const logs = [];
 
-  // 1. Deletar TODAS as duplicatas em CONTAS_RECEBER (pendentes, pagas, canceladas)
-  for (const inv of entities.matchedInvoices) {
-    try {
-      await onDeleteRow('CONTAS_RECEBER', inv);
-    } catch (err) {
-      console.warn('Aviso ao excluir parcela de CONTAS_RECEBER:', err);
+  // 1. Tratamento de parcelas em CONTAS_RECEBER (Apagar Dívida vs Manter Dívida)
+  if (deleteDebt) {
+    for (const inv of entities.matchedInvoices) {
+      try {
+        await onDeleteRow('CONTAS_RECEBER', inv);
+      } catch (err) {
+        console.warn('Aviso ao excluir parcela de CONTAS_RECEBER:', err);
+      }
     }
+    logs.push(`${entities.matchedInvoices.length} parcela(s) / dívida(s) no Contas a Receber eliminada(s).`);
+  } else {
+    logs.push(`${entities.matchedInvoices.length} parcela(s) no Contas a Receber MANTIDAS ativas para cobrança.`);
   }
-  logs.push(`${entities.matchedInvoices.length} parcela(s) no Contas a Receber eliminada(s).`);
 
-  // 2. Deletar TODAS as movimentações de FLUXO_CAIXA (entradas, recebimentos, sangrias vinculadas)
-  for (const mov of entities.matchedCashMovements) {
-    try {
-      await onDeleteRow('FLUXO_CAIXA', mov);
-    } catch (err) {
-      console.warn('Aviso ao excluir movimentação de FLUXO_CAIXA:', err);
+  // 2. Deletar movimentações de FLUXO_CAIXA (se deleteDebt for true, remove entradas da OS para limpeza total)
+  if (deleteDebt) {
+    for (const mov of entities.matchedCashMovements) {
+      try {
+        await onDeleteRow('FLUXO_CAIXA', mov);
+      } catch (err) {
+        console.warn('Aviso ao excluir movimentação de FLUXO_CAIXA:', err);
+      }
     }
+    logs.push(`${entities.matchedCashMovements.length} movimentação(ões) no Histórico de Caixa eliminada(s).`);
   }
-  logs.push(`${entities.matchedCashMovements.length} movimentação(ões) no Histórico de Caixa eliminada(s).`);
 
   // 3. Devolver produtos ao Estoque
   if (onUpdateRow && entities.stockItemsToRestore.length > 0) {
@@ -328,8 +335,8 @@ export const executeOSCascadeDeletion = async ({
     logs.push(`${entities.stockItemsToRestore.length} item(ns) devolvido(s) ao estoque.`);
   }
 
-  // 4. Atualizar o cadastro do cliente em CLIENTES_CADASTRADOS
-  if (onUpdateRow && entities.matchedClient) {
+  // 4. Atualizar o cadastro do cliente em CLIENTES_CADASTRADOS (apenas se deleteDebt for true)
+  if (deleteDebt && onUpdateRow && entities.matchedClient) {
     try {
       const updatedClient = {
         ...entities.matchedClient,
@@ -341,6 +348,8 @@ export const executeOSCascadeDeletion = async ({
     } catch (err) {
       console.warn('Aviso ao atualizar saldo do cliente:', err);
     }
+  } else if (!deleteDebt && entities.matchedClient) {
+    logs.push('Saldo devedor do cliente preservado inalterado.');
   }
 
   // 5. Deletar o registro de venda em Registro_Vendas / BD MARKETING

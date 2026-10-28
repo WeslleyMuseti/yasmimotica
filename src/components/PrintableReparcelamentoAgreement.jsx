@@ -39,6 +39,8 @@ export const PrintableReparcelamentoAgreement = ({ agreementData }) => {
     descontoValor = 0,
     acrescimoValor = 0,
     novoSaldo = 0,
+    meioPagamento = 'Boleto',
+    intervaloRegra = 'Mensal (mesmo dia do mês)',
     schedule = [],
     agreementId = ''
   } = agreementData;
@@ -245,16 +247,21 @@ export const PrintableReparcelamentoAgreement = ({ agreementData }) => {
                 R$ {formatAgreementMoney(novoSaldo)}
               </span>
               <span className="block text-[6.5px] text-indigo-800 font-black uppercase">
-                {numNewRows > 0 ? `${numNewRows}x no Boleto` : 'Quitado à Vista'}
+                {numNewRows > 0 ? `${numNewRows}x no ${meioPagamento || 'Boleto'}` : 'Quitado à Vista'}
               </span>
             </div>
           </div>
 
-          {observacoes && (
-            <p className="mt-1 text-[7.5px] text-slate-600 italic bg-slate-50 p-1 rounded border border-slate-200">
-              <strong>Observações do Acordo:</strong> {observacoes}
-            </p>
-          )}
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-1 text-[7.5px] text-slate-700 bg-slate-50 p-1 rounded border border-slate-200">
+            <div>
+              <strong>Forma de Quitação do Restante:</strong> {meioPagamento || 'Boleto'} &bull; <strong>Intervalo:</strong> {intervaloRegra || 'Mensal'}
+            </div>
+            {observacoes && (
+              <div className="w-full pt-0.5 border-t border-slate-200 text-slate-600 italic">
+                <strong>Observações do Acordo:</strong> {observacoes}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ─── 4. PARCELAS ANTIGAS SUBSTITUÍDAS ────────────────────────── */}
@@ -274,10 +281,12 @@ export const PrintableReparcelamentoAgreement = ({ agreementData }) => {
                 const doc = r.DOCUMENTO || r.DESCRICAO || `Parcela antiga #${idx + 1}`;
                 const venc = formatAgreementDateBr(r.DATA_VENCIMENTO || r['DATA VENCIMENTO'] || r.VENCIMENTO);
                 const val = formatAgreementMoney(r.VALOR || r.valor || r['VALOR PARCELA'] || 0);
+                const atrasoNum = r.diasAtraso !== undefined ? r.diasAtraso : (r.DIAS_ATRASO || 0);
+                const atrasoBadge = atrasoNum > 0 ? ` (${atrasoNum}d atraso)` : '';
                 return (
                   <div key={idx} className="border border-slate-200 bg-white rounded px-1.5 py-0.5 flex justify-between items-center">
-                    <span className="font-bold text-slate-700 truncate max-w-[55%]">{doc}</span>
-                    <span className="text-slate-500 font-mono text-[6.5px]">{venc}</span>
+                    <span className="font-bold text-slate-700 truncate max-w-[50%]" title={doc}>{doc}</span>
+                    <span className="text-slate-500 font-mono text-[6.5px]">{venc}{atrasoBadge}</span>
                     <span className="font-black text-slate-900">R$ {val}</span>
                   </div>
                 );
@@ -286,14 +295,14 @@ export const PrintableReparcelamentoAgreement = ({ agreementData }) => {
           </div>
         )}
 
-        {/* ─── 5. NOVO CRONOGRAMA DE VENCIMENTOS (BOLETO) ──────────────── */}
+        {/* ─── 5. NOVO CRONOGRAMA DE VENCIMENTOS ──────────────── */}
         <div className="mb-1.5 border border-slate-300 rounded p-1.5 bg-white">
           <div className="flex items-center justify-between border-b border-slate-200 pb-0.5 mb-1">
             <h3 className="text-[8px] font-black uppercase tracking-wider text-slate-900">
-              4. Novo Cronograma de Pagamento (Parcelamento no Boleto)
+              4. Novo Cronograma de Pagamento (Parcelamento no {meioPagamento || 'Boleto'})
             </h3>
             <span className="text-[7px] font-bold text-indigo-700 uppercase">
-              Vencimentos Obrigatórios
+              Vencimentos Obrigatórios &bull; {intervaloRegra || 'Mensal'}
             </span>
           </div>
 
@@ -326,7 +335,7 @@ export const PrintableReparcelamentoAgreement = ({ agreementData }) => {
                         R$ {val}
                       </td>
                       <td className="py-0.5 px-2 text-center font-bold text-slate-700 uppercase text-[7px]">
-                        Boleto
+                        {item.meioPagamento || meioPagamento || 'Boleto'}
                       </td>
                       <td className="py-0.5 px-2 text-center font-bold text-amber-700 uppercase text-[6.5px]">
                         A Vencer / Aguardando

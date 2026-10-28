@@ -192,7 +192,8 @@ export const syncInstallmentPaymentDate = async ({
   data = {},
   onUpdateRow,
   onAddRow,
-  currentUser = null
+  currentUser = null,
+  contarNoCaixa = true
 }) => {
   if (!installmentRow || !onUpdateRow) return;
 
@@ -201,6 +202,12 @@ export const syncInstallmentPaymentDate = async ({
   const doc = installmentRow.DOCUMENTO || installmentRow.documento || '';
   const desc = installmentRow.DESCRICAO || installmentRow.descricao || '';
   const osNum = cleanOS || normalizeOSNumber(doc) || normalizeOSNumber(desc);
+
+  const shouldCountInCash = Boolean(
+    contarNoCaixa !== false &&
+    installmentRow.CONTAR_NO_CAIXA !== 'Não' &&
+    installmentRow.contarNoCaixa !== false
+  );
 
   // 1. Atualizar parcela em CONTAS_RECEBER
   const updatedInstallment = {
@@ -214,13 +221,20 @@ export const syncInstallmentPaymentDate = async ({
     dataPagamento: normalized.isoDate,
     dataRecebimento: normalized.isoDate,
     PAGAMENTO_DATA: normalized.brDate,
-    RECEBIMENTO_DATA: normalized.brDate
+    RECEBIMENTO_DATA: normalized.brDate,
+    CONTAR_NO_CAIXA: shouldCountInCash ? 'Sim' : 'Não',
+    contarNoCaixa: shouldCountInCash
   };
 
   try {
     await onUpdateRow('CONTAS_RECEBER', installmentRow, updatedInstallment);
   } catch (err) {
     console.warn('Aviso ao atualizar DATA_PAGAMENTO em CONTAS_RECEBER:', err);
+  }
+
+  // 2. Se shouldCountInCash for false, NÃO movimenta nem lança no FLUXO_CAIXA
+  if (!shouldCountInCash) {
+    return updatedInstallment;
   }
 
   // 2. Sincronizar ou lançar no FLUXO_CAIXA

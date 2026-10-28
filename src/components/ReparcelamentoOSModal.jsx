@@ -391,6 +391,11 @@ const ReparcelamentoOSModal = ({
 
   // Construtor do objeto de dados para impressão do Termo de Acordo
   const buildAgreementPayload = () => {
+    const intervaloLabelMap = {
+      'MESMO_DIA_MES': 'Mensal (mesmo dia a cada mês)',
+      'DIAS_30': 'A cada 30 dias corridos',
+      'QUINZENAL': 'A cada 15 dias (quinzenal)'
+    };
     return {
       osNumero: osInput || 'AVULSO',
       clientName: currentClientDetails?.name || clientNameInput || 'Cliente',
@@ -404,12 +409,18 @@ const ReparcelamentoOSModal = ({
       observacoes,
       operador: currentUser?.username || 'Yasmin Ótica',
       originalTotal: saldoOriginalSelecionado,
-      oldRows: selectedPendingRows,
+      oldRows: selectedPendingRows.map(r => ({
+        ...r,
+        diasAtraso: r.diasAtraso !== undefined ? r.diasAtraso : (r.DIAS_ATRASO || 0)
+      })),
       entradaValor: entradaNum,
       entradaMeioPagamento: entradaFormaPagto,
       descontoValor: descontoNum,
       acrescimoValor: acrescimoNum,
       novoSaldo: novoSaldoAReparcelar,
+      meioPagamento: meioPagamento || 'Boleto',
+      qtdParcelas: qtdParcelas || (customSchedule ? customSchedule.length : 1),
+      intervaloRegra: intervaloLabelMap[intervaloParcelas] || 'Mensal',
       schedule: customSchedule,
       agreementId: `REP-${String(osInput || 'AVULSO').replace(/^#/, '')}-${Date.now().toString().slice(-6)}`
     };
@@ -489,49 +500,8 @@ const ReparcelamentoOSModal = ({
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (isSubmitting) return;
-
-    if (selectedPendingRows.length === 0) {
-      alert('Selecione pelo menos uma parcela pendente da OS para realizar o reparcelamento.');
-      return;
-    }
-
-    if (novoSaldoAReparcelar > 0 && Math.abs(scheduleDiff) > 0.05) {
-      alert(`A soma das novas parcelas (${formatCurrencyBr(totalScheduleCustom)}) difere do saldo a reparcelar (${formatCurrencyBr(novoSaldoAReparcelar)}). Clique em "Redistribuir Igual" ou ajuste os valores.`);
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const payload = buildReparcelamentoOSPayload({
-        osNumber: osInput || 'AVULSO',
-        clientName: clientNameInput || 'Cliente',
-        clientId: clientIdInput,
-        clientCpf: clientCpfInput,
-        unit: unitInput || defaultUnit,
-        selectedPendingRows,
-        entradaValor: entradaNum,
-        entradaMeioPagamento: entradaFormaPagto,
-        descontoValor: descontoNum,
-        acrescimoValor: acrescimoNum,
-        meioPagamento,
-        schedule: customSchedule,
-        dataAcordoIso: dataAcordo,
-        observacoes,
-        operador: currentUser?.username || 'ERP'
-      });
-
-      if (onConfirmReparcelamento) {
-        await onConfirmReparcelamento(payload);
-      }
-      onClose();
-    } catch (err) {
-      console.error('Erro ao processar reparcelamento de OS:', err);
-      alert('Ocorreu um erro ao salvar o reparcelamento.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    // 🛡️ Ao gerar um reparcelamento, imprime todas as informações do formulário no Termo Oficial de Acordo A4
+    return handleConfirmAndPrint(e);
   };
 
   if (!isOpen && !printAgreementData) return null;

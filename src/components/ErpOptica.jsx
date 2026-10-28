@@ -1051,6 +1051,7 @@ const ErpOptica = ({
       const effectivePayDate = newRow.DATA_PAGAMENTO || newRow.DATA_RECEBIMENTO || newRow.data_pagamento || newRow.data_recebimento || newRow.DATA || '';
       const isDateChanged = oldRow.DATA_PAGAMENTO !== newRow.DATA_PAGAMENTO || oldRow.DATA_RECEBIMENTO !== newRow.DATA_RECEBIMENTO;
 
+      const contarNoCaixa = newRow.CONTAR_NO_CAIXA !== 'Não' && newRow.contarNoCaixa !== false;
       if ((isPaidNow || (['recebido', 'pago', 'liquidado'].includes(newStatusNorm) && isDateChanged)) && (onAddRow || onUpdateRow)) {
         syncInstallmentPaymentDate({
           installmentRow: newRow,
@@ -1058,7 +1059,8 @@ const ErpOptica = ({
           data,
           onUpdateRow,
           onAddRow,
-          currentUser
+          currentUser,
+          contarNoCaixa
         });
       }
 

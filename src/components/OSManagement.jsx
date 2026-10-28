@@ -387,6 +387,11 @@ const OSManagement = ({
   const [deliveryReceiverInput, setDeliveryReceiverInput] = useState('Próprio Cliente');
   const [deliveryNotesInput, setDeliveryNotesInput] = useState('');
 
+  // Modal de Exclusão de OS com Opção de Apagar ou Manter Dívidas
+  const [deleteModalData, setDeleteModalData] = useState(null); // { order, entities }
+  const [deleteDebtChoice, setDeleteDebtChoice] = useState(true); // true = apagar dívida, false = manter dívida
+  const [isDeletingOS, setIsDeletingOS] = useState(false);
+
   const toggleCollapse = (orderId) => {
     setCollapsedOrders(prev => ({
       ...prev,
@@ -929,8 +934,8 @@ const OSManagement = ({
     }
   };
 
-  // Exclusão Total e Cirúrgica em Cascata da OS (Vendas, Contas a Receber, Histórico de Caixa e Estoque)
-  const handleDeleteOS = async (order) => {
+  // Exclusão Cirúrgica da OS com Opção de Apagar ou Manter Dívidas
+  const handleDeleteOS = (order) => {
     if (!order || !onDeleteRow || isVendedor || !isAdmin) return;
 
     // 1. Mapeamento completo de todos os vínculos da OS em todo o sistema
@@ -941,47 +946,38 @@ const OSManagement = ({
       clientsData
     });
 
-    let confirmMsg = `⚠️ EXCLUSÃO TOTAL EM CASCATA DA OS #${order.osNumber}\n`;
-    confirmMsg += `Cliente: "${order.clientName}"\n\n`;
-    confirmMsg += `Esta ação apagará por completo TUDO referente a esta OS:\n\n`;
+    setDeleteDebtChoice(true);
+    setDeleteModalData({ order, entities });
+  };
 
-    if (entities.matchedInvoices.length > 0) {
-      confirmMsg += `• ${entities.matchedInvoices.length} parcela(s) no Contas a Receber (Total: R$ ${formatMoney(entities.totalInvoicesValue)}) serão APAGADAS.\n`;
-    }
-
-    if (entities.matchedCashMovements.length > 0) {
-      confirmMsg += `• ${entities.matchedCashMovements.length} lançamento(s) no Histórico de Caixa (Total: R$ ${formatMoney(entities.totalCashMovementsValue)}) serão APAGADOS.\n`;
-    }
-
-    if (entities.stockItemsToRestore.length > 0) {
-      confirmMsg += `• ${entities.stockItemsToRestore.length} produto(s) (${entities.stockItemsToRestore.map(s => s.name).join(', ')}) serão DEVOLVIDOS ao estoque.\n`;
-    }
-
-    if (entities.matchedClient) {
-      confirmMsg += `• O saldo devedor do cliente será recalculado para R$ ${formatMoney(entities.newClientDebt)}.\n`;
-    }
-
-    confirmMsg += `• O registro principal de venda da OS será removido do sistema.\n\n`;
-    confirmMsg += `Deseja realmente prosseguir com a exclusão completa? Esta ação não pode ser desfeita.`;
-
-    const confirmed = window.confirm(confirmMsg);
-    if (!confirmed) return;
+  const handleConfirmDeleteOSModal = async () => {
+    if (!deleteModalData || isDeletingOS) return;
+    const { order } = deleteModalData;
+    setIsDeletingOS(true);
 
     try {
-      const result = await executeOSCascadeDeletion({
+      await executeOSCascadeDeletion({
         osNumber: order.osNumber,
         saleRow: order.raw,
         data,
         clientsData,
         onDeleteRow,
-        onUpdateRow
+        onUpdateRow,
+        deleteDebt: deleteDebtChoice
       });
 
-      setSuccessToast(`✅ OS #${order.osNumber} e todo o seu histórico financeiro foram excluídos com sucesso!`);
+      setDeleteModalData(null);
+      setSuccessToast(
+        deleteDebtChoice
+          ? `✅ OS #${order.osNumber} e suas dívidas foram excluídas com sucesso!`
+          : `✅ OS #${order.osNumber} excluída! As dívidas foram mantidas ativas para cobrança.`
+      );
       setTimeout(() => setSuccessToast(''), 5000);
     } catch (err) {
       console.error('Erro ao excluir OS em cascata:', err);
       alert('Erro ao excluir OS: ' + (err.message || err));
+    } finally {
+      setIsDeletingOS(false);
     }
   };
 
@@ -3270,6 +3266,139 @@ const OSManagement = ({
       )}
       {osDataForLabPrint && printLabClient && (
         <PrintableLabOS clientData={printLabClient} osData={osDataForLabPrint} />
+      )}
+
+      {/* Modal de Confirmação de Exclusão de OS com Opção de Dívida */}
+      {deleteModalData && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md">
+          <div className="bg-slate-900 border border-rose-500/30 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                  <Trash2 size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">Exclusão de Ordem de Serviço</h3>
+                  <p className="text-xs text-slate-400 font-mono">
+                    OS #{deleteModalData.order?.osNumber} • {deleteModalData.order?.clientName || 'Cliente'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteModalData(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2 text-xs">
+              <p className="font-bold text-slate-300">
+                Resumo dos vínculos encontrados para esta OS:
+              </p>
+              <ul className="space-y-1 text-slate-400">
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                  Registro de Venda: <span className="text-white font-semibold">Remoção definitiva</span>
+                </li>
+                {deleteModalData.entities?.matchedInvoices?.length > 0 && (
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    Contas a Receber: <span className="text-white font-semibold">{deleteModalData.entities.matchedInvoices.length} parcela(s)</span> (R$ {formatMoney(deleteModalData.entities.totalInvoicesValue)})
+                  </li>
+                )}
+                {deleteModalData.entities?.matchedCashMovements?.length > 0 && (
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    Histórico de Caixa: <span className="text-white font-semibold">{deleteModalData.entities.matchedCashMovements.length} lançamento(s)</span> (R$ {formatMoney(deleteModalData.entities.totalCashMovementsValue)}) serão estornados
+                  </li>
+                )}
+                {deleteModalData.entities?.stockItemsToRestore?.length > 0 && (
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+                    Estoque: <span className="text-white font-semibold">{deleteModalData.entities.stockItemsToRestore.length} item(ns)</span> serão devolvidos
+                  </li>
+                )}
+              </ul>
+            </div>
+
+            <div className="space-y-2.5">
+              <label className="text-xs font-bold text-slate-200 block">
+                O que fazer com as dívidas e parcelas desta OS?
+              </label>
+              
+              <div
+                onClick={() => setDeleteDebtChoice(true)}
+                className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                  deleteDebtChoice
+                    ? 'bg-rose-500/15 border-rose-500/50 text-white shadow-lg shadow-rose-500/10'
+                    : 'bg-white/[0.02] border-white/10 text-slate-400 hover:border-white/20'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                    deleteDebtChoice ? 'border-rose-400 bg-rose-500' : 'border-slate-500'
+                  }`}>
+                    {deleteDebtChoice && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                  <div>
+                    <p className="text-xs font-black text-rose-300">
+                      🔴 Apagar a OS e ELIMINAR as dívidas
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                      Exclui as duplicatas do Contas a Receber e abate o valor do saldo devedor do cliente no cadastro.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                onClick={() => setDeleteDebtChoice(false)}
+                className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                  !deleteDebtChoice
+                    ? 'bg-amber-500/15 border-amber-500/50 text-white shadow-lg shadow-amber-500/10'
+                    : 'bg-white/[0.02] border-white/10 text-slate-400 hover:border-white/20'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                    !deleteDebtChoice ? 'border-amber-400 bg-amber-500' : 'border-slate-500'
+                  }`}>
+                    {!deleteDebtChoice && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                  <div>
+                    <p className="text-xs font-black text-amber-300">
+                      🟡 Apagar a OS e MANTER as dívidas ativas
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                      Remove a OS da fila operacional/laboratório, mas preserva os boletos e o saldo para cobrança contínua.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setDeleteModalData(null)}
+                disabled={isDeletingOS}
+                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 font-bold text-xs transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteOSModal}
+                disabled={isDeletingOS}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-xs shadow-lg shadow-rose-600/30 transition-all"
+              >
+                {isDeletingOS ? 'Excluindo...' : 'Confirmar Exclusão da OS'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal de Impressão de Etiquetas Térmicas (50x30mm) */}
