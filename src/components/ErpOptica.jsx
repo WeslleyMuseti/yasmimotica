@@ -29,7 +29,7 @@ import StockPieChart from './StockPieChart';
 import { filterAndSortStock } from '../stockFilters';
 import { isSameClient, transferStockAtomically, decrementStockAtomically } from '../firebaseSync';
 import { buildStockXml, buildFinancialSummaryXml, downloadXmlFile } from '../xmlUtils';
-import { syncInstallmentPaymentDate, buildNormalizedDateTime } from '../dateSyncUtils';
+import { syncInstallmentPaymentDate, syncOSPaymentDate, buildNormalizedDateTime } from '../dateSyncUtils';
 
 const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -1130,6 +1130,19 @@ const ErpOptica = ({
           formaPagamento: newRow.MEIO_PAGAMENTO || newRow.FORMA_PAGAMENTO || 'DINHEIRO',
           motivo: `Pagamento Despesa - ${favorecido}`,
           detalhes: doc ? `${doc} - ${desc}` : desc
+        });
+      }
+    } else if (sheetName === 'Registro_Vendas' || sheetName === 'BD MARKETING') {
+      const oldDate = oldRow['DATA DA VENDA'] || oldRow['DATA  DA VENDA'] || oldRow['DATA'] || '';
+      const newDate = newRow['DATA DA VENDA'] || newRow['DATA  DA VENDA'] || newRow['DATA'] || '';
+      if (newDate && newDate !== oldDate && onUpdateRow) {
+        syncOSPaymentDate({
+          osNumber: newRow['OS DA VENDA'] || newRow['OS'] || newRow['VENDA_OS'],
+          saleRow: newRow,
+          newDate: newDate,
+          newTime: newRow.hora || newRow.HORA,
+          data,
+          onUpdateRow
         });
       }
     }
