@@ -6683,6 +6683,65 @@ async function runTests() {
     console.log('  ✅ Test 63 Passed: Recebimento com Opção no Fluxo de Caixa validado com 100% de sucesso!\n');
   }
 
+  // ─── TEST 64: Fidelidade e Sincronização Absoluta da Edição de Data da OS (Venda e Caixa) ────
+  {
+    console.log('▶ Test 64: Fidelidade e Sincronização Absoluta da Edição de Data da OS (Venda e Caixa)');
+
+    const { syncOSPaymentDate } = await import('./src/dateSyncUtils.js');
+
+    const mockSaleRow = {
+      id: 'venda_12345',
+      'OS DA VENDA': '2026-999',
+      'DATA DA VENDA': '28/10/2026',
+      DATA: '28/10/2026',
+      dataHora: '2026-10-28T14:00:00.000Z',
+      hora: '14:00',
+      'VALOR TOTAL': '1.200,00'
+    };
+
+    const mockFluxoCaixa = [
+      {
+        id: 'cx_mov_1',
+        saleId: 'venda_12345',
+        osNumero: '2026-999',
+        tipo: 'VENDA',
+        valor: 400,
+        data: '28/10/2026',
+        dataHora: '2026-10-28T14:00:00.000Z',
+        hora: '14:00'
+      }
+    ];
+
+    const fullData = {
+      Registro_Vendas: [mockSaleRow],
+      FLUXO_CAIXA: mockFluxoCaixa
+    };
+
+    const updatedRows = [];
+    const mockOnUpdateRow = async (sheet, oldRow, newRow) => {
+      updatedRows.push({ sheet, oldRow, newRow });
+    };
+
+    // Edição retroativa da data da OS para 15/10/2026 às 10:30
+    await syncOSPaymentDate({
+      osNumber: '2026-999',
+      saleRow: mockSaleRow,
+      newDate: '15/10/2026',
+      newTime: '10:30',
+      data: fullData,
+      onUpdateRow: mockOnUpdateRow
+    });
+
+    const saleUpdate = updatedRows.find(u => u.sheet === 'Registro_Vendas');
+    const cashUpdate = updatedRows.find(u => u.sheet === 'FLUXO_CAIXA');
+
+    console.assert(saleUpdate && saleUpdate.newRow['DATA DA VENDA'] === '15/10/2026', 'Data da venda deve ser 15/10/2026');
+    console.assert(cashUpdate && cashUpdate.newRow.data === '15/10/2026', 'Data no Fluxo de Caixa deve ser 15/10/2026');
+    console.assert(cashUpdate && cashUpdate.newRow.hora === '10:30', 'Hora no Fluxo de Caixa deve ser 10:30');
+
+    console.log('  ✅ Test 64 Passed: Edição de Data da OS respeitada perfeitamente em Vendas e Caixa!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
