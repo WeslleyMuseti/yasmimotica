@@ -10,6 +10,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import PrintableOS from './PrintableOS';
 import PrintableClientProfile from './PrintableClientProfile';
+import PrintableReparcelamentoReceipt from './PrintableReparcelamentoReceipt';
 import DocumentAttachmentInput from './DocumentAttachmentInput';
 import EditOSModal from './EditOSModal';
 import ReceiptModal from './ReceiptModal';
@@ -133,6 +134,7 @@ const ClientProfileModal = ({
   const [settlePaymentDate, setSettlePaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [settleCountInCash, setSettleCountInCash] = useState(true);
   const [isSubmittingSettle, setIsSubmittingSettle] = useState(false);
+  const [printReparcelamentoReceiptData, setPrintReparcelamentoReceiptData] = useState(null);
 
   // Modal de Exclusão de Venda / OS com Opção de Apagar ou Manter Dívida
   const [saleDeleteModalData, setSaleDeleteModalData] = useState(null);
@@ -351,6 +353,71 @@ const ClientProfileModal = ({
     };
   }, [clientErpInvoices, currentClient]);
 
+  const buildInstallmentReceiptPayload = (inv, customVal = null, customDate = null) => {
+    if (!inv) return null;
+    const val = customVal !== null ? customVal : parseCurrency(inv.VALOR || inv.valor);
+    const dateStr = customDate
+      ? (customDate.includes('-') ? customDate.split('-').reverse().join('/') : customDate)
+      : (inv.DATA_PAGAMENTO || inv.DATA_RECEBIMENTO || new Date().toLocaleDateString('pt-BR'));
+
+    const osNum = String(inv.VENDA_OS || inv.OS || inv.venda_os || '').replace(/^#/, '');
+    const docDesc = String(inv.DOCUMENTO || inv.DESCRICAO || inv.descricao || 'Parcela');
+
+    let numParc = null;
+    let totParc = null;
+    const matchParc = docDesc.match(/(\d+)\s*(?:\/|de)\s*(\d+)/i) || (inv.NUMERO_PARCELA ? [null, inv.NUMERO_PARCELA, inv.TOTAL_PARCELAS] : null);
+    if (matchParc) {
+      numParc = matchParc[1];
+      totParc = matchParc[2];
+    }
+
+    const currentDebt = parseCurrency(currentClient?.['Valor Devido'] || 0);
+    const newDebt = Math.max(0, currentDebt - val);
+    const pendingInvoices = (clientErpInvoices || []).filter(i => {
+      const isThis = i === inv || (i.id && i.id === inv.id);
+      if (isThis) return false;
+      const st = String(i.STATUS || i.status || '').toLowerCase();
+      return st !== 'recebido' && st !== 'pago';
+    });
+
+    const isEntrada = /entrada|sinal/i.test(docDesc);
+    const tipo = isEntrada
+      ? 'Entrada do Acordo'
+      : (numParc && totParc ? `Parcela ${numParc} de ${totParc}` : 'Parcela do Acordo');
+
+    return {
+      reciboNumero: `REC-${osNum || 'FIN'}-${Date.now().toString().slice(-5)}`,
+      dataPagamento: dateStr,
+      horaPagamento: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      unidade: currentClient?.['Cidade'] || inv.UNIDADE || inv.CIDADE || 'Cajati',
+      operador: currentUser?.username || 'Yasmin Ótica',
+      clienteNome: currentClient?.['Nome Completo'] || currentClient?.['NOME'] || inv.CLIENTE || 'Cliente',
+      clienteCpf: currentClient?.['CPF / CNPJ'] || currentClient?.['CPF'] || inv.CLIENTE_CPF || '',
+      clienteTelefone: currentClient?.['WhatsApp'] || currentClient?.['TELEFONE'] || '',
+      clienteEndereco: [currentClient?.['Rua'], currentClient?.['Número'], currentClient?.['Bairro'], currentClient?.['Cidade']].filter(Boolean).join(', '),
+      osNumero: osNum,
+      acordoId: inv.REPARCELAMENTO_ID || inv.ACORDO_ID || '',
+      tipoPagamento: tipo,
+      numeroParcela: numParc,
+      totalParcelas: totParc,
+      vencimentoOriginal: inv.DATA_VENCIMENTO || inv['DATA VENCIMENTO'] || inv.VENCIMENTO || '',
+      valorPago: val,
+      meioPagamento: inv.MEIO_PAGAMENTO || inv.FORMA_PAGAMENTO || 'Boleto',
+      totalAcordo: null,
+      saldoRestante: newDebt,
+      parcelasRestantes: pendingInvoices.length,
+      observacoes: inv.OBSERVACOES || `Pagamento efetuado com sucesso via ${inv.MEIO_PAGAMENTO || 'Boleto'}.`
+    };
+  };
+
+  const handlePrintSingleReceipt = (inv) => {
+    const payload = buildInstallmentReceiptPayload(inv);
+    setPrintReparcelamentoReceiptData(payload);
+    setTimeout(() => {
+      window.print();
+    }, 250);
+  };
+
   const handleSettleSingleInvoice = (inv) => {
     setSettleModalInvoice(inv);
     setSettlePaymentDate(new Date().toISOString().split('T')[0]);
@@ -403,7 +470,14 @@ const ClientProfileModal = ({
         }
         setCurrentClient(updatedClient);
       }
+
+      // 🧾 Prepara e aciona a impressão do Recibo Oficial A4 de Quitação de Parcela
+      const receiptPayload = buildInstallmentReceiptPayload(inv, val, settlePaymentDate);
+      setPrintReparcelamentoReceiptData(receiptPayload);
       setSettleModalInvoice(null);
+      setTimeout(() => {
+        window.print();
+      }, 300);
     } catch (err) {
       console.error('Erro ao registrar recebimento de parcela:', err);
       alert('Erro ao registrar quitação da parcela.');
@@ -1660,9 +1734,20 @@ const ClientProfileModal = ({
                                   </td>
                                   <td className="p-3 text-center">
                                     {isPaid ? (
-                                      <span className="text-[10px] font-bold text-emerald-400 flex items-center justify-center gap-1">
-                                        <CheckCircle size={11} /> Quitado
-                                      </span>
+                                      <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                        <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                                          <CheckCircle size={11} /> Quitado
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handlePrintSingleReceipt(inv)}
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider bg-sky-500/15 text-sky-300 hover:bg-sky-500/25 border border-sky-500/30 transition-all shadow-sm cursor-pointer"
+                                          title="Imprimir Recibo Oficial A4 de Quitação desta Parcela"
+                                        >
+                                          <Printer size={10} />
+                                          <span>Recibo A4</span>
+                                        </button>
+                                      </div>
                                     ) : (
                                       <button
                                         type="button"
@@ -1888,6 +1973,9 @@ const ClientProfileModal = ({
       )}
       {(isPrintingProfile || (!osDataForPrint && isOpen)) && currentClient && (
         <PrintableClientProfile clientData={currentClient} storeName="YASMIN ÓTICA" />
+      )}
+      {printReparcelamentoReceiptData && (
+        <PrintableReparcelamentoReceipt receiptData={printReparcelamentoReceiptData} />
       )}
       {/* Modal de Edição de OS */}
       <EditOSModal

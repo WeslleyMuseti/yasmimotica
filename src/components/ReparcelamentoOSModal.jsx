@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { isSameClient } from '../firebaseSync';
 import PrintableReparcelamentoAgreement from './PrintableReparcelamentoAgreement';
+import PrintableReparcelamentoReceipt from './PrintableReparcelamentoReceipt';
 
 import {
   parseCurrencyValue,
@@ -35,7 +36,8 @@ export {
   buildOverdueInstallmentAlerts,
   generateInstallmentSchedule,
   buildReparcelamentoOSPayload,
-  PrintableReparcelamentoAgreement
+  PrintableReparcelamentoAgreement,
+  PrintableReparcelamentoReceipt
 };
 
 const rowUidMap = new WeakMap();
@@ -427,6 +429,49 @@ const ReparcelamentoOSModal = ({
   };
 
   const [printAgreementData, setPrintAgreementData] = useState(null);
+  const [printEntryReceiptData, setPrintEntryReceiptData] = useState(null);
+
+  // Construtor do objeto de recibo oficial A4 para a Entrada do reparcelamento
+  const buildEntryReceiptPayload = () => {
+    return {
+      reciboNumero: `REC-ENT-${String(osInput || 'AVULSO').replace(/^#/, '')}-${Date.now().toString().slice(-5)}`,
+      dataPagamento: dataAcordo || new Date().toISOString().split('T')[0],
+      horaPagamento: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      unidade: unitInput || defaultUnit,
+      operador: currentUser?.username || 'Yasmin Ótica',
+      clienteNome: currentClientDetails?.name || clientNameInput || 'Cliente',
+      clienteCpf: currentClientDetails?.cpf || clientCpfInput || '',
+      clienteTelefone: currentClientDetails?.phone || '',
+      clienteEndereco: currentClientDetails?.address || '',
+      osNumero: osInput || 'AVULSO',
+      acordoId: `REP-${String(osInput || 'AVULSO').replace(/^#/, '')}-${Date.now().toString().slice(-6)}`,
+      tipoPagamento: 'Entrada do Acordo',
+      numeroParcela: 0,
+      totalParcelas: customSchedule ? customSchedule.length : 1,
+      vencimentoOriginal: dataAcordo || new Date().toISOString().split('T')[0],
+      valorPago: entradaNum,
+      meioPagamento: entradaFormaPagto || 'Dinheiro',
+      totalAcordo: saldoOriginalSelecionado - descontoNum + acrescimoNum,
+      totalJaPago: entradaNum,
+      saldoRestante: novoSaldoAReparcelar,
+      parcelasRestantes: customSchedule ? customSchedule.length : 0,
+      observacoes: observacoes || `Entrada do reparcelamento referente à OS #${osInput || 'AVULSO'}.`
+    };
+  };
+
+  // Imprimir apenas o recibo oficial A4 da entrada
+  const handlePrintEntryReceiptOnly = () => {
+    if (entradaNum <= 0) {
+      alert('Não há valor de entrada definido neste acordo para emissão de recibo.');
+      return;
+    }
+    const receipt = buildEntryReceiptPayload();
+    setPrintAgreementData(null);
+    setPrintEntryReceiptData(receipt);
+    setTimeout(() => {
+      window.print();
+    }, 250);
+  };
 
   // Apenas imprimir o termo para assinatura (sem salvar ainda ou para prévia)
   const handlePrintAgreementOnly = () => {
@@ -435,6 +480,7 @@ const ReparcelamentoOSModal = ({
       return;
     }
     const agr = buildAgreementPayload();
+    setPrintEntryReceiptData(null);
     setPrintAgreementData(agr);
     if (onTriggerPrintAgreement) {
       onTriggerPrintAgreement(agr);
@@ -484,6 +530,7 @@ const ReparcelamentoOSModal = ({
         await onConfirmReparcelamento(payload);
       }
 
+      setPrintEntryReceiptData(null);
       setPrintAgreementData(agr);
       if (onTriggerPrintAgreement) {
         onTriggerPrintAgreement(agr);
@@ -504,7 +551,7 @@ const ReparcelamentoOSModal = ({
     return handleConfirmAndPrint(e);
   };
 
-  if (!isOpen && !printAgreementData) return null;
+  if (!isOpen && !printAgreementData && !printEntryReceiptData) return null;
 
   const todayIso = new Date().toISOString().split('T')[0];
 
@@ -1099,6 +1146,18 @@ const ReparcelamentoOSModal = ({
                 >
                   Cancelar
                 </button>
+                {entradaNum > 0 && (
+                  <button
+                    type="button"
+                    onClick={handlePrintEntryReceiptOnly}
+                    disabled={isSubmitting}
+                    title="Emitir Recibo Oficial A4 da Entrada paga pelo cliente"
+                    className="px-3.5 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 hover:text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <Printer size={15} className="text-amber-400" />
+                    <span>Recibo da Entrada A4 ({formatCurrencyBr(entradaNum)})</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handlePrintAgreementOnly}
@@ -1138,6 +1197,9 @@ const ReparcelamentoOSModal = ({
 
     {/* Componente Oficial Imprimível em Folha Única A4 para Assinatura */}
     <PrintableReparcelamentoAgreement agreementData={printAgreementData} />
+
+    {/* Componente Oficial Imprimível de Recibo A4 da Entrada */}
+    <PrintableReparcelamentoReceipt receiptData={printEntryReceiptData} />
     </>
   );
 };

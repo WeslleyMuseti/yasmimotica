@@ -810,3 +810,120 @@ export const formatAgreementLongDate = (dateVal, city = 'Cajati') => {
   const safeCity = city || 'Cajati';
   return `${safeCity}/SP, ${day} de ${monthName} de ${year}`;
 };
+
+/**
+ * Conversor numérico de valores em Reais para extenso em Português do Brasil
+ */
+export const numeroPorExtenso = (valor) => {
+  const n = parseCurrencyValue(valor);
+  if (n <= 0) return 'zero reais';
+
+  const unidades = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove'];
+  const especiais = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove'];
+  const dezenas = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa'];
+  const centenas = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos'];
+
+  const converterGrupo = (num) => {
+    if (num === 0) return '';
+    if (num === 100) return 'cem';
+    let r = [];
+    const c = Math.floor(num / 100);
+    const d = Math.floor((num % 100) / 10);
+    const u = num % 10;
+
+    if (c > 0) r.push(centenas[c]);
+
+    if (d === 1) {
+      r.push(especiais[u]);
+    } else {
+      if (d > 1) r.push(dezenas[d]);
+      if (u > 0) r.push(unidades[u]);
+    }
+    return r.join(' e ');
+  };
+
+  const parteInteira = Math.floor(n);
+  const centavos = Math.round((n - parteInteira) * 100);
+
+  let textoReais = '';
+  if (parteInteira > 0) {
+    const milhares = Math.floor(parteInteira / 1000);
+    const resto = parteInteira % 1000;
+
+    let partes = [];
+    if (milhares > 0) {
+      if (milhares === 1) {
+        partes.push('mil');
+      } else {
+        partes.push(converterGrupo(milhares) + ' mil');
+      }
+    }
+    if (resto > 0) {
+      partes.push(converterGrupo(resto));
+    }
+    textoReais = partes.join(' e ') + (parteInteira === 1 ? ' real' : ' reais');
+  }
+
+  let textoCentavos = '';
+  if (centavos > 0) {
+    textoCentavos = converterGrupo(centavos) + (centavos === 1 ? ' centavo' : ' centavos');
+  }
+
+  if (textoReais && textoCentavos) {
+    return `${textoReais} e ${textoCentavos}`;
+  }
+  return textoReais || textoCentavos || 'zero reais';
+};
+
+/**
+ * Construtor padronizado de payload para o Recibo Oficial de Reparcelamento (Folha A4)
+ */
+export const buildReparcelamentoReceiptPayload = ({
+  osNumero = 'AVULSO',
+  clienteNome = 'Cliente',
+  clienteCpf = '',
+  clienteTelefone = '',
+  clienteEndereco = '',
+  unidade = 'Cajati',
+  operador = 'Yasmin Ótica',
+  tipoPagamento = 'Parcela do Acordo',
+  numeroParcela = null,
+  totalParcelas = null,
+  vencimentoOriginal = '',
+  dataPagamento = '',
+  valorPago = 0,
+  meioPagamento = 'Dinheiro',
+  totalAcordo = null,
+  totalJaPago = null,
+  saldoRestante = null,
+  parcelasRestantes = null,
+  observacoes = '',
+  acordoId = ''
+}) => {
+  const osClean = String(osNumero || 'AVULSO').replace(/^#/, '');
+  return {
+    reciboNumero: `REC-${osClean}-${Date.now().toString().slice(-5)}`,
+    dataPagamento: dataPagamento || new Date().toLocaleDateString('pt-BR'),
+    horaPagamento: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    unidade,
+    operador,
+    clienteNome,
+    clienteCpf,
+    clienteTelefone,
+    clienteEndereco,
+    osNumero: osClean,
+    acordoId: acordoId || `REP-${osClean}-${Date.now().toString().slice(-6)}`,
+    tipoPagamento,
+    numeroParcela,
+    totalParcelas,
+    vencimentoOriginal: formatAgreementDateBr(vencimentoOriginal),
+    valorPago: parseCurrencyValue(valorPago),
+    meioPagamento,
+    totalAcordo: totalAcordo !== null && totalAcordo !== undefined ? parseCurrencyValue(totalAcordo) : null,
+    totalJaPago: totalJaPago !== null && totalJaPago !== undefined ? parseCurrencyValue(totalJaPago) : null,
+    saldoRestante: saldoRestante !== null && saldoRestante !== undefined ? parseCurrencyValue(saldoRestante) : null,
+    parcelasRestantes,
+    observacoes
+  };
+};
+

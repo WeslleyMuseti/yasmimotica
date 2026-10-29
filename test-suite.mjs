@@ -54,7 +54,9 @@ import {
   filterInstallmentsByDateRange,
   buildOverdueInstallmentAlerts,
   generateInstallmentSchedule,
-  buildReparcelamentoOSPayload
+  buildReparcelamentoOSPayload,
+  numeroPorExtenso,
+  buildReparcelamentoReceiptPayload
 } from './src/reparcelamentoUtils.js';
 import * as XLSX from 'xlsx';
 
@@ -6740,6 +6742,72 @@ async function runTests() {
     console.assert(cashUpdate && cashUpdate.newRow.hora === '10:30', 'Hora no Fluxo de Caixa deve ser 10:30');
 
     console.log('  ✅ Test 64 Passed: Edição de Data da OS respeitada perfeitamente em Vendas e Caixa!\n');
+  }
+
+  // ─── TEST 65: Recibo Oficial A4 de Pagamento de Reparcelamento (Entrada e Parcelas) ────
+  {
+    console.log('▶ Test 65: Recibo Oficial A4 de Pagamento de Reparcelamento (Entrada e Parcelas)');
+
+    // 1. Validação do conversor de número para extenso em Reais
+    console.assert(numeroPorExtenso(0) === 'zero reais', '0 deve ser zero reais');
+    console.assert(numeroPorExtenso(1) === 'um real', '1 deve ser um real');
+    console.assert(numeroPorExtenso(150) === 'cento e cinquenta reais', '150 deve ser cento e cinquenta reais');
+    console.assert(numeroPorExtenso('1.250,75') === 'mil e duzentos e cinquenta reais e setenta e cinco centavos', '1.250,75 deve ser por extenso correto');
+    console.assert(numeroPorExtenso(45.10) === 'quarenta e cinco reais e dez centavos', '45.10 deve ser quarenta e cinco reais e dez centavos');
+
+    // 2. Validação do recibo da Entrada do Acordo
+    const entradaReceipt = buildReparcelamentoReceiptPayload({
+      osNumero: '2026-888',
+      clienteNome: 'Mariana Silveira',
+      clienteCpf: '123.456.789-00',
+      clienteTelefone: '(13) 99999-1234',
+      unidade: 'Cajati',
+      operador: 'Carla Gerente',
+      tipoPagamento: 'Entrada do Acordo',
+      valorPago: 300,
+      meioPagamento: 'Pix',
+      totalAcordo: 1200,
+      totalJaPago: 300,
+      saldoRestante: 900,
+      parcelasRestantes: 3,
+      dataPagamento: '29/10/2026',
+      acordoId: 'REP-2026-888-001'
+    });
+
+    console.assert(entradaReceipt.osNumero === '2026-888', 'OS da entrada deve ser 2026-888');
+    console.assert(entradaReceipt.tipoPagamento === 'Entrada do Acordo', 'Tipo deve ser Entrada do Acordo');
+    console.assert(entradaReceipt.valorPago === 300, 'Valor pago deve ser 300');
+    console.assert(entradaReceipt.saldoRestante === 900, 'Saldo restante deve ser 900');
+    console.assert(entradaReceipt.parcelasRestantes === 3, 'Parcelas restantes deve ser 3');
+    console.assert(entradaReceipt.reciboNumero.startsWith('REC-2026-888-'), 'Recibo deve ter identificador padronizado');
+
+    // 3. Validação do recibo de Parcela Quitada
+    const parcelaReceipt = buildReparcelamentoReceiptPayload({
+      osNumero: '#2026-888',
+      clienteNome: 'Mariana Silveira',
+      clienteCpf: '123.456.789-00',
+      unidade: 'Cajati',
+      operador: 'Carla Gerente',
+      tipoPagamento: 'Parcela 1 de 3',
+      numeroParcela: 1,
+      totalParcelas: 3,
+      vencimentoOriginal: '15/11/2026',
+      valorPago: 300,
+      meioPagamento: 'Boleto',
+      totalAcordo: 1200,
+      totalJaPago: 600,
+      saldoRestante: 600,
+      parcelasRestantes: 2,
+      dataPagamento: '15/11/2026'
+    });
+
+    console.assert(parcelaReceipt.osNumero === '2026-888', 'Prefixo # deve ser higienizado');
+    console.assert(parcelaReceipt.tipoPagamento === 'Parcela 1 de 3', 'Tipo deve ser Parcela 1 de 3');
+    console.assert(parcelaReceipt.numeroParcela === 1 && parcelaReceipt.totalParcelas === 3, 'Parcelas 1 de 3');
+    console.assert(parcelaReceipt.saldoRestante === 600, 'Saldo restante deve ser 600');
+    console.assert(parcelaReceipt.parcelasRestantes === 2, 'Parcelas restantes deve ser 2');
+
+    console.log('  ✅ Test 65 Passed: Recibo Oficial A4 de Reparcelamento (Entrada e Parcelas) validado com 100% de sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
