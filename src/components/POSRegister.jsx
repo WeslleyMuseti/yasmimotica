@@ -161,7 +161,7 @@ const POSRegister = ({
     return u.includes('extern');
   };
   // Se for vendedor de loja fixa, fica travado na unidade. Se for Vendedor Externo (ou admin), pode selecionar a loja livremente no PDV!
-  const userFixedCity = (isVendor && !isExternalVendor) ? (currentUser?.city || currentUser?.assignedStore || 'Cajati') : null;
+  const userFixedCity = (isVendor && !isExternalVendor) ? (currentUser?.city || currentUser?.assignedStore || null) : null;
 
   const [selectedPOSCity, setSelectedPOSCity] = useState(() => {
     return userFixedCity || (isExternalVendor ? 'Venda Externa' : (currentUser?.city || currentUser?.assignedStore || 'Cajati'));
@@ -1705,9 +1705,9 @@ const POSRegister = ({
         'RESPONSAVEL_LEGAL_INADIMPLENTE': !!singleData.RESPONSAVEL_LEGAL_INADIMPLENTE,
         'RESPONSAVEL_LEGAL_DEBITO': singleData.RESPONSAVEL_LEGAL_DEBITO || 0,
         'TELEFONE': savedClientForOS['WhatsApp'] || savedClientForOS['TELEFONE'] || completedSale?.TELEFONE || '',
-        'CIDADE': userFixedCity || singleData.selectedCity || singleData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
-        'LOJA': userFixedCity || singleData.selectedCity || singleData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
-        'UNIDADE': userFixedCity || singleData.selectedCity || singleData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
+        'CIDADE': singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
+        'LOJA': singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
+        'UNIDADE': singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
         'DIOPTRIA': `OD: ${singleData.odEsf || ''}/${singleData.odCil || ''} OE: ${singleData.oeEsf || ''}/${singleData.oeCil || ''} AD: ${singleData.adicao || ''}`,
         'OD_ESF': singleData.odEsf || '',
         'OD_CIL': singleData.odCil || '',
@@ -1829,7 +1829,7 @@ const POSRegister = ({
     const allLinkedOSNumbers = osList.map(o => o.numeroOS);
     const primaryOS = osList[0];
     const saleId = completedSale?.id || `venda_${Date.now()}`;
-    const city = userFixedCity || primaryOS.selectedCity || primaryOS.unidade || completedSale?.CIDADE || 'Cajati';
+    const city = primaryOS.selectedCity || primaryOS.unidade || osGeneratedData?.selectedCity || userFixedCity || selectedPOSCity || completedSale?.CIDADE || 'Cajati';
 
     const primarySaleDate = primaryOS.dataVenda || completedSale?.['DATA  DA VENDA'] || completedSale?.['DATA'] || todayStr;
     const multiSaleIso = completedSale?.dataHora || primaryOS.dataHora || new Date().toISOString();
@@ -2109,11 +2109,15 @@ const POSRegister = ({
     
     setOsPrintData({
       isMultiOS: true,
+      selectedCity: city,
+      unidade: city,
       multiOrders: osList.map((o, idx) => ({
         ...o,
         osIndex: idx + 1,
         totalOS: osList.length,
         numeroOS: o.numeroOS,
+        selectedCity: o.selectedCity || o.unidade || city,
+        unidade: o.unidade || o.selectedCity || city,
         clientData: savedClientForOS,
         isSecondaryOS: idx > 0,
         financeiroUnificado: true,
@@ -3652,6 +3656,8 @@ const POSRegister = ({
             saleId: completedSale?.id
           }}
           saleData={completedSale}
+          selectedCity={selectedPOSCity || completedSale?.CIDADE || completedSale?.selectedCity || 'Cajati'}
+          initialCity={selectedPOSCity || completedSale?.CIDADE || completedSale?.selectedCity || 'Cajati'}
           onSaveAndPrint={handleSaveOSFromModal}
           lentesData={erpLentes}
           armacoesData={erpArmacoes}

@@ -159,7 +159,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     }
   }, [initialTab]);
 
-  const userCity = currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore || 'Cajati') : null;
+  const userCity = currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore || null) : null;
   const filteredLentes = useMemo(() => {
     if (!userCity) return lentesData;
     return (lentesData || []).filter(l => {
@@ -743,8 +743,27 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     const isMulti = Boolean(osData?.isMultiOS && Array.isArray(osData?.orders) && osData.orders.length > 0);
     const ordersList = isMulti ? osData.orders : [osData];
     const primaryOrder = ordersList[0] || osData;
+    const saleCity = primaryOrder.selectedCity || primaryOrder.unidade || osData.selectedCity || osData.unidade || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || osClientData['Cidade'] || 'Cajati';
 
-    setOsDataForPrint(isMulti ? { ...primaryOrder, multiOrders: ordersList, orders: ordersList } : osData);
+    setOsDataForPrint(isMulti ? {
+      ...primaryOrder,
+      selectedCity: saleCity,
+      unidade: saleCity,
+      multiOrders: ordersList.map(o => ({
+        ...o,
+        selectedCity: o.selectedCity || o.unidade || saleCity,
+        unidade: o.unidade || o.selectedCity || saleCity
+      })),
+      orders: ordersList.map(o => ({
+        ...o,
+        selectedCity: o.selectedCity || o.unidade || saleCity,
+        unidade: o.unidade || o.selectedCity || saleCity
+      }))
+    } : {
+      ...osData,
+      selectedCity: saleCity,
+      unidade: saleCity
+    });
 
     // Automatically fallback to subtracting valorTotal - valorEntrada if restante is somehow missing or malformed
     let osRestante = parseCurrency(primaryOrder.restante ?? osData.restante);
@@ -761,7 +780,6 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
 
     // Salvar automaticamente a(s) nova(s) OS em Registro_Vendas com status 'Aguardando Confirmação'
     if (onAddSale && osClientData) {
-      const saleCity = primaryOrder.selectedCity || primaryOrder.unidade || osData.selectedCity || osData.unidade || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || osClientData['Cidade'] || 'Cajati';
       const clientId = osClientData.id || osClientData['_id'] || osClientData.CLIENTE_ID || '';
       const clientCpf = String(osClientData['CPF / CNPJ'] || osClientData['CPF'] || '').trim();
       const clientName = osClientData['Nome Completo'] || osClientData['NOME'] || 'Cliente';
@@ -2026,6 +2044,8 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         isOpen={!!osClientData} 
         clientData={osClientData} 
         saleData={osSaleData}
+        selectedCity={osSaleData?.['CIDADE'] || osSaleData?.['UNIDADE'] || osSaleData?.['selectedCity'] || userCity || ''}
+        initialCity={osSaleData?.['CIDADE'] || osSaleData?.['UNIDADE'] || osSaleData?.['selectedCity'] || userCity || ''}
         lentesData={filteredLentes}
         armacoesData={filteredArmacoes}
         salesData={salesData}

@@ -56,7 +56,8 @@ import {
   generateInstallmentSchedule,
   buildReparcelamentoOSPayload,
   numeroPorExtenso,
-  buildReparcelamentoReceiptPayload
+  buildReparcelamentoReceiptPayload,
+  resolveOSUnit
 } from './src/reparcelamentoUtils.js';
 import * as XLSX from 'xlsx';
 
@@ -6808,6 +6809,42 @@ async function runTests() {
     console.assert(parcelaReceipt.parcelasRestantes === 2, 'Parcelas restantes deve ser 2');
 
     console.log('  ✅ Test 65 Passed: Recibo Oficial A4 de Reparcelamento (Entrada e Parcelas) validado com 100% de sucesso!\n');
+  }
+
+  // ─── TEST 66: Fidelidade Absoluta da Loja/Unidade da OS na Geração e Impressão (Anti-Hijack Cajati) ────
+  {
+    console.log('▶ Test 66: Fidelidade Absoluta da Loja/Unidade da OS na Geração e Impressão (Anti-Hijack Cajati)');
+
+    // 1. Garantia por prefixo no número da OS (independente de onde o cliente resida)
+    const clientFromCajati = {
+      'Nome Completo': 'Carlos Alberto',
+      'Cidade': 'Cajati',
+      'CIDADE': 'Cajati',
+      'Rua': 'Rua Central',
+      'Bairro': 'Bico do Pato'
+    };
+
+    console.assert(resolveOSUnit({ numeroOS: 'REG-001' }, clientFromCajati) === 'Registro', 'OS REG- deve resolver Registro mesmo cliente sendo de Cajati');
+    console.assert(resolveOSUnit({ numeroOS: 'JAC-005' }, clientFromCajati) === 'Jacupiranga', 'OS JAC- deve resolver Jacupiranga mesmo cliente sendo de Cajati');
+    console.assert(resolveOSUnit({ numeroOS: 'EXT-010' }, clientFromCajati) === 'Venda Externa', 'OS EXT- deve resolver Venda Externa mesmo cliente sendo de Cajati');
+    console.assert(resolveOSUnit({ numeroOS: 'CAJ-044' }, { Cidade: 'Registro' }) === 'Cajati', 'OS CAJ- deve resolver Cajati');
+
+    // 2. Garantia por campo explícito de unidade gravado na venda / OS
+    console.assert(resolveOSUnit({ unidade: 'Registro' }, clientFromCajati) === 'Registro', 'Campo unidade Registro deve prevalecer sobre residência Cajati');
+    console.assert(resolveOSUnit({ selectedCity: 'Jacupiranga' }, clientFromCajati) === 'Jacupiranga', 'Campo selectedCity Jacupiranga deve prevalecer');
+    console.assert(resolveOSUnit({ CIDADE: 'Venda Externa' }, clientFromCajati) === 'Venda Externa', 'Campo CIDADE Venda Externa deve prevalecer');
+
+    // 3. Fallback inteligente quando cliente não tem prefixo e sem unidade explícita
+    console.assert(resolveOSUnit({ numeroOS: '123' }, { Cidade: 'Registro' }) === 'Registro', 'Fallback na cidade do cliente quando OS sem prefixo');
+    console.assert(resolveOSUnit({}, {}) === 'Cajati', 'Fallback padrão Cajati quando nada informado');
+
+    // 4. Múltiplas OS: هر via mantém a loja da venda mesmo com cliente residindo em outra cidade
+    const multiOSItem1 = { numeroOS: 'REG-010-1', unidade: 'Registro', clientData: clientFromCajati };
+    const multiOSItem2 = { numeroOS: 'REG-010-2', clientData: clientFromCajati }; // Via 2 sem unidade explícita no item
+    console.assert(resolveOSUnit(multiOSItem1, clientFromCajati) === 'Registro', 'Via 1 deve ser Registro');
+    console.assert(resolveOSUnit(multiOSItem2, clientFromCajati) === 'Registro', 'Via 2 pelo prefixo REG-010-2 deve resolver Registro e não cair em Cajati');
+
+    console.log('  ✅ Test 66 Passed: Fidelidade Absoluta da Loja/Unidade da OS validada com 100% de sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');

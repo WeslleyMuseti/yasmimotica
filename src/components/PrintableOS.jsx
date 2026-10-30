@@ -1,4 +1,7 @@
 import React, { useMemo } from 'react';
+import { resolveOSUnit } from '../reparcelamentoUtils';
+
+export { resolveOSUnit };
 
 const parseCurrencyPrint = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -43,6 +46,9 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
   const saleDate = osData.dataVenda || osData['DATA  DA VENDA'] || osData['DATA DA VENDA'] || osData['DATA_VENDA'] || osData['Data da Venda'] || osData['DATA'] || osData['Data'] || clientData['DATA  DA VENDA'] || clientData['DATA'] || '';
   const saleTime = osData.hora || osData.HORA || clientData.hora || clientData.HORA || (typeof saleDate === 'string' && saleDate.includes(':') ? saleDate.split(/\s+/)[1] : (osData.DATA_HORA && typeof osData.DATA_HORA === 'string' && osData.DATA_HORA.includes(':') ? osData.DATA_HORA.split(/\s+/)[1] : ''));
 
+  // ─── UNIDADE DA LOJA ONDE A OS FOI EMITIDA ───────────────────────
+  const osUnit = resolveOSUnit(osData, clientData);
+
   // ─── DADOS DO CLIENTE TITULAR ───────────────────────────────────
   const clientName = clientData['Nome Completo'] || clientData['NOME'] || clientData['CLIENTE'] || clientData['Nome'] || osData['nomeCliente'] || osData['CLIENTE'] || 'Cliente';
   const clientZap = clientData['WhatsApp'] || clientData['TELEFONE'] || clientData['Telefone'] || clientData['Celular'] || clientData['FONE'] || 'Não informado';
@@ -55,7 +61,7 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
   const rua = clientData['Rua'] || clientData['ENDERECO'] || clientData['Endereço'] || clientData['LOGRADOURO'] || '';
   const num = clientData['Número'] || clientData['NUMERO'] || clientData['Numero'] || '';
   const bairro = clientData['Bairro'] || clientData['BAIRRO'] || '';
-  const cidade = clientData['Cidade'] || clientData['CIDADE'] || osData.unidade || osData.selectedCity || 'Cajati';
+  const cidade = clientData['Cidade'] || clientData['CIDADE'] || osUnit;
   const estado = clientData['Estado'] || clientData['ESTADO'] || clientData['UF'] || 'SP';
   
   const addressParts = [
@@ -295,7 +301,7 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
           </div>
             <p className="text-[8.5px] font-bold mt-0.5 text-slate-700">
               {saleDate && <span>Data da Venda: <strong className="text-slate-900">{formatDatePrint(saleDate)}{saleTime ? ` às ${saleTime}` : ''}</strong> | </span>}
-              Emissão: {new Date().toLocaleDateString('pt-BR')} | Unidade: {osData.unidade || osData.selectedCity || cidade}
+              Emissão: {new Date().toLocaleDateString('pt-BR')} | Unidade: {osUnit}
             </p>
           </div>
         </div>
@@ -752,17 +758,25 @@ const PrintableOS = ({ osData, clientData = {} }) => {
         id="print-section" 
         className="hidden print:block bg-white text-slate-900 font-sans text-[9px] leading-tight select-none"
       >
-        {list.map((item, idx) => (
-          <div key={idx} className={list.length > 1 ? "os-sheet-page" : "os-sheet-page-single"}>
-            <SingleOSSheet 
-              osData={item} 
-              clientData={item.clientData || clientData}
-              isMulti={list.length > 1}
-              index={item.osIndex || (idx + 1)}
-              total={item.totalOS || list.length}
-            />
-          </div>
-        ))}
+        {list.map((item, idx) => {
+          const parentUnit = osData?.unidade || osData?.selectedCity || osData?.CIDADE || osData?.LOJA;
+          const mergedItem = {
+            ...item,
+            unidade: item?.unidade || item?.selectedCity || parentUnit,
+            selectedCity: item?.selectedCity || item?.unidade || parentUnit
+          };
+          return (
+            <div key={idx} className={list.length > 1 ? "os-sheet-page" : "os-sheet-page-single"}>
+              <SingleOSSheet 
+                osData={mergedItem} 
+                clientData={item.clientData || clientData}
+                isMulti={list.length > 1}
+                index={item.osIndex || (idx + 1)}
+                total={item.totalOS || list.length}
+              />
+            </div>
+          );
+        })}
       </div>
     </>
   );

@@ -167,7 +167,9 @@ const OSGeneratorModal = ({
   salesData = [], 
   currentUser,
   receberData = [],
-  clientsData = []
+  clientsData = [],
+  selectedCity: propSelectedCity = '',
+  initialCity = ''
 }) => {
   const [selectedCity, setSelectedCity] = useState('');
   const [baseOSNumber, setBaseOSNumber] = useState('');
@@ -187,7 +189,8 @@ const OSGeneratorModal = ({
     const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.Unidade || item.unidade || '').trim().toLowerCase();
     return u.includes('extern');
   };
-  const userCity = (isVendor && !isExternalVendor) ? (currentUser?.city || currentUser?.assignedStore || 'Cajati') : null;
+  // 🛡️ Apenas fixa a cidade do vendedor se ela estiver explicitamente preenchida no cadastro do usuário (sem forçar Cajati indevidamente)
+  const userCity = (isVendor && !isExternalVendor) ? (currentUser?.city || currentUser?.assignedStore || null) : null;
   const filteredLentes = userCity 
     ? lentesData.filter(l => {
         const u = String(l.UNIDADE || l.CIDADE || l.LOJA || l.Unidade || '').trim().toUpperCase();
@@ -612,7 +615,17 @@ const OSGeneratorModal = ({
             : (saleData?.['restante'] !== undefined && saleData?.['restante'] !== '' 
                 ? saleData['restante'] 
                 : (isBoletoOrCarne ? vTotal : '0,00')));
-      const vCidade = clientData['Cidade'] || clientData['CIDADE'] || clientData['LOJA'] || clientData['selectedCity'] || (currentUser?.role === 'vendedor' ? currentUser.city : '') || 'Cajati';
+      // 🛡️ Ordem de Prioridade Soberana para a Loja/Unidade da OS:
+      // 1. Loja ativa informada pelo chamador (propSelectedCity / initialCity do PDV)
+      // 2. Unidade registrada na Venda (saleData.UNIDADE / CIDADE / LOJA / selectedCity)
+      // 3. Unidade indicada explicitamente no clientData como loja (selectedCity / UNIDADE / LOJA)
+      // 4. Unidade fixa do Vendedor logado (se configurada)
+      // 5. Fallback na cidade residencial do cliente ou padrão Cajati
+      const saleCityCandidate = propSelectedCity || initialCity ||
+        saleData?.['UNIDADE'] || saleData?.['CIDADE'] || saleData?.['LOJA'] || saleData?.['selectedCity'] || saleData?.cidade ||
+        clientData?.['selectedCity'] || clientData?.['UNIDADE'] || clientData?.['LOJA'];
+
+      const vCidade = saleCityCandidate || userCity || clientData?.['Cidade'] || clientData?.['CIDADE'] || 'Cajati';
       const initialPayments = parseInitialPayments(clientData, saleData);
       setPayments(initialPayments);
 
@@ -638,7 +651,7 @@ const OSGeneratorModal = ({
         '1'
       );
 
-      const targetCity = userCity || vCidade || 'Cajati';
+      const targetCity = vCidade || 'Cajati';
       setSelectedCity(targetCity);
 
       const existingOS = clientData['OS DA VENDA'] || clientData['OS'] || clientData['numeroOS'] || saleData?.['OS DA VENDA'] || saleData?.['OS'];
@@ -716,6 +729,8 @@ const OSGeneratorModal = ({
           oePertoDp: '', oePertoOpa: '',
           adicao: i === 0 ? (clientData['ADICAO'] || clientData['adicao'] || '') : '',
           observacoes: i === 0 ? (clientData['observacoes'] || clientData['OBSERVACOES'] || '') : '',
+          selectedCity: targetCity,
+          unidade: targetCity,
           valorTotal: ''
         });
       }
@@ -782,7 +797,7 @@ const OSGeneratorModal = ({
         numeroOS: nextBase
       }));
     }
-  }, [clientData, saleData, isOpen, currentUser, userCity]);
+  }, [clientData, saleData, isOpen, currentUser, userCity, propSelectedCity, initialCity]);
 
   // Atualização de prefixo e base quando a cidade muda
   const handleCityChange = (newCity) => {
@@ -791,6 +806,8 @@ const OSGeneratorModal = ({
     setBaseOSNumber(newBase);
     setOsList(prev => prev.map((item, idx) => ({
       ...item,
+      selectedCity: newCity,
+      unidade: newCity,
       numeroOS: prev.length === 1 ? newBase : `${newBase}-${idx + 1}`
     })));
   };
@@ -822,6 +839,8 @@ const OSGeneratorModal = ({
       label: `Óculos ${nextIdx + 1}`,
       nomePessoa: '',
       numeroOS: `${cleanBase}-${nextIdx + 1}`,
+      selectedCity: selectedCity || osList[0]?.selectedCity || 'Cajati',
+      unidade: selectedCity || osList[0]?.unidade || 'Cajati',
       medico: osList[0]?.medico || formData.medico || '',
       dataVenda: osList[0]?.dataVenda || formData.dataVenda || new Date().toISOString().split('T')[0],
       dataEntrega: osList[0]?.dataEntrega || formData.dataEntrega || '',

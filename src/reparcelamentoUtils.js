@@ -927,3 +927,47 @@ export const buildReparcelamentoReceiptPayload = ({
   };
 };
 
+/**
+ * 🛡️ Resolvedor Inteligente e Blindado da Unidade da Loja da OS
+ * Prioriza o prefixo oficial da OS (REG-, JAC-, EXT-, CAJ-), seguido pelos dados da venda e loja selecionada,
+ * impedindo que a cidade residencial do cliente ou fallbacks indevidos forcem Cajati.
+ */
+export const resolveOSUnit = (osData = {}, clientData = {}) => {
+  // 1. Prefixo explícito no número da OS (REG-, JAC-, EXT-, CAJ-)
+  const osNum = String(osData?.numeroOS || osData?.OS || osData?.['OS DA VENDA'] || osData?.VENDA_OS || '').toUpperCase().trim();
+  if (osNum.startsWith('REG-') || osNum.startsWith('REG')) return 'Registro';
+  if (osNum.startsWith('JAC-') || osNum.startsWith('JAC')) return 'Jacupiranga';
+  if (osNum.startsWith('EXT-') || osNum.startsWith('EXT')) return 'Venda Externa';
+  if (osNum.startsWith('CAJ-') || osNum.startsWith('CAJ')) return 'Cajati';
+
+  // 2. Unidade explicitamente gravada na OS / Venda
+  const directUnit = osData?.unidade || osData?.selectedCity || osData?.CIDADE || osData?.LOJA || osData?.Cidade;
+  if (directUnit && String(directUnit).trim()) {
+    const uClean = String(directUnit).trim();
+    if (/registro/i.test(uClean)) return 'Registro';
+    if (/jacupiranga/i.test(uClean)) return 'Jacupiranga';
+    if (/extern/i.test(uClean)) return 'Venda Externa';
+    if (/cajati/i.test(uClean)) return 'Cajati';
+    return uClean;
+  }
+
+  // 3. Unidade da venda vinculada
+  const clientSaleUnit = clientData?.['UNIDADE'] || clientData?.['LOJA'] || clientData?.['selectedCity'];
+  if (clientSaleUnit && String(clientSaleUnit).trim()) {
+    const uClean = String(clientSaleUnit).trim();
+    if (/registro/i.test(uClean)) return 'Registro';
+    if (/jacupiranga/i.test(uClean)) return 'Jacupiranga';
+    if (/extern/i.test(uClean)) return 'Venda Externa';
+    if (/cajati/i.test(uClean)) return 'Cajati';
+    return uClean;
+  }
+
+  // 4. Fallback na cidade do cadastro ou padrão Cajati
+  const fallbackCity = clientData?.['Cidade'] || clientData?.['CIDADE'] || 'Cajati';
+  if (/registro/i.test(fallbackCity)) return 'Registro';
+  if (/jacupiranga/i.test(fallbackCity)) return 'Jacupiranga';
+  if (/extern/i.test(fallbackCity)) return 'Venda Externa';
+  return 'Cajati';
+};
+
+
