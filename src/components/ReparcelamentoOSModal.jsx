@@ -21,7 +21,8 @@ import {
   filterInstallmentsByDateRange,
   buildOverdueInstallmentAlerts,
   generateInstallmentSchedule,
-  buildReparcelamentoOSPayload
+  buildReparcelamentoOSPayload,
+  computeInstallmentFinancialSummary
 } from "../reparcelamentoUtils";
 
 export {
@@ -36,6 +37,7 @@ export {
   buildOverdueInstallmentAlerts,
   generateInstallmentSchedule,
   buildReparcelamentoOSPayload,
+  computeInstallmentFinancialSummary,
   PrintableReparcelamentoAgreement,
   PrintableReparcelamentoReceipt
 };

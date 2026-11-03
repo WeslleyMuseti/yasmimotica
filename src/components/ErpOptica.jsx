@@ -19,6 +19,7 @@ import ReparcelamentoOSModal, {
   formatInstallmentDateBr,
   extractOSFromRow,
   resolveInstallmentClientName,
+  computeInstallmentFinancialSummary,
   PrintableReparcelamentoAgreement
 } from './ReparcelamentoOSModal';
 import { CashHistoryContent } from './CashHistoryModal';
@@ -1212,6 +1213,53 @@ const ErpOptica = ({
     installmentDateField, installmentStatusFilter, installmentSearchQuery
   ]);
 
+  // 📊 Métricas Financeiras Dinâmicas e Reativas das Parcelas Filtradas (Contas a Receber e Pagar)
+  const filteredReceberStats = useMemo(() => {
+    const isFiltered = (
+      installmentPeriodMode !== 'ALL' ||
+      Boolean(installmentStartDate) ||
+      Boolean(installmentEndDate) ||
+      installmentStatusFilter !== 'ALL' ||
+      Boolean(installmentSearchQuery)
+    );
+
+    const targetRows = activeTab === 'receber' ? currentTabRows : [];
+    const summary = computeInstallmentFinancialSummary(targetRows);
+
+    return {
+      ...summary,
+      totalBaseCount: receberData.length,
+      isFiltered
+    };
+  }, [
+    activeTab, currentTabRows, receberData,
+    installmentPeriodMode, installmentStartDate, installmentEndDate,
+    installmentStatusFilter, installmentSearchQuery
+  ]);
+
+  const filteredPagarStats = useMemo(() => {
+    const isFiltered = (
+      installmentPeriodMode !== 'ALL' ||
+      Boolean(installmentStartDate) ||
+      Boolean(installmentEndDate) ||
+      installmentStatusFilter !== 'ALL' ||
+      Boolean(installmentSearchQuery)
+    );
+
+    const targetRows = activeTab === 'pagar' ? currentTabRows : [];
+    const summary = computeInstallmentFinancialSummary(targetRows);
+
+    return {
+      ...summary,
+      totalBaseCount: pagarData.length,
+      isFiltered
+    };
+  }, [
+    activeTab, currentTabRows, pagarData,
+    installmentPeriodMode, installmentStartDate, installmentEndDate,
+    installmentStatusFilter, installmentSearchQuery
+  ]);
+
   const handleExportStockExcel = (type) => {
     try {
       const isArmacao = type === 'armacoes';
@@ -2075,7 +2123,7 @@ const ErpOptica = ({
             </div>
           )}
 
-          <div className={`grid gap-3 sm:gap-4 ${activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes' ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'}`}>
+          <div className={`grid gap-3 sm:gap-4 ${activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes' || activeTab === 'receber' || activeTab === 'pagar' ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'}`}>
           {activeTab === 'lentes' && (
             <>
               <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-sky-500">
@@ -2238,34 +2286,142 @@ const ErpOptica = ({
 
           {activeTab === 'receber' && (
             <>
-              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-emerald-500">
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Recebido / Liquidado</p>
-                <p className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1">{formatCurrency(receberStats.recebido)}</p>
+              {/* Card 1: Parcelas Pagas / Recebidas */}
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-emerald-500 flex flex-col justify-between shadow-lg shadow-emerald-500/5">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Recebido / Liquidado</p>
+                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      {filteredReceberStats.isFiltered ? 'Filtro Ativo' : 'Total'}
+                    </span>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1">{formatCurrency(filteredReceberStats.recebido)}</p>
+                </div>
+                <p className="text-[10px] text-emerald-300/70 font-semibold mt-1">
+                  Parcelas pagas no período ({filteredReceberStats.countRecebido} baixadas)
+                </p>
               </div>
-              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-amber-500">
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Pendente de Recebimento</p>
-                <p className="text-2xl sm:text-3xl font-black text-amber-400 mt-1">{formatCurrency(receberStats.pendente)}</p>
+
+              {/* Card 2: Parcelas Vencidas em Atraso */}
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-rose-500 flex flex-col justify-between shadow-lg shadow-rose-500/5">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+                      <AlertTriangle size={13} className={filteredReceberStats.vencido > 0 ? 'text-rose-400 animate-pulse' : 'text-slate-500'} />
+                      Parcelas Vencidas
+                    </p>
+                    <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                      Em Atraso
+                    </span>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-black text-rose-400 mt-1">{formatCurrency(filteredReceberStats.vencido)}</p>
+                </div>
+                <p className="text-[10px] text-rose-300/70 font-semibold mt-1">
+                  Débitos vencidos ({filteredReceberStats.countVencido} parcela(s))
+                </p>
               </div>
-              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-sky-500">
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total de Lançamentos</p>
-                <p className="text-2xl sm:text-3xl font-black text-white mt-1">{receberStats.total}</p>
+
+              {/* Card 3: Pendente de Recebimento */}
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-amber-500 flex flex-col justify-between shadow-lg shadow-amber-500/5">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Pendente de Recebimento</p>
+                    <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                      Em Aberto
+                    </span>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-black text-amber-400 mt-1">{formatCurrency(filteredReceberStats.pendente)}</p>
+                </div>
+                <p className="text-[10px] text-amber-300/70 font-semibold mt-1">
+                  A Vencer: {formatCurrency(filteredReceberStats.aVencer)} ({filteredReceberStats.countAVencer} parc.)
+                </p>
+              </div>
+
+              {/* Card 4: Total Geral de Lançamentos */}
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-sky-500 flex flex-col justify-between shadow-lg shadow-sky-500/5">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total de Lançamentos</p>
+                    <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/20 font-mono">
+                      {filteredReceberStats.totalCount} parc.
+                    </span>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-black text-white mt-1">{formatCurrency(filteredReceberStats.totalValor)}</p>
+                </div>
+                <p className="text-[10px] text-slate-400 font-semibold mt-1">
+                  {filteredReceberStats.totalCount} de {filteredReceberStats.totalBaseCount} lançamentos totais
+                </p>
               </div>
             </>
           )}
 
           {activeTab === 'pagar' && (
             <>
-              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-rose-500">
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total Pendente a Pagar</p>
-                <p className="text-2xl sm:text-3xl font-black text-rose-400 mt-1">{formatCurrency(pagarStats.pendente)}</p>
+              {/* Card 1: Despesas Pagas */}
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-emerald-500 flex flex-col justify-between shadow-lg shadow-emerald-500/5">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Contas Pagas / Liq.</p>
+                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      {filteredPagarStats.isFiltered ? 'Filtro Ativo' : 'Total'}
+                    </span>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1">{formatCurrency(filteredPagarStats.pago)}</p>
+                </div>
+                <p className="text-[10px] text-emerald-300/70 font-semibold mt-1">
+                  Despesas quitadas ({filteredPagarStats.countRecebido} pagas)
+                </p>
               </div>
-              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-emerald-500">
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Contas Pagas / Liq.</p>
-                <p className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1">{formatCurrency(pagarStats.pago)}</p>
+
+              {/* Card 2: Contas Vencidas em Atraso */}
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-rose-500 flex flex-col justify-between shadow-lg shadow-rose-500/5">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+                      <AlertTriangle size={13} className={filteredPagarStats.vencido > 0 ? 'text-rose-400 animate-pulse' : 'text-slate-500'} />
+                      Contas Vencidas
+                    </p>
+                    <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                      Em Atraso
+                    </span>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-black text-rose-400 mt-1">{formatCurrency(filteredPagarStats.vencido)}</p>
+                </div>
+                <p className="text-[10px] text-rose-300/70 font-semibold mt-1">
+                  Contas em atraso ({filteredPagarStats.countVencido} conta(s))
+                </p>
               </div>
-              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-indigo-500">
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total de Despesas Registradas</p>
-                <p className="text-2xl sm:text-3xl font-black text-white mt-1">{pagarStats.total}</p>
+
+              {/* Card 3: Total Pendente a Pagar */}
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-amber-500 flex flex-col justify-between shadow-lg shadow-amber-500/5">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total Pendente a Pagar</p>
+                    <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                      Em Aberto
+                    </span>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-black text-amber-400 mt-1">{formatCurrency(filteredPagarStats.pendente)}</p>
+                </div>
+                <p className="text-[10px] text-amber-300/70 font-semibold mt-1">
+                  A Vencer: {formatCurrency(filteredPagarStats.aVencer)} ({filteredPagarStats.countAVencer} conta(s))
+                </p>
+              </div>
+
+              {/* Card 4: Total de Despesas Registradas */}
+              <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-sky-500 flex flex-col justify-between shadow-lg shadow-sky-500/5">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total do Período</p>
+                    <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/20 font-mono">
+                      {filteredPagarStats.totalCount} contas
+                    </span>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-black text-white mt-1">{formatCurrency(filteredPagarStats.totalValor)}</p>
+                </div>
+                <p className="text-[10px] text-slate-400 font-semibold mt-1">
+                  {filteredPagarStats.totalCount} de {filteredPagarStats.totalBaseCount} contas totais
+                </p>
               </div>
             </>
           )}
@@ -3481,6 +3637,77 @@ const ErpOptica = ({
                           Limpar ✕
                         </button>
                       )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Totalizadores Financeiros da Filtragem Selecionada */}
+                <div className="relative z-10 pt-3 border-t border-white/10 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-between shadow-sm">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300 block">
+                        {activeTab === 'receber' ? 'Parcelas Pagas (Filtro)' : 'Contas Pagas (Filtro)'}
+                      </span>
+                      <span className="text-base sm:text-lg font-black text-emerald-400">
+                        {formatCurrency(activeTab === 'receber' ? filteredReceberStats.recebido : filteredPagarStats.pago)}
+                      </span>
+                      <span className="text-[10px] text-emerald-300/70 font-semibold block">
+                        {activeTab === 'receber' ? `${filteredReceberStats.countRecebido} recebida(s)` : `${filteredPagarStats.countRecebido} paga(s)`}
+                      </span>
+                    </div>
+                    <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 shrink-0">
+                      <CheckCircle2 size={16} />
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 flex items-center justify-between shadow-sm">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-rose-300 block">
+                        {activeTab === 'receber' ? 'Parcelas Vencidas (Filtro)' : 'Contas Vencidas (Filtro)'}
+                      </span>
+                      <span className="text-base sm:text-lg font-black text-rose-400">
+                        {formatCurrency(activeTab === 'receber' ? filteredReceberStats.vencido : filteredPagarStats.vencido)}
+                      </span>
+                      <span className="text-[10px] text-rose-300/70 font-semibold block">
+                        {activeTab === 'receber' ? `${filteredReceberStats.countVencido} em atraso` : `${filteredPagarStats.countVencido} em atraso`}
+                      </span>
+                    </div>
+                    <div className="p-2 rounded-lg bg-rose-500/20 text-rose-400 shrink-0">
+                      <AlertTriangle size={16} className={(activeTab === 'receber' ? filteredReceberStats.vencido : filteredPagarStats.vencido) > 0 ? 'animate-pulse' : ''} />
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between shadow-sm">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 block">
+                        Pendentes a Vencer (Filtro)
+                      </span>
+                      <span className="text-base sm:text-lg font-black text-amber-400">
+                        {formatCurrency(activeTab === 'receber' ? filteredReceberStats.aVencer : filteredPagarStats.aVencer)}
+                      </span>
+                      <span className="text-[10px] text-amber-300/70 font-semibold block">
+                        {activeTab === 'receber' ? `${filteredReceberStats.countAVencer} no prazo` : `${filteredPagarStats.countAVencer} no prazo`}
+                      </span>
+                    </div>
+                    <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400 shrink-0">
+                      <Clock size={16} />
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-sky-500/10 border border-sky-500/25 flex items-center justify-between shadow-sm">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-sky-300 block">
+                        Total Geral do Período
+                      </span>
+                      <span className="text-base sm:text-lg font-black text-white">
+                        {formatCurrency(activeTab === 'receber' ? filteredReceberStats.totalValor : filteredPagarStats.totalValor)}
+                      </span>
+                      <span className="text-[10px] text-sky-300/70 font-semibold block font-mono">
+                        {activeTab === 'receber' ? filteredReceberStats.totalCount : filteredPagarStats.totalCount} parcela(s) no total
+                      </span>
+                    </div>
+                    <div className="p-2 rounded-lg bg-sky-500/20 text-sky-400 shrink-0">
+                      <DollarSign size={16} />
                     </div>
                   </div>
                 </div>

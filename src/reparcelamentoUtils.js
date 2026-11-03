@@ -1028,4 +1028,73 @@ export const resolveOSUnit = (osData = {}, clientData = {}) => {
   return 'Cajati';
 };
 
+/**
+ * 📊 Calcula o resumo financeiro detalhado de um conjunto de parcelas
+ * (recebidas/pagas, vencidas em atraso, a vencer no prazo, saldo em aberto e total geral)
+ */
+export const computeInstallmentFinancialSummary = (rows = [], referenceTodayIso = null) => {
+  let recebido = 0;
+  let pendente = 0;
+  let vencido = 0;
+  let aVencer = 0;
+  let cancelado = 0;
+  let countRecebido = 0;
+  let countVencido = 0;
+  let countAVencer = 0;
+  let countCancelado = 0;
+
+  const todayIso = referenceTodayIso || new Date().toISOString().split('T')[0];
+
+  if (Array.isArray(rows)) {
+    rows.forEach(item => {
+      if (!item || typeof item !== 'object') return;
+      const val = parseCurrencyValue(item.VALOR || item.valor || 0);
+      const st = String(item.STATUS || item.status || 'Pendente').trim().toLowerCase();
+
+      if (st === 'cancelado' || st === 'cancelada') {
+        cancelado += val;
+        countCancelado++;
+        return;
+      }
+
+      if (st === 'recebido' || st === 'pago' || st === 'liquidado') {
+        recebido += val;
+        countRecebido++;
+        return;
+      }
+
+      // Parcela em aberto (pendente)
+      pendente += val;
+
+      const rawVenc = item.DATA_VENCIMENTO || item['DATA VENCIMENTO'] || item.data_vencimento || item.VENCIMENTO || item.vencimento || '';
+      const vencIso = normalizeInstallmentDateIso(rawVenc);
+
+      const isOverdue = (vencIso && vencIso < todayIso) || st === 'atrasado' || st === 'inadimplente' || st === 'vencido';
+
+      if (isOverdue) {
+        vencido += val;
+        countVencido++;
+      } else {
+        aVencer += val;
+        countAVencer++;
+      }
+    });
+  }
+
+  return {
+    recebido,
+    pago: recebido, // alias para contas a pagar
+    pendente,
+    vencido,
+    aVencer,
+    cancelado,
+    totalValor: recebido + pendente,
+    totalCount: Array.isArray(rows) ? rows.length : 0,
+    countRecebido,
+    countVencido,
+    countAVencer,
+    countCancelado
+  };
+};
+
 

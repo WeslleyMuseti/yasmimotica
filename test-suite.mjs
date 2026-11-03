@@ -58,6 +58,7 @@ import {
   numeroPorExtenso,
   buildReparcelamentoReceiptPayload,
   buildGeneralPaymentReceiptPayload,
+  computeInstallmentFinancialSummary,
   resolveOSUnit
 } from './src/reparcelamentoUtils.js';
 import * as XLSX from 'xlsx';
@@ -6995,6 +6996,107 @@ async function runTests() {
     console.assert(salesAdded[0]['DATA'] === '05/11/2026', 'Data na venda deve ser 05/11/2026');
 
     console.log('  ✅ Test 67 Passed: Registro de Pagamento no Perfil (Data, Forma de Pagamento e Recibo A4) validado com 100% de sucesso!\n');
+  }
+
+  // ─── TEST 68: Totalizadores de Parcelas Filtradas (Pagas, Vencidas, Pendentes e Geral) ────
+  {
+    console.log('▶ Test 68: Totalizadores de Parcelas Filtradas (Pagas, Vencidas, Pendentes e Geral)');
+
+    const mockInstallments = [
+      {
+        id: 'parc_1',
+        CLIENTE: 'Carlos Silva',
+        VALOR: '100,00',
+        STATUS: 'Recebido',
+        DATA_VENCIMENTO: '2026-03-10',
+        DATA_RECEBIMENTO: '2026-03-08'
+      },
+      {
+        id: 'parc_2',
+        CLIENTE: 'Carlos Silva',
+        VALOR: '150,00',
+        STATUS: 'Pendente',
+        DATA_VENCIMENTO: '2026-04-10' // Vencida (referência 2026-11-03)
+      },
+      {
+        id: 'parc_3',
+        CLIENTE: 'Mariana Costa',
+        VALOR: '200,00',
+        STATUS: 'Pendente',
+        DATA_VENCIMENTO: '2026-12-15' // A Vencer no futuro
+      },
+      {
+        id: 'parc_4',
+        CLIENTE: 'Mariana Costa',
+        VALOR: '80,00',
+        STATUS: 'Atrasado',
+        DATA_VENCIMENTO: '2026-05-20' // Vencida por status e data
+      },
+      {
+        id: 'parc_5',
+        CLIENTE: 'João Pedro',
+        VALOR: '50,00',
+        STATUS: 'Cancelado',
+        DATA_VENCIMENTO: '2026-02-10' // Cancelada (não entra no saldo ativo)
+      },
+      {
+        id: 'parc_6',
+        CLIENTE: 'João Pedro',
+        VALOR: '300,00',
+        STATUS: 'Recebido',
+        DATA_VENCIMENTO: '2026-08-15',
+        DATA_RECEBIMENTO: '2026-08-15'
+      }
+    ];
+
+    const referenceToday = '2026-11-03';
+
+    // 1. Resumo Geral de Todas as Parcelas
+    const globalSummary = computeInstallmentFinancialSummary(mockInstallments, referenceToday);
+
+    console.assert(globalSummary.recebido === 400, `Recebido global esperado 400, obteve ${globalSummary.recebido}`);
+    console.assert(globalSummary.countRecebido === 2, `Qtd recebido esperado 2, obteve ${globalSummary.countRecebido}`);
+    console.assert(globalSummary.vencido === 230, `Vencido global esperado 230 (150 + 80), obteve ${globalSummary.vencido}`);
+    console.assert(globalSummary.countVencido === 2, `Qtd vencido esperado 2, obteve ${globalSummary.countVencido}`);
+    console.assert(globalSummary.aVencer === 200, `A vencer esperado 200, obteve ${globalSummary.aVencer}`);
+    console.assert(globalSummary.countAVencer === 1, `Qtd a vencer esperado 1, obteve ${globalSummary.countAVencer}`);
+    console.assert(globalSummary.pendente === 430, `Pendente global esperado 430 (230 + 200), obteve ${globalSummary.pendente}`);
+    console.assert(globalSummary.cancelado === 50, `Cancelado esperado 50, obteve ${globalSummary.cancelado}`);
+    console.assert(globalSummary.totalValor === 830, `Total valor esperado 830 (400 + 430), obteve ${globalSummary.totalValor}`);
+    console.assert(globalSummary.totalCount === 6, `Total count esperado 6, obteve ${globalSummary.totalCount}`);
+
+    // 2. Filtragem de Período Personalizado: Janeiro até Outubro (2026-01-01 a 2026-10-31)
+    const filteredJanToOct = filterInstallmentsByDateRange(mockInstallments, {
+      startDate: '2026-01-01',
+      endDate: '2026-10-31',
+      periodMode: 'CUSTOM',
+      dateField: 'VENCIMENTO',
+      statusFilter: 'ALL'
+    }, referenceToday);
+
+    // Deve excluir a parcela de Dezembro (2026-12-15)
+    console.assert(filteredJanToOct.length === 5, `Filtradas Jan-Out esperado 5 parcelas, obteve ${filteredJanToOct.length}`);
+
+    const janToOctSummary = computeInstallmentFinancialSummary(filteredJanToOct, referenceToday);
+
+    console.assert(janToOctSummary.recebido === 400, `Pagas no período Jan-Out esperado 400 (100 + 300), obteve ${janToOctSummary.recebido}`);
+    console.assert(janToOctSummary.vencido === 230, `Vencidas no período Jan-Out esperado 230 (150 + 80), obteve ${janToOctSummary.vencido}`);
+    console.assert(janToOctSummary.aVencer === 0, `A vencer no período Jan-Out esperado 0 (pois todas as pendentes desse período já venceram), obteve ${janToOctSummary.aVencer}`);
+    console.assert(janToOctSummary.pendente === 230, `Pendente em aberto no período Jan-Out esperado 230, obteve ${janToOctSummary.pendente}`);
+    console.assert(janToOctSummary.totalValor === 630, `Total do período Jan-Out esperado 630, obteve ${janToOctSummary.totalValor}`);
+
+    // 3. Filtragem Apenas Vencidas
+    const overdueFiltered = filterInstallmentsByDateRange(mockInstallments, {
+      periodMode: 'OVERDUE',
+      statusFilter: 'ALL'
+    }, referenceToday);
+
+    console.assert(overdueFiltered.length === 2, `Qtd parcelas vencidas esperado 2, obteve ${overdueFiltered.length}`);
+    const overdueSummary = computeInstallmentFinancialSummary(overdueFiltered, referenceToday);
+    console.assert(overdueSummary.vencido === 230, `Total vencido esperado 230, obteve ${overdueSummary.vencido}`);
+    console.assert(overdueSummary.recebido === 0, `Total recebido nas vencidas deve ser 0, obteve ${overdueSummary.recebido}`);
+
+    console.log('  ✅ Test 68 Passed: Totalizadores de Parcelas Filtradas (Pagas, Vencidas, Pendentes e Geral) validados com 100% de sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
