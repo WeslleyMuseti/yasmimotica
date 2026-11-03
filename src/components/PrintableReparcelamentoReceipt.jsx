@@ -179,7 +179,7 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
       {(saldoRestante !== null || totalAcordo !== null || parcelasRestantes !== null) && (
         <div className="border-2 border-dashed border-slate-300 rounded-xl p-3.5 mb-5 bg-slate-50">
           <h3 className="text-[10px] font-black uppercase tracking-wider text-slate-700 mb-2">
-            Demonstrativo de Saldo Restante do Acordo
+            Demonstrativo Financeiro &amp; Saldo Restante
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
             {totalAcordo !== null && (

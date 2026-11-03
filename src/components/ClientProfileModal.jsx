@@ -16,6 +16,7 @@ import EditOSModal from './EditOSModal';
 import ReceiptModal from './ReceiptModal';
 import { isSameClient } from '../firebaseSync';
 import { syncOSPaymentDate, syncInstallmentPaymentDate } from '../dateSyncUtils';
+import { resolveOSUnit, buildGeneralPaymentReceiptPayload } from '../reparcelamentoUtils';
 
 const formatCPF_CNPJ = (val) => {
   if (!val) return 'Não informado';
@@ -108,6 +109,9 @@ const ClientProfileModal = ({
   const [isRegisteringPayment, setIsRegisteringPayment] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentOS, setPaymentOS] = useState('');
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [paymentMethod, setPaymentMethod] = useState('Dinheiro');
+  const [shouldPrintReceipt, setShouldPrintReceipt] = useState(true);
   const [confirmDeleteIndex, setConfirmDeleteIndex] = useState(null);
   const [osDataForPrint, setOsDataForPrint] = useState(null);
   const [isPrintingProfile, setIsPrintingProfile] = useState(false);
@@ -418,6 +422,77 @@ const ClientProfileModal = ({
     }, 250);
   };
 
+  // 🧾 Imprime o Recibo Oficial A4 com os dados preenchidos no formulário de pagamento
+  const handlePrintFormReceipt = () => {
+    const num = parseCurrency(paymentAmount);
+    if (!num || num <= 0) {
+      alert('Informe um valor de pagamento válido maior que zero para emitir o recibo.');
+      return;
+    }
+    const payload = buildGeneralPaymentReceiptPayload({
+      amount: num,
+      osNumero: paymentOS,
+      paymentDate,
+      paymentMethod,
+      clientData: currentClient,
+      currentUser
+    });
+    setPrintReparcelamentoReceiptData(payload);
+    setTimeout(() => {
+      window.print();
+    }, 250);
+  };
+
+  // 💰 Submissão do Formulário de Registro de Pagamento do Cliente
+  const handlePaymentFormSubmit = (e) => {
+    e.preventDefault();
+    const num = parseCurrency(paymentAmount);
+    if (!num || num <= 0) {
+      alert('Informe um valor de pagamento válido maior que zero.');
+      return;
+    }
+
+    if (onRegisterPayment) {
+      onRegisterPayment(paymentAmount, paymentOS, null, {
+        paymentDate,
+        paymentMethod,
+        countInCash: true
+      });
+    }
+
+    // Atualização instantânea da interface
+    const currentDebt = parseCurrency(currentClient?.['Valor Devido'] || 0);
+    const newDebt = Math.max(0, currentDebt - num);
+    const newStatus = newDebt === 0 ? 'Em dia' : currentClient?.['Status de Pagamento'];
+    setCurrentClient(prev => ({
+      ...prev,
+      'Valor Devido': newDebt.toFixed(2).replace('.', ','),
+      'Status de Pagamento': newStatus
+    }));
+
+    // Se selecionado, dispara impressão automática do Recibo Oficial A4
+    if (shouldPrintReceipt) {
+      const payload = buildGeneralPaymentReceiptPayload({
+        amount: num,
+        osNumero: paymentOS,
+        paymentDate,
+        paymentMethod,
+        clientData: currentClient,
+        currentUser,
+        saldoRestante: newDebt
+      });
+      setPrintReparcelamentoReceiptData(payload);
+      setTimeout(() => {
+        window.print();
+        setTimeout(() => setPrintReparcelamentoReceiptData(null), 1000);
+      }, 300);
+    }
+
+    setIsRegisteringPayment(false);
+    setPaymentAmount('');
+    setPaymentOS('');
+  };
+
   const handleSettleSingleInvoice = (inv) => {
     setSettleModalInvoice(inv);
     setSettlePaymentDate(new Date().toISOString().split('T')[0]);
@@ -433,7 +508,11 @@ const ClientProfileModal = ({
 
     try {
       if (onRegisterPayment) {
-        onRegisterPayment(val, osNum, inv, settleCountInCash);
+        onRegisterPayment(val, osNum, inv, {
+          paymentDate: settlePaymentDate,
+          paymentMethod: inv.MEIO_PAGAMENTO || inv.FORMA_PAGAMENTO || 'Boleto',
+          countInCash: settleCountInCash
+        });
         const currentDebt = parseCurrency(currentClient?.['Valor Devido']);
         const newDebt = Math.max(0, currentDebt - val);
         const newStatus = newDebt === 0 ? 'Em dia' : currentClient?.['Status de Pagamento'];
@@ -1776,16 +1855,8 @@ const ClientProfileModal = ({
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          if (onRegisterPayment) {
-                            onRegisterPayment(paymentAmount, paymentOS);
-                            setIsRegisteringPayment(false);
-                            setPaymentAmount('');
-                            setPaymentOS('');
-                          }
-                        }}
-                        className="mb-6 p-5 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 space-y-4"
+                        onSubmit={handlePaymentFormSubmit}
+                        className="mb-6 p-5 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 space-y-4 shadow-xl"
                       >
                         <div className="flex items-center justify-between">
                           <h4 className="text-xs font-black uppercase tracking-widest text-emerald-400 flex items-center gap-2">
@@ -1802,9 +1873,12 @@ const ClientProfileModal = ({
                           )}
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                          {/* 1. Valor do Pagamento */}
                           <div className="space-y-1">
-                            <label className="text-[10px] uppercase text-emerald-400 font-bold ml-1">Valor do Pagamento (R$)</label>
+                            <label className="text-[10px] uppercase text-emerald-400 font-bold ml-1 flex items-center gap-1">
+                              <DollarSign size={12} /> Valor do Pagamento (R$)
+                            </label>
                             <input 
                               type="text" 
                               inputMode="decimal"
@@ -1820,8 +1894,45 @@ const ClientProfileModal = ({
                             />
                           </div>
 
+                          {/* 2. Data de Pagamento */}
                           <div className="space-y-1">
-                            <label className="text-[10px] uppercase text-emerald-400 font-bold ml-1">OS Selecionada</label>
+                            <label className="text-[10px] uppercase text-emerald-400 font-bold ml-1 flex items-center gap-1">
+                              <Calendar size={12} /> Data de Pagamento
+                            </label>
+                            <input 
+                              type="date" 
+                              required 
+                              value={paymentDate} 
+                              onChange={e => setPaymentDate(e.target.value)} 
+                              className="w-full bg-black/40 border border-emerald-500/30 rounded-xl px-3.5 py-2 text-sm text-white font-bold focus:outline-none focus:border-emerald-500/60 [color-scheme:dark]" 
+                            />
+                          </div>
+
+                          {/* 3. Forma de Pagamento */}
+                          <div className="space-y-1">
+                            <label className="text-[10px] uppercase text-emerald-400 font-bold ml-1 flex items-center gap-1">
+                              <CreditCard size={12} /> Forma de Pagamento
+                            </label>
+                            <select 
+                              value={paymentMethod} 
+                              onChange={e => setPaymentMethod(e.target.value)} 
+                              className="w-full bg-slate-900 border border-emerald-500/30 rounded-xl px-3.5 py-2 text-sm text-white font-bold focus:outline-none focus:border-emerald-500/60"
+                            >
+                              <option value="Dinheiro" className="bg-slate-900 text-white">Dinheiro</option>
+                              <option value="PIX" className="bg-slate-900 text-white">PIX</option>
+                              <option value="Cartão de Débito" className="bg-slate-900 text-white">Cartão de Débito</option>
+                              <option value="Cartão de Crédito" className="bg-slate-900 text-white">Cartão de Crédito</option>
+                              <option value="Boleto" className="bg-slate-900 text-white">Boleto</option>
+                              <option value="Transferência Bancária" className="bg-slate-900 text-white">Transferência Bancária</option>
+                              <option value="Outro" className="bg-slate-900 text-white">Outro</option>
+                            </select>
+                          </div>
+
+                          {/* 4. OS Selecionada */}
+                          <div className="space-y-1">
+                            <label className="text-[10px] uppercase text-emerald-400 font-bold ml-1 flex items-center gap-1">
+                              <ClipboardList size={12} /> OS Selecionada
+                            </label>
                             <input 
                               type="text" 
                               placeholder="Nenhuma ou digite o Nº da OS" 
@@ -1876,13 +1987,46 @@ const ClientProfileModal = ({
                           </div>
                         </div>
 
-                        <div className="flex justify-end gap-2 pt-2 border-t border-emerald-500/20">
-                          <button type="button" onClick={() => setIsRegisteringPayment(false)} className="px-5 py-2 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold rounded-xl transition-all">
-                            Cancelar
-                          </button>
-                          <button type="submit" className="px-6 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black rounded-xl transition-all shadow-lg shadow-emerald-500/25 flex items-center gap-1.5">
-                            <CheckCircle size={14} /> Confirmar Pagamento {paymentOS ? `(OS: ${paymentOS})` : ''}
-                          </button>
+                        {/* Barra de Ações: Checkbox de Recibo e Botões */}
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-emerald-500/20">
+                          <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-300 hover:text-white font-semibold">
+                            <input
+                              type="checkbox"
+                              checked={shouldPrintReceipt}
+                              onChange={e => setShouldPrintReceipt(e.target.checked)}
+                              className="w-4 h-4 rounded border-emerald-500/40 text-emerald-500 focus:ring-emerald-500/30 bg-black/40 accent-emerald-500"
+                            />
+                            <span className="flex items-center gap-1.5">
+                              <Printer size={13} className="text-emerald-400" />
+                              Imprimir Recibo A4 ao Confirmar
+                            </span>
+                          </label>
+
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <button 
+                              type="button" 
+                              onClick={() => setIsRegisteringPayment(false)} 
+                              className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold rounded-xl transition-all"
+                            >
+                              Cancelar
+                            </button>
+
+                            <button 
+                              type="button" 
+                              onClick={handlePrintFormReceipt} 
+                              title="Imprimir Recibo Oficial A4 com os dados preenchidos agora"
+                              className="px-4 py-2 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/30 text-sky-300 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-sm"
+                            >
+                              <Printer size={14} /> Imprimir Recibo
+                            </button>
+
+                            <button 
+                              type="submit" 
+                              className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black rounded-xl transition-all shadow-lg shadow-emerald-500/25 flex items-center gap-1.5"
+                            >
+                              <CheckCircle size={14} /> Confirmar Pagamento {paymentOS ? `(OS: ${paymentOS})` : ''}
+                            </button>
+                          </div>
                         </div>
                       </motion.form>
                     )}
@@ -1971,7 +2115,7 @@ const ClientProfileModal = ({
       {osDataForPrint && currentClient && (
         <PrintableOS clientData={currentClient} osData={osDataForPrint} />
       )}
-      {(isPrintingProfile || (!osDataForPrint && isOpen)) && currentClient && (
+      {(isPrintingProfile || (!osDataForPrint && isOpen && !printReparcelamentoReceiptData)) && currentClient && (
         <PrintableClientProfile clientData={currentClient} storeName="YASMIN ÓTICA" />
       )}
       {printReparcelamentoReceiptData && (

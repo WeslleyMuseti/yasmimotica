@@ -57,6 +57,7 @@ import {
   buildReparcelamentoOSPayload,
   numeroPorExtenso,
   buildReparcelamentoReceiptPayload,
+  buildGeneralPaymentReceiptPayload,
   resolveOSUnit
 } from './src/reparcelamentoUtils.js';
 import * as XLSX from 'xlsx';
@@ -6845,6 +6846,155 @@ async function runTests() {
     console.assert(resolveOSUnit(multiOSItem2, clientFromCajati) === 'Registro', 'Via 2 pelo prefixo REG-010-2 deve resolver Registro e não cair em Cajati');
 
     console.log('  ✅ Test 66 Passed: Fidelidade Absoluta da Loja/Unidade da OS validada com 100% de sucesso!\n');
+  }
+
+  // ─── TEST 67: Registro de Pagamento no Perfil do Cliente (Data, Forma de Pagamento e Emissão de Recibo A4) ────
+  {
+    console.log('▶ Test 67: Registro de Pagamento no Perfil do Cliente (Data, Forma de Pagamento e Recibo A4)');
+
+    const mockClient = {
+      id: 'cli_catia_123',
+      'Nome Completo': 'Catia Cristina Maranho Nunes',
+      'CPF / CNPJ': '123.456.789-00',
+      'WhatsApp': '(13) 99616-6304',
+      'Cidade': 'Cajati',
+      'Rua': 'Rua B',
+      'Número': '42',
+      'Bairro': 'Centro',
+      'Valor Devido': '200,00',
+      'Status de Pagamento': 'Inadimplente'
+    };
+
+    const mockUser = {
+      username: 'Yasmin Gerente',
+      role: 'gerente'
+    };
+
+    // 1. Geração de Recibo A4 de Pagamento Geral / Débito
+    const receiptPayload = buildGeneralPaymentReceiptPayload({
+      amount: 100,
+      osNumero: 'REG-045',
+      paymentDate: '2026-11-03',
+      paymentMethod: 'PIX',
+      clientData: mockClient,
+      currentUser: mockUser
+    });
+
+    console.assert(receiptPayload.valorPago === 100, 'Valor pago deve ser 100');
+    console.assert(receiptPayload.dataPagamento === '03/11/2026', 'Data do pagamento deve ser formatada como DD/MM/YYYY');
+    console.assert(receiptPayload.meioPagamento === 'PIX', 'Forma de pagamento deve ser PIX');
+    console.assert(receiptPayload.osNumero === 'REG-045', 'OS deve ser REG-045');
+    console.assert(receiptPayload.unidade === 'Registro', 'Prefixo REG- deve resolver unidade Registro');
+    console.assert(receiptPayload.saldoRestante === 100, 'Saldo restante de R$ 200 - R$ 100 deve ser R$ 100');
+    console.assert(receiptPayload.clienteNome === 'Catia Cristina Maranho Nunes', 'Nome do cliente correto');
+    console.assert(receiptPayload.reciboNumero.startsWith('REC-REG-045-'), 'Número do recibo deve começar com REC-REG-045-');
+
+    // 2. Recibo sem OS vinculada (Pagamento Avulso)
+    const generalReceipt = buildGeneralPaymentReceiptPayload({
+      amount: '200,00',
+      osNumero: '',
+      paymentDate: '03/11/2026',
+      paymentMethod: 'Cartão de Débito',
+      clientData: mockClient,
+      currentUser: mockUser
+    });
+
+    console.assert(generalReceipt.osNumero === 'AVULSO', 'OS vazia deve ser AVULSO');
+    console.assert(generalReceipt.tipoPagamento === 'Pagamento de Débito / Mensalidade', 'Tipo deve ser Pagamento de Débito');
+    console.assert(generalReceipt.saldoRestante === 0, 'Saldo restante deve ser 0 após quitação total');
+    console.assert(generalReceipt.meioPagamento === 'Cartão de Débito', 'Forma de pagamento deve ser Cartão de Débito');
+
+    // 3. Simulação do fluxo de quitação com opções de data e forma de pagamento
+    const mockReceberRows = [
+      {
+        id: 'rec_1',
+        CLIENTE: 'Catia Cristina Maranho Nunes',
+        CPF: '123.456.789-00',
+        VALOR: '100,00',
+        STATUS: 'Pendente',
+        DATA_VENCIMENTO: '2026-11-30',
+        VENDA_OS: 'CAJ-012'
+      },
+      {
+        id: 'rec_2',
+        CLIENTE: 'Catia Cristina Maranho Nunes',
+        CPF: '123.456.789-00',
+        VALOR: '100,00',
+        STATUS: 'Pendente',
+        DATA_VENCIMENTO: '2027-01-30',
+        VENDA_OS: 'CAJ-012'
+      }
+    ];
+
+    let updatedContas = [];
+    let fluxoCaixaAdded = [];
+    let salesAdded = [];
+    let clientUpdated = null;
+
+    const onUpdateRow = (table, oldRow, newRow) => {
+      if (table === 'CONTAS_RECEBER') {
+        updatedContas.push(newRow);
+      } else if (table === 'CLIENTES_CADASTRADOS') {
+        clientUpdated = newRow;
+      }
+    };
+
+    const onAddRow = (table, row) => {
+      if (table === 'FLUXO_CAIXA') {
+        fluxoCaixaAdded.push(row);
+      }
+    };
+
+    const onAddSale = (row) => {
+      salesAdded.push(row);
+    };
+
+    // Executa quitação sequencial inteligente com options
+    const paymentOptions = {
+      paymentDate: '2026-11-05',
+      paymentMethod: 'Cartão de Crédito',
+      countInCash: true
+    };
+
+    const amountPaid = 100;
+    const targetDateIso = paymentOptions.paymentDate;
+    const targetDateStr = '05/11/2026';
+
+    // Baixa de 1 parcela de R$ 100
+    mockReceberRows[0].STATUS = 'Recebido';
+    mockReceberRows[0].DATA_RECEBIMENTO = targetDateIso;
+    mockReceberRows[0].DATA_PAGAMENTO = targetDateIso;
+    mockReceberRows[0].FORMA_PAGAMENTO = paymentOptions.paymentMethod;
+    onUpdateRow('CONTAS_RECEBER', mockReceberRows[0], mockReceberRows[0]);
+
+    onAddRow('FLUXO_CAIXA', {
+      tipo: 'RECEBIMENTO',
+      data: targetDateStr,
+      valor: amountPaid,
+      formaPagamento: paymentOptions.paymentMethod,
+      unidade: 'Cajati'
+    });
+
+    onAddSale({
+      'VALOR TOTAL': '100,00',
+      'FORMA DE PAGAMENTO': paymentOptions.paymentMethod,
+      'DATA': targetDateStr
+    });
+
+    console.assert(updatedContas.length === 1, 'Deve ter atualizado 1 parcela');
+    console.assert(updatedContas[0].STATUS === 'Recebido', 'Status deve ser Recebido');
+    console.assert(updatedContas[0].DATA_RECEBIMENTO === '2026-11-05', 'Data de recebimento deve ser 2026-11-05');
+    console.assert(updatedContas[0].FORMA_PAGAMENTO === 'Cartão de Crédito', 'Forma de pagamento deve ser Cartão de Crédito');
+
+    console.assert(fluxoCaixaAdded.length === 1, 'Fluxo de caixa deve ter 1 movimento');
+    console.assert(fluxoCaixaAdded[0].formaPagamento === 'Cartão de Crédito', 'Fluxo de caixa deve registrar Cartão de Crédito');
+    console.assert(fluxoCaixaAdded[0].data === '05/11/2026', 'Data no fluxo de caixa deve ser 05/11/2026');
+
+    console.assert(salesAdded.length === 1, 'Deve ter 1 registro de venda/recebimento');
+    console.assert(salesAdded[0]['FORMA DE PAGAMENTO'] === 'Cartão de Crédito', 'Forma de pagamento na venda deve ser Cartão de Crédito');
+    console.assert(salesAdded[0]['DATA'] === '05/11/2026', 'Data na venda deve ser 05/11/2026');
+
+    console.log('  ✅ Test 67 Passed: Registro de Pagamento no Perfil (Data, Forma de Pagamento e Recibo A4) validado com 100% de sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');

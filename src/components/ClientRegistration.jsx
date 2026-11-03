@@ -14,6 +14,7 @@ import DocumentAttachmentInput from './DocumentAttachmentInput';
 import * as XLSX from 'xlsx';
 import { isSameClient } from '../firebaseSync';
 import { executeOSCascadeDeletion } from '../osDeletionUtils';
+import { resolveOSUnit } from '../reparcelamentoUtils';
 
 const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -902,19 +903,42 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     }, 300);
   };
 
-  // 🛡️ Fix 4: Quitação de Parcela no Perfil do Cliente
-  const handleConfirmPayment = (paymentString, paymentOS, specificInvoice = null) => {
+  // 🛡️ Fix 4: Quitação de Parcela no Perfil do Cliente com Suporte a Data, Forma de Pagamento e Unidade
+  const handleConfirmPayment = (paymentString, paymentOS, specificInvoice = null, options = {}) => {
     if (!profileClientData) return;
     
     const amountPaid = parseCurrency(paymentString);
     if (amountPaid <= 0) return;
+
+    // Suporte flexível a objeto de opções ou booleano legado settleCountInCash
+    const opts = typeof options === 'boolean' 
+      ? { countInCash: options } 
+      : (options && typeof options === 'object' ? options : {});
 
     const clientId = profileClientData.id || profileClientData['_id'] || '';
     const clientCpf = String(profileClientData['CPF / CNPJ'] || profileClientData['CPF'] || '').trim();
     const clientName = profileClientData['Nome Completo'] || profileClientData['NOME'] || 'Cliente';
     const todayStr = new Date().toLocaleDateString('pt-BR');
     const todayIso = new Date().toISOString().split('T')[0];
-    const clientCity = profileClientData['Cidade'] || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || 'Cajati';
+
+    // Resolução robusta da Data do Pagamento
+    const rawPaymentDate = opts.paymentDate;
+    const targetDateIso = rawPaymentDate
+      ? (rawPaymentDate.includes('/') ? rawPaymentDate.split('/').reverse().join('-') : rawPaymentDate)
+      : todayIso;
+    const targetDateStr = targetDateIso.includes('-')
+      ? targetDateIso.split('-').reverse().join('/')
+      : (rawPaymentDate || todayStr);
+
+    const paymentMethod = opts.paymentMethod || 'Dinheiro';
+    const countInCash = opts.countInCash !== undefined ? opts.countInCash : true;
+
+    // Resolução inteligente da Unidade (Prioriza prefixo da OS e registro)
+    const osClean = String(paymentOS || specificInvoice?.VENDA_OS || specificInvoice?.OS || '').trim();
+    const clientCity = resolveOSUnit({ numeroOS: osClean }, profileClientData)
+      || profileClientData['Cidade'] 
+      || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) 
+      || 'Cajati';
 
     // 1. Quitação no ERP (CONTAS_RECEBER)
     if (specificInvoice && onUpdateRow) {
@@ -923,7 +947,10 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         ...specificInvoice,
         STATUS: 'Recebido',
         status: 'Recebido',
-        DATA_RECEBIMENTO: todayIso
+        DATA_RECEBIMENTO: targetDateIso,
+        DATA_PAGAMENTO: targetDateIso,
+        FORMA_PAGAMENTO: paymentMethod,
+        MEIO_PAGAMENTO: paymentMethod
       });
     } else if (receberData && receberData.length > 0 && onUpdateRow) {
       // Quitação sequencial inteligente: busca duplicatas em aberto do cliente
@@ -933,13 +960,13 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
       });
 
       // Se o usuário selecionou uma OS, prioriza parcelas vinculadas a essa OS
-      if (paymentOS && paymentOS.trim() && paymentOS.trim() !== '—') {
-        const osClean = paymentOS.trim().toLowerCase();
+      if (osClean && osClean !== '—') {
+        const osFilter = osClean.toLowerCase();
         clientInvoices.sort((a, b) => {
           const osA = String(a.VENDA_OS || a.OS || '').toLowerCase();
           const osB = String(b.VENDA_OS || b.OS || '').toLowerCase();
-          if (osA === osClean && osB !== osClean) return -1;
-          if (osB === osClean && osA !== osClean) return 1;
+          if (osA === osFilter && osB !== osFilter) return -1;
+          if (osB === osFilter && osA !== osFilter) return 1;
           const dA = new Date(a.DATA_VENCIMENTO || 0);
           const dB = new Date(b.DATA_VENCIMENTO || 0);
           return dA - dB;
@@ -962,7 +989,10 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
             ...conta,
             STATUS: 'Recebido',
             status: 'Recebido',
-            DATA_RECEBIMENTO: todayIso
+            DATA_RECEBIMENTO: targetDateIso,
+            DATA_PAGAMENTO: targetDateIso,
+            FORMA_PAGAMENTO: paymentMethod,
+            MEIO_PAGAMENTO: paymentMethod
           });
           remainingToSettle -= contaVal;
         } else {
@@ -971,7 +1001,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           onUpdateRow('CONTAS_RECEBER', conta, {
             ...conta,
             VALOR: novoSaldo.toFixed(2).replace('.', ','),
-            OBSERVACOES: `${conta.OBSERVACOES || ''} (Abatido R$ ${remainingToSettle.toFixed(2).replace('.', ',')} em ${todayStr})`.trim()
+            OBSERVACOES: `${conta.OBSERVACOES || ''} (Abatido R$ ${remainingToSettle.toFixed(2).replace('.', ',')} via ${paymentMethod} em ${targetDateStr})`.trim()
           });
           remainingToSettle = 0;
         }
@@ -979,18 +1009,18 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     }
 
     // 2. Registrar Entrada de Dinheiro no FLUXO_CAIXA
-    if (onAddRow) {
+    if (countInCash && onAddRow) {
       onAddRow('FLUXO_CAIXA', {
         id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         tipo: 'RECEBIMENTO',
-        dataHora: new Date().toISOString(),
-        data: todayStr,
+        dataHora: `${targetDateIso}T${new Date().toTimeString().split(' ')[0]}`,
+        data: targetDateStr,
         unidade: clientCity,
         operador: currentUser?.username || 'Caixa',
         valor: amountPaid,
-        formaPagamento: 'DINHEIRO / RECEBIMENTO',
+        formaPagamento: paymentMethod,
         motivo: `Recebimento Boleto - ${clientName}`,
-        detalhes: paymentOS ? `OS #${paymentOS}` : (specificInvoice ? `Parcela ${specificInvoice.DOCUMENTO || specificInvoice.DESCRICAO || ''}` : 'Recebimento de Débito'),
+        detalhes: osClean ? `OS #${osClean}` : (specificInvoice ? `Parcela ${specificInvoice.DOCUMENTO || specificInvoice.DESCRICAO || ''}` : 'Recebimento de Débito'),
         CLIENTE_ID: clientId,
         CLIENTE_CPF: clientCpf,
         CPF: clientCpf
@@ -1021,19 +1051,22 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         'CLIENTE_ID': clientId,
         'CLIENTE_CPF': clientCpf,
         'CPF': clientCpf,
-        'DATA  DA VENDA': todayStr,
-        'DATA': todayStr,
+        'DATA  DA VENDA': targetDateStr,
+        'DATA': targetDateStr,
         'PRODUTO': '💰 Recebimento de Mensalidade / Boleto',
         'VALOR TOTAL': amountPaid.toFixed(2).replace('.', ','),
         'VALOR DA VENDA': amountPaid.toFixed(2).replace('.', ','),
         'SITUAÇÃO': 'Pago',
         'STATUS_OS': 'Pago',
-        'OS DA VENDA': paymentOS ? paymentOS.trim() : (specificInvoice?.VENDA_OS || '—'),
+        'OS DA VENDA': osClean || (specificInvoice?.VENDA_OS || '—'),
         'NOME CLIENTE': clientName,
         'CLIENTE': clientName,
         'TELEFONE': profileClientData['WhatsApp'] || '',
         'CIDADE': clientCity,
-        'LOJA': clientCity
+        'LOJA': clientCity,
+        'FORMA DE PAGAMENTO': paymentMethod,
+        'FORMAS_PAGAMENTO': paymentMethod,
+        'MEIO_PAGAMENTO': paymentMethod
       });
     }
   };

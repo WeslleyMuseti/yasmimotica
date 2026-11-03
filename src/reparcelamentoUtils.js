@@ -928,6 +928,64 @@ export const buildReparcelamentoReceiptPayload = ({
 };
 
 /**
+ * Construtor padronizado de payload para o Recibo Oficial A4 de Pagamento Geral / Débito do Cliente
+ */
+export const buildGeneralPaymentReceiptPayload = ({
+  amount = 0,
+  osNumero = '',
+  paymentDate = '',
+  paymentMethod = 'Dinheiro',
+  clientData = {},
+  currentUser = null,
+  observacoes = '',
+  saldoRestante = null
+}) => {
+  const osClean = String(osNumero || '').replace(/^#/, '').trim();
+  const val = parseCurrencyValue(amount);
+  
+  // Converte data ISO (YYYY-MM-DD) ou mantém formato pt-BR (DD/MM/YYYY)
+  const dateStr = paymentDate
+    ? (paymentDate.includes('-') ? paymentDate.split('-').reverse().join('/') : paymentDate)
+    : new Date().toLocaleDateString('pt-BR');
+
+  const resolvedStore = resolveOSUnit({ numeroOS: osClean }, clientData) || clientData?.['Cidade'] || 'Cajati';
+  const clientName = clientData?.['Nome Completo'] || clientData?.['NOME'] || clientData?.['Nome'] || 'Cliente';
+  const clientCpf = clientData?.['CPF / CNPJ'] || clientData?.['CPF'] || '';
+  const clientPhone = clientData?.['WhatsApp'] || clientData?.['TELEFONE'] || clientData?.['Telefone'] || '';
+  const clientAddress = [clientData?.['Rua'], clientData?.['Número'], clientData?.['Bairro'], clientData?.['Cidade']].filter(Boolean).join(', ');
+
+  const currentDebt = parseCurrencyValue(clientData?.['Valor Devido'] || 0);
+  const calculatedRemaining = saldoRestante !== null && saldoRestante !== undefined 
+    ? parseCurrencyValue(saldoRestante) 
+    : Math.max(0, currentDebt - val);
+
+  return {
+    reciboNumero: `REC-${osClean || 'PAG'}-${Date.now().toString().slice(-5)}`,
+    dataPagamento: dateStr,
+    horaPagamento: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    unidade: resolvedStore,
+    operador: currentUser?.username || 'Yasmin Ótica',
+    clienteNome: clientName,
+    clienteCpf: clientCpf,
+    clienteTelefone: clientPhone,
+    clienteEndereco: clientAddress,
+    osNumero: osClean || 'AVULSO',
+    acordoId: '',
+    tipoPagamento: osClean ? `Pagamento Referente à OS #${osClean}` : 'Pagamento de Débito / Mensalidade',
+    numeroParcela: null,
+    totalParcelas: null,
+    vencimentoOriginal: '',
+    valorPago: val,
+    meioPagamento: paymentMethod || 'Dinheiro',
+    totalAcordo: null,
+    totalJaPago: null,
+    saldoRestante: calculatedRemaining,
+    parcelasRestantes: null,
+    observacoes: observacoes || `Pagamento registrado no sistema com sucesso via ${paymentMethod || 'Dinheiro'}.`
+  };
+};
+
+/**
  * 🛡️ Resolvedor Inteligente e Blindado da Unidade da Loja da OS
  * Prioriza o prefixo oficial da OS (REG-, JAC-, EXT-, CAJ-), seguido pelos dados da venda e loja selecionada,
  * impedindo que a cidade residencial do cliente ou fallbacks indevidos forcem Cajati.
