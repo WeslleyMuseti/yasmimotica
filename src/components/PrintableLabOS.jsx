@@ -14,17 +14,18 @@ const formatCurrencyPrint = (val) => {
   return isNaN(num) ? '' : num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-const SingleLabSheet = ({ osData, clientData = {}, isMulti = false, index = 1, total = 1 }) => {
+const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total = 1 }) => {
   if (!osData) return null;
+  const safeClient = clientData || osData?.clientData || {};
 
   const dataAtual = new Date().toLocaleDateString('pt-BR');
   
-  const otica = osData.unidade || osData.unit || clientData['Cidade'] || '';
-  const lente = osData.lente || clientData['Lente'] || clientData['Marca de Lente'] || '';
-  const laboratorio = osData.laboratorio || clientData['Laboratório'] || '';
+  const otica = osData.unidade || osData.unit || safeClient['Cidade'] || '';
+  const lente = osData.lente || safeClient['Lente'] || safeClient['Marca de Lente'] || '';
+  const laboratorio = osData.laboratorio || safeClient['Laboratório'] || '';
   const valorEntrada = formatCurrencyPrint(osData.valorEntrada);
   const formaPgto = osData.formasPagamento ? String(osData.formasPagamento).replace(/(?:FORMA DE PAGAMENTO|FORMA_PAGTO|FORMA_PAGAMENTO|MEIO_PAGAMENTO)\s*:\s*/gi, '').split('\n')[0].trim() : '';
-  const tipoArmacao = osData.armacao || clientData['Modelo de Armação'] || '';
+  const tipoArmacao = osData.armacao || safeClient['Modelo de Armação'] || '';
 
   return (
     <div className="single-lab-sheet-wrapper bg-white text-slate-900 font-sans text-xs leading-tight select-none w-full max-w-[196mm] mx-auto pb-4">
@@ -230,8 +231,9 @@ const SingleLabSheet = ({ osData, clientData = {}, isMulti = false, index = 1, t
   );
 };
 
-const PrintableLabOS = ({ osData, clientData = {} }) => {
+const PrintableLabOS = ({ osData, clientData }) => {
   if (!osData) return null;
+  const safeClient = clientData || osData?.clientData || {};
   const list = (osData.multiOrders && Array.isArray(osData.multiOrders))
     ? osData.multiOrders
     : (Array.isArray(osData) ? osData : [osData]);

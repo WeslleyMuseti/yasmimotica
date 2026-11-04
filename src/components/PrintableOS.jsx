@@ -39,30 +39,31 @@ const formatDatePrint = (dStr) => {
   return dStr;
 };
 
-const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, total = 1 }) => {
+const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total = 1 }) => {
   if (!osData) return null;
+  const safeClient = clientData || osData?.clientData || {};
 
   const isSecondary = Boolean(osData.isSecondaryOS || (isMulti && index > 1 && (osData.financeiroUnificado || parseCurrencyPrint(osData.valorTotal) === 0)));
-  const saleDate = osData.dataVenda || osData['DATA  DA VENDA'] || osData['DATA DA VENDA'] || osData['DATA_VENDA'] || osData['Data da Venda'] || osData['DATA'] || osData['Data'] || clientData['DATA  DA VENDA'] || clientData['DATA'] || '';
-  const saleTime = osData.hora || osData.HORA || clientData.hora || clientData.HORA || (typeof saleDate === 'string' && saleDate.includes(':') ? saleDate.split(/\s+/)[1] : (osData.DATA_HORA && typeof osData.DATA_HORA === 'string' && osData.DATA_HORA.includes(':') ? osData.DATA_HORA.split(/\s+/)[1] : ''));
+  const saleDate = osData.dataVenda || osData['DATA  DA VENDA'] || osData['DATA DA VENDA'] || osData['DATA_VENDA'] || osData['Data da Venda'] || osData['DATA'] || osData['Data'] || safeClient['DATA  DA VENDA'] || safeClient['DATA'] || '';
+  const saleTime = osData.hora || osData.HORA || safeClient.hora || safeClient.HORA || (typeof saleDate === 'string' && saleDate.includes(':') ? saleDate.split(/\s+/)[1] : (osData.DATA_HORA && typeof osData.DATA_HORA === 'string' && osData.DATA_HORA.includes(':') ? osData.DATA_HORA.split(/\s+/)[1] : ''));
 
   // ─── UNIDADE DA LOJA ONDE A OS FOI EMITIDA ───────────────────────
-  const osUnit = resolveOSUnit(osData, clientData);
+  const osUnit = resolveOSUnit(osData, safeClient);
 
   // ─── DADOS DO CLIENTE TITULAR ───────────────────────────────────
-  const clientName = clientData['Nome Completo'] || clientData['NOME'] || clientData['CLIENTE'] || clientData['Nome'] || osData['nomeCliente'] || osData['CLIENTE'] || 'Cliente';
-  const clientZap = clientData['WhatsApp'] || clientData['TELEFONE'] || clientData['Telefone'] || clientData['Celular'] || clientData['FONE'] || 'Não informado';
-  const clientCpf = clientData['CPF / CNPJ'] || clientData['CPF'] || clientData['CNPJ'] || clientData['CLIENTE_CPF'] || 'Não informado';
-  const clientRg = clientData['RG'] || clientData['rg'] || osData.rg || '';
-  const clientNasc = clientData['Data de Nascimento'] || clientData['DATA_NASCIMENTO'] || clientData['Nascimento'] ? formatDatePrint(clientData['Data de Nascimento'] || clientData['DATA_NASCIMENTO'] || clientData['Nascimento']) : '';
-  const clientEmail = clientData['E-mail'] || clientData['Email'] || clientData['EMAIL'] || '';
-  const clientCep = clientData['CEP'] || clientData['Cep'] || clientData['cep'] || '';
+  const clientName = safeClient['Nome Completo'] || safeClient['NOME'] || safeClient['CLIENTE'] || safeClient['Nome'] || osData['nomeCliente'] || osData['CLIENTE'] || 'Cliente';
+  const clientZap = safeClient['WhatsApp'] || safeClient['TELEFONE'] || safeClient['Telefone'] || safeClient['Celular'] || safeClient['FONE'] || 'Não informado';
+  const clientCpf = safeClient['CPF / CNPJ'] || safeClient['CPF'] || safeClient['CNPJ'] || safeClient['CLIENTE_CPF'] || 'Não informado';
+  const clientRg = safeClient['RG'] || safeClient['rg'] || osData.rg || '';
+  const clientNasc = safeClient['Data de Nascimento'] || safeClient['DATA_NASCIMENTO'] || safeClient['Nascimento'] ? formatDatePrint(safeClient['Data de Nascimento'] || safeClient['DATA_NASCIMENTO'] || safeClient['Nascimento']) : '';
+  const clientEmail = safeClient['E-mail'] || safeClient['Email'] || safeClient['EMAIL'] || '';
+  const clientCep = safeClient['CEP'] || safeClient['Cep'] || safeClient['cep'] || '';
   
-  const rua = clientData['Rua'] || clientData['ENDERECO'] || clientData['Endereço'] || clientData['LOGRADOURO'] || '';
-  const num = clientData['Número'] || clientData['NUMERO'] || clientData['Numero'] || '';
-  const bairro = clientData['Bairro'] || clientData['BAIRRO'] || '';
-  const cidade = clientData['Cidade'] || clientData['CIDADE'] || osUnit;
-  const estado = clientData['Estado'] || clientData['ESTADO'] || clientData['UF'] || 'SP';
+  const rua = safeClient['Rua'] || safeClient['ENDERECO'] || safeClient['Endereço'] || safeClient['LOGRADOURO'] || '';
+  const num = safeClient['Número'] || safeClient['NUMERO'] || safeClient['Numero'] || '';
+  const bairro = safeClient['Bairro'] || safeClient['BAIRRO'] || '';
+  const cidade = safeClient['Cidade'] || safeClient['CIDADE'] || osUnit;
+  const estado = safeClient['Estado'] || safeClient['ESTADO'] || safeClient['UF'] || 'SP';
   
   const addressParts = [
     rua && num ? `${rua}, nº ${num}` : (rua || (num ? `Nº ${num}` : '')),
@@ -73,9 +74,9 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
   const clientAddress = addressParts.length > 0 ? addressParts.join(' - ') : 'Não informado';
 
   // Responsável Legal (apenas se existir)
-  const respName = clientData['Responsável Nome'] || clientData['Responsável'] || clientData['RESPONSAVEL'] || osData.responsavel;
-  const respZap = clientData['Responsável WhatsApp'] || clientData['RESPONSAVEL_WHATSAPP'] || '';
-  const respCpf = clientData['Responsável CPF'] || clientData['RESPONSAVEL_CPF'] || '';
+  const respName = safeClient['Responsável Nome'] || safeClient['Responsável'] || safeClient['RESPONSAVEL'] || osData.responsavel;
+  const respZap = safeClient['Responsável WhatsApp'] || safeClient['RESPONSAVEL_WHATSAPP'] || '';
+  const respCpf = safeClient['Responsável CPF'] || safeClient['RESPONSAVEL_CPF'] || '';
 
   // Beneficiário / Paciente (quando for OS extra ou nominalmente diferente do titular)
   const beneficiaryName = String(
@@ -90,7 +91,7 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
   // ─── PADRÃO DE ITENS DO PEDIDO (PRODUTOS & SERVIÇOS) ─────────────
   const orderItems = useMemo(() => {
     // 1. Se houver array de itens explícito vindo do PDV ou OS
-    const rawItens = osData.itens || clientData.itens || (osData.raw && osData.raw.itens) || [];
+    const rawItens = osData.itens || safeClient.itens || (osData.raw && osData.raw.itens) || [];
     if (Array.isArray(rawItens) && rawItens.length > 0) {
       return rawItens.map(item => {
         let tipo = 'Produto';
@@ -114,11 +115,11 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
 
     // 2. Monta a partir dos campos estruturados de Armação e Lente
     const items = [];
-    const armacaoNome = osData.armacao || clientData['Armação'] || clientData['Modelo de Armação'];
+    const armacaoNome = osData.armacao || safeClient['Armação'] || safeClient['Modelo de Armação'];
     if (armacaoNome && armacaoNome !== 'Não informada') {
       const extra = [];
-      if (clientData['Cor']) extra.push(`Cor: ${clientData['Cor']}`);
-      if (clientData['REFERENCIA_SKU']) extra.push(`Ref: ${clientData['REFERENCIA_SKU']}`);
+      if (safeClient['Cor']) extra.push(`Cor: ${safeClient['Cor']}`);
+      if (safeClient['REFERENCIA_SKU']) extra.push(`Ref: ${safeClient['REFERENCIA_SKU']}`);
       items.push({
         tipo: 'Armação',
         nome: armacaoNome,
@@ -129,11 +130,11 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
       });
     }
 
-    const lenteNome = osData.lente || clientData['Lente'] || clientData['Marca de Lente'];
+    const lenteNome = osData.lente || safeClient['Lente'] || safeClient['Marca de Lente'];
     if (lenteNome && lenteNome !== 'Não informada') {
       const extra = [];
-      if (osData.tratamento || clientData['Tratamento']) extra.push(`Tratamento: ${osData.tratamento || clientData['Tratamento']}`);
-      if (clientData['MATERIAL']) extra.push(clientData['MATERIAL']);
+      if (osData.tratamento || safeClient['Tratamento']) extra.push(`Tratamento: ${osData.tratamento || safeClient['Tratamento']}`);
+      if (safeClient['MATERIAL']) extra.push(safeClient['MATERIAL']);
       items.push({
         tipo: 'Lente Oftálmica',
         nome: lenteNome,
@@ -144,10 +145,10 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
       });
     }
 
-    if (items.length === 0 && (osData.produto || clientData['PRODUTO'])) {
+    if (items.length === 0 && (osData.produto || safeClient['PRODUTO'])) {
       items.push({
         tipo: 'Óculos Completo',
-        nome: osData.produto || clientData['PRODUTO'],
+        nome: osData.produto || safeClient['PRODUTO'],
         detalhes: '',
         qtd: 1,
         precoUnit: null,
@@ -156,7 +157,7 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
     }
 
     return items;
-  }, [osData, clientData]);
+  }, [osData, safeClient]);
 
   const hasItemPrices = orderItems.some(item => item.total && item.total > 0);
 
@@ -180,12 +181,12 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
 
   // ─── RESOLUÇÃO DO MÉTODO DE PAGAMENTO DA ENTRADA E DO RESTANTE ────────
   const { resolvedFormaEntrada, resolvedFormaRestante } = useMemo(() => {
-    const rawFP = String(osData.formasPagamento || osData.formaPagamento || clientData['FORMAS_PAGAMENTO'] || clientData['FORMA_PAGTO'] || '');
-    const explicitEntrada = String(osData.formaPagamentoEntrada || osData.FORMA_ENTRADA || osData.raw?.FORMA_ENTRADA || clientData['FORMA_ENTRADA'] || clientData.formaPagamentoEntrada || '').trim();
-    const explicitRestante = String(osData.formaPagamentoRestante || osData.FORMA_RESTANTE || osData.raw?.FORMA_RESTANTE || clientData['FORMA_RESTANTE'] || clientData.formaPagamentoRestante || '').trim();
+    const rawFP = String(osData.formasPagamento || osData.formaPagamento || safeClient['FORMAS_PAGAMENTO'] || safeClient['FORMA_PAGTO'] || '');
+    const explicitEntrada = String(osData.formaPagamentoEntrada || osData.FORMA_ENTRADA || osData.raw?.FORMA_ENTRADA || safeClient['FORMA_ENTRADA'] || safeClient.formaPagamentoEntrada || '').trim();
+    const explicitRestante = String(osData.formaPagamentoRestante || osData.FORMA_RESTANTE || osData.raw?.FORMA_RESTANTE || safeClient['FORMA_RESTANTE'] || safeClient.formaPagamentoRestante || '').trim();
 
-    const entradaNum = parseCurrencyPrint(osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? clientData['VALOR ENTRADA']);
-    const restanteNum = parseCurrencyPrint(osData.restante ?? osData['RESTANTE'] ?? clientData['RESTANTE']);
+    const entradaNum = parseCurrencyPrint(osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? safeClient['VALOR ENTRADA']);
+    const restanteNum = parseCurrencyPrint(osData.restante ?? osData['RESTANTE'] ?? safeClient['RESTANTE']);
 
     let entMethod = explicitEntrada;
     let restMethod = explicitRestante;
@@ -227,13 +228,13 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
       resolvedFormaEntrada: entMethod,
       resolvedFormaRestante: restMethod
     };
-  }, [osData, clientData, installmentsList]);
+  }, [osData, safeClient, installmentsList]);
 
   // ─── PARSER E FORMATAÇÃO ORGANIZADA DAS FORMAS DE PAGAMENTO ────────
   const paymentMethodsList = useMemo(() => {
-    const rawFP = osData.formasPagamento || osData.formaPagamento || clientData['FORMAS_PAGAMENTO'] || clientData['FORMA_PAGTO'] || '';
-    const entradaNum = parseCurrencyPrint(osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? clientData['VALOR ENTRADA']);
-    const restanteNum = parseCurrencyPrint(osData.restante ?? osData['RESTANTE'] ?? clientData['RESTANTE']);
+    const rawFP = osData.formasPagamento || osData.formaPagamento || safeClient['FORMAS_PAGAMENTO'] || safeClient['FORMA_PAGTO'] || '';
+    const entradaNum = parseCurrencyPrint(osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? safeClient['VALOR ENTRADA']);
+    const restanteNum = parseCurrencyPrint(osData.restante ?? osData['RESTANTE'] ?? safeClient['RESTANTE']);
 
     if (!rawFP && installmentsList.length === 0 && !resolvedFormaEntrada && !resolvedFormaRestante) {
       return ['À Vista / Conforme Lançamento'];
@@ -273,7 +274,7 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
     }
     
     return unique.length > 0 ? unique : ['À Vista / Conforme Lançamento'];
-  }, [osData, clientData, installmentsList, resolvedFormaEntrada, resolvedFormaRestante]);
+  }, [osData, safeClient, installmentsList, resolvedFormaEntrada, resolvedFormaRestante]);
 
   return (
     <div className="single-os-sheet-wrapper bg-white text-slate-900 font-sans text-[9px] leading-tight select-none">
@@ -555,12 +556,12 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
               <strong className="text-[7.5px] uppercase text-slate-700 font-black">
                 {isSecondary ? 'Vínculo de Cobrança:' : 'Forma(s) de Pagamento Lançadas:'}
               </strong>
-              {(osData.voucher || clientData['VOUCHER']) && (
+              {(osData.voucher || safeClient['VOUCHER']) && (
                 <span className="text-[7.5px] font-black text-emerald-800 bg-emerald-100/90 border border-emerald-400 px-2 py-0.5 rounded shadow-xs flex items-center gap-1">
-                  <span>🎟️ Voucher: {osData.voucher || clientData['VOUCHER']}</span>
-                  {(parseCurrencyPrint(osData.descontoVoucher ?? osData.valorDesconto ?? osData.DESCONTO_VOUCHER ?? clientData['DESCONTO_VOUCHER'] ?? clientData.descontoVoucher) > 0) && (
+                  <span>🎟️ Voucher: {osData.voucher || safeClient['VOUCHER']}</span>
+                  {(parseCurrencyPrint(osData.descontoVoucher ?? osData.valorDesconto ?? osData.DESCONTO_VOUCHER ?? safeClient['DESCONTO_VOUCHER'] ?? safeClient.descontoVoucher) > 0) && (
                     <span className="text-emerald-950 font-bold">
-                      (-R$ {formatCurrencyPrint(osData.descontoVoucher ?? osData.valorDesconto ?? osData.DESCONTO_VOUCHER ?? clientData['DESCONTO_VOUCHER'] ?? clientData.descontoVoucher)})
+                      (-R$ {formatCurrencyPrint(osData.descontoVoucher ?? osData.valorDesconto ?? osData.DESCONTO_VOUCHER ?? safeClient['DESCONTO_VOUCHER'] ?? safeClient.descontoVoucher)})
                     </span>
                   )}
                 </span>
@@ -636,18 +637,18 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
           <div className="mt-2 pt-1.5 border-t-2 border-slate-300 grid grid-cols-3 gap-2 text-center bg-white p-1.5 rounded-md border border-slate-200 shadow-2xs">
             <div className="text-[9px] font-black text-slate-950">
               <span className="text-slate-500 font-bold block text-[7.5px] uppercase tracking-wider">Total do Pedido</span>
-              <span>Valor Total: R$ {formatCurrencyPrint(osData.valorTotal ?? osData['VALOR TOTAL'] ?? osData['VALOR'] ?? osData.total ?? osData.valor ?? clientData['VALOR TOTAL'] ?? clientData['Valor Total'])}</span>
+              <span>Valor Total: R$ {formatCurrencyPrint(osData.valorTotal ?? osData['VALOR TOTAL'] ?? osData['VALOR'] ?? osData.total ?? osData.valor ?? safeClient['VALOR TOTAL'] ?? safeClient['Valor Total'])}</span>
             </div>
             <div className="text-[9px] font-black text-emerald-800 border-x border-slate-200">
               <span className="text-emerald-700 font-bold block text-[7.5px] uppercase tracking-wider">Entrada / Sinal</span>
-              <span>Entrada: R$ {formatCurrencyPrint(osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? osData.entrada ?? osData.sinal ?? clientData['VALOR ENTRADA'] ?? clientData['Valor Entrada'])}</span>
+              <span>Entrada: R$ {formatCurrencyPrint(osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? osData.entrada ?? osData.sinal ?? safeClient['VALOR ENTRADA'] ?? safeClient['Valor Entrada'])}</span>
               {!isSecondary && resolvedFormaEntrada && (
                 <span className="block text-[7px] font-bold text-emerald-700 uppercase">({resolvedFormaEntrada})</span>
               )}
             </div>
             <div className="text-[9px] font-black text-slate-950">
               <span className="text-slate-500 font-bold block text-[7.5px] uppercase tracking-wider">Saldo Restante</span>
-              <span>Restante: R$ {formatCurrencyPrint(osData.restante ?? osData['RESTANTE'] ?? osData.saldoRestante ?? clientData['RESTANTE'] ?? clientData['Restante'])}</span>
+              <span>Restante: R$ {formatCurrencyPrint(osData.restante ?? osData['RESTANTE'] ?? osData.saldoRestante ?? safeClient['RESTANTE'] ?? safeClient['Restante'])}</span>
               {!isSecondary && resolvedFormaRestante && (
                 <span className="block text-[7px] font-bold text-rose-700 uppercase">({resolvedFormaRestante})</span>
               )}
@@ -702,8 +703,9 @@ const SingleOSSheet = ({ osData, clientData = {}, isMulti = false, index = 1, to
   );
 };
 
-const PrintableOS = ({ osData, clientData = {} }) => {
+const PrintableOS = ({ osData, clientData }) => {
   if (!osData) return null;
+  const safeClient = clientData || osData?.clientData || {};
   const list = (osData.multiOrders && Array.isArray(osData.multiOrders))
     ? osData.multiOrders
     : (osData.orders && Array.isArray(osData.orders))
@@ -769,7 +771,7 @@ const PrintableOS = ({ osData, clientData = {} }) => {
             <div key={idx} className={list.length > 1 ? "os-sheet-page" : "os-sheet-page-single"}>
               <SingleOSSheet 
                 osData={mergedItem} 
-                clientData={item.clientData || clientData}
+                clientData={item.clientData || safeClient}
                 isMulti={list.length > 1}
                 index={item.osIndex || (idx + 1)}
                 total={item.totalOS || list.length}

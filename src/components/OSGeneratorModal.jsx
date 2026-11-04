@@ -171,6 +171,7 @@ const OSGeneratorModal = ({
   selectedCity: propSelectedCity = '',
   initialCity = ''
 }) => {
+  const safeClient = clientData || {};
   const [selectedCity, setSelectedCity] = useState('');
   const [baseOSNumber, setBaseOSNumber] = useState('');
   
@@ -206,18 +207,18 @@ const OSGeneratorModal = ({
 
   // ─── AUDITORIA AUTOMÁTICA DE INADIMPLÊNCIA DO RESPONSÁVEL LEGAL ────────────
   const responsavelDebtCheck = useMemo(() => {
-    if (!clientData) return null;
+    if (!safeClient || !Object.keys(safeClient).length) return null;
 
     const respName = String(
-      clientData['Responsável Nome'] || 
-      clientData['Responsável'] || 
-      clientData['responsavel'] || 
+      safeClient['Responsável Nome'] || 
+      safeClient['Responsável'] || 
+      safeClient['responsavel'] || 
       ''
     ).trim();
 
     const respCpf = String(
-      clientData['Responsável CPF'] || 
-      clientData['responsavelCpf'] || 
+      safeClient['Responsável CPF'] || 
+      safeClient['responsavelCpf'] || 
       ''
     ).replace(/\D/g, '');
 
@@ -694,8 +695,8 @@ const OSGeneratorModal = ({
           id: `os_tab_${Date.now()}_${i}`,
           label: `Óculos ${i + 1}`,
           nomePessoa: i === 0 
-            ? (clientData['Nome Completo'] || clientData['CLIENTE'] || clientData['Nome'] || '') 
-            : (clientData['nomePessoa'] || clientData['PACIENTE'] || ''),
+            ? (safeClient['Nome Completo'] || safeClient['CLIENTE'] || safeClient['Nome'] || '') 
+            : (safeClient['nomePessoa'] || safeClient['PACIENTE'] || ''),
           numeroOS: osNum,
           medico: clientData['medico'] || clientData['MEDICO'] || '',
           dataVenda: initialSaleDateIso,
@@ -1209,7 +1210,7 @@ const OSGeneratorModal = ({
 
     if (osList.length <= 1) {
       const activeOS = osList[0] || {};
-      const titularNome = clientData['Nome Completo'] || clientData['CLIENTE'] || clientData['Nome'] || '';
+      const titularNome = safeClient['Nome Completo'] || safeClient['CLIENTE'] || safeClient['Nome'] || '';
       const finalNomePessoa = activeOS.nomePessoa || formData.nomePessoa || titularNome;
 
       const singleData = {
@@ -1248,7 +1249,7 @@ const OSGeneratorModal = ({
       };
       onSaveAndPrint(singleData);
     } else {
-      const titularNome = clientData['Nome Completo'] || clientData['CLIENTE'] || clientData['Nome'] || '';
+      const titularNome = safeClient['Nome Completo'] || safeClient['CLIENTE'] || safeClient['Nome'] || '';
 
       const multiPayload = {
         isMultiOS: true,
@@ -1576,9 +1577,9 @@ const OSGeneratorModal = ({
                 <div className="w-full sm:w-80">
                   <input
                     type="text"
-                    value={currentOS.nomePessoa ?? (activeTabIndex === 0 ? (clientData['Nome Completo'] || clientData['CLIENTE'] || '') : '')}
+                    value={currentOS.nomePessoa ?? (activeTabIndex === 0 ? (safeClient['Nome Completo'] || safeClient['CLIENTE'] || '') : '')}
                     onChange={(e) => handleCurrentOSChange('nomePessoa', e.target.value)}
-                    placeholder={activeTabIndex > 0 ? "Ex: Maria Eduarda (Filha)" : (clientData['Nome Completo'] || "Nome do Paciente")}
+                    placeholder={activeTabIndex > 0 ? "Ex: Maria Eduarda (Filha)" : (safeClient['Nome Completo'] || "Nome do Paciente")}
                     className="w-full bg-black/70 border border-fuchsia-400/50 rounded-xl px-3.5 py-2 text-xs font-black text-white placeholder-slate-500 focus:outline-none focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-400/30 shadow-inner"
                   />
                 </div>

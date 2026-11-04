@@ -22,7 +22,8 @@ const cleanVal = (v) => {
 const fmtMoeda = (v) => `R$ ${Number(cleanVal(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const PrintableReceipt = ({ saleData, clientData }) => {
-  if (!saleData || !clientData) return null;
+  if (!saleData) return null;
+  const safeClient = clientData || saleData.clientData || {};
 
   const cleanBoletoText = (text) => {
     if (!text) return '';
@@ -75,12 +76,12 @@ const PrintableReceipt = ({ saleData, clientData }) => {
 
       {/* Dados do Cliente */}
       <div className="border-b border-black pb-3 mb-3 text-[11px]">
-        <p><strong>Cliente:</strong> {clientData['Nome Completo'] || clientData['NOME'] || 'Cliente não identificado'}</p>
-        {(clientData['CPF / CNPJ'] || clientData['CPF']) && (
-          <p><strong>CPF:</strong> {clientData['CPF / CNPJ'] || clientData['CPF']}</p>
+        <p><strong>Cliente:</strong> {safeClient['Nome Completo'] || safeClient['NOME'] || 'Cliente não identificado'}</p>
+        {(safeClient['CPF / CNPJ'] || safeClient['CPF']) && (
+          <p><strong>CPF:</strong> {safeClient['CPF / CNPJ'] || safeClient['CPF']}</p>
         )}
-        {clientData['WhatsApp'] && (
-          <p><strong>WhatsApp:</strong> {clientData['WhatsApp']}</p>
+        {safeClient['WhatsApp'] && (
+          <p><strong>WhatsApp:</strong> {safeClient['WhatsApp']}</p>
         )}
         {saleData.cidade && (
           <p><strong>Unidade / Loja:</strong> {saleData.cidade}</p>

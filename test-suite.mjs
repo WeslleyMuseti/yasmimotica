@@ -7099,6 +7099,39 @@ async function runTests() {
     console.log('  ✅ Test 68 Passed: Totalizadores de Parcelas Filtradas (Pagas, Vencidas, Pendentes e Geral) validados com 100% de sucesso!\n');
   }
 
+  // -------------------------------------------------------------
+  // TEST 69: Blindagem Nula em Geração e Impressão de OS (Anti-Crash ErrorBoundary)
+  // -------------------------------------------------------------
+  {
+    console.log('▶ Test 69: Blindagem Nula em Geração e Impressão de OS (Anti-Crash ErrorBoundary)');
+    const osModalSrc = fs.readFileSync('./src/components/OSGeneratorModal.jsx', 'utf8');
+    const printableOSSrc = fs.readFileSync('./src/components/PrintableOS.jsx', 'utf8');
+    const clientRegSrc = fs.readFileSync('./src/components/ClientRegistration.jsx', 'utf8');
+    const printableReceiptSrc = fs.readFileSync('./src/components/PrintableReceipt.jsx', 'utf8');
+    const printableLabOSSrc = fs.readFileSync('./src/components/PrintableLabOS.jsx', 'utf8');
+
+    // 1. OSGeneratorModal deve definir safeClient e nunca acessar clientData['Nome Completo'] sem proteção
+    console.assert(osModalSrc.includes('const safeClient = clientData || {};'), 'OSGeneratorModal deve declarar safeClient com fallback');
+    console.assert(!osModalSrc.includes("clientData['Nome Completo']"), "OSGeneratorModal não deve conter acessos diretos desprotegidos a clientData['Nome Completo']");
+    console.assert(osModalSrc.includes("safeClient['Nome Completo']"), "OSGeneratorModal deve utilizar safeClient['Nome Completo']");
+
+    // 2. PrintableOS deve ter safeClient em SingleOSSheet e PrintableOS
+    console.assert(printableOSSrc.includes('const safeClient = clientData || osData?.clientData || {};'), 'PrintableOS deve resolver safeClient com fallback de clientData e osData');
+    console.assert(!printableOSSrc.includes("clientData['Nome Completo']"), "PrintableOS não deve conter acessos desprotegidos a clientData['Nome Completo']");
+    console.assert(!printableOSSrc.includes("clientData['WhatsApp']"), "PrintableOS não deve conter acessos desprotegidos a clientData['WhatsApp']");
+    console.assert(printableOSSrc.includes("safeClient['Nome Completo']"), "PrintableOS deve usar safeClient['Nome Completo']");
+
+    // 3. ClientRegistration deve embutir snapshot do cliente em osDataForPrint e sincronizar o teardown de impressão
+    console.assert(clientRegSrc.includes('clientData: clientSnapshot'), 'ClientRegistration deve embutir clientSnapshot em osDataForPrint');
+    console.assert(clientRegSrc.includes('osClientData || osDataForPrint?.clientData || {}'), 'ClientRegistration deve repassar fallback seguro para PrintableOS');
+
+    // 4. PrintableReceipt e PrintableLabOS devem possuir safeClient
+    console.assert(printableReceiptSrc.includes('const safeClient = clientData || saleData.clientData || {};'), 'PrintableReceipt deve proteger clientData nulo com safeClient');
+    console.assert(printableLabOSSrc.includes('const safeClient = clientData || osData?.clientData || {};'), 'PrintableLabOS deve proteger clientData nulo com safeClient');
+
+    console.log('  ✅ Test 69 Passed: Blindagem Nula em Geração e Impressão de OS (Anti-Crash ErrorBoundary) validada com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

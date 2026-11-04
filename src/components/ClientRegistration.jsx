@@ -744,24 +744,29 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     const isMulti = Boolean(osData?.isMultiOS && Array.isArray(osData?.orders) && osData.orders.length > 0);
     const ordersList = isMulti ? osData.orders : [osData];
     const primaryOrder = ordersList[0] || osData;
-    const saleCity = primaryOrder.selectedCity || primaryOrder.unidade || osData.selectedCity || osData.unidade || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || osClientData['Cidade'] || 'Cajati';
+    const clientSnapshot = osClientData ? { ...osClientData } : {};
+    const saleCity = primaryOrder.selectedCity || primaryOrder.unidade || osData.selectedCity || osData.unidade || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || clientSnapshot['Cidade'] || clientSnapshot['CIDADE'] || 'Cajati';
 
     setOsDataForPrint(isMulti ? {
       ...primaryOrder,
+      clientData: clientSnapshot,
       selectedCity: saleCity,
       unidade: saleCity,
       multiOrders: ordersList.map(o => ({
         ...o,
+        clientData: clientSnapshot,
         selectedCity: o.selectedCity || o.unidade || saleCity,
         unidade: o.unidade || o.selectedCity || saleCity
       })),
       orders: ordersList.map(o => ({
         ...o,
+        clientData: clientSnapshot,
         selectedCity: o.selectedCity || o.unidade || saleCity,
         unidade: o.unidade || o.selectedCity || saleCity
       }))
     } : {
       ...osData,
+      clientData: clientSnapshot,
       selectedCity: saleCity,
       unidade: saleCity
     });
@@ -897,9 +902,12 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     // Pequeno delay para garantir que o componente PrintableOS renderize antes de chamar o print
     setTimeout(() => {
       window.print();
-      setOsClientData(null);
-      setOsSaleData(null);
-      setTimeout(() => setOsDataForPrint(null), 1000);
+      // Limpeza simultânea e coordenada após a conclusão do ciclo de impressão
+      setTimeout(() => {
+        setOsClientData(null);
+        setOsSaleData(null);
+        setOsDataForPrint(null);
+      }, 1000);
     }, 300);
   };
 
@@ -2075,7 +2083,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
       {/* Modal e Área de Impressão da OS */}
       <OSGeneratorModal 
         isOpen={!!osClientData} 
-        clientData={osClientData} 
+        clientData={osClientData || {}} 
         saleData={osSaleData}
         selectedCity={osSaleData?.['CIDADE'] || osSaleData?.['UNIDADE'] || osSaleData?.['selectedCity'] || userCity || ''}
         initialCity={osSaleData?.['CIDADE'] || osSaleData?.['UNIDADE'] || osSaleData?.['selectedCity'] || userCity || ''}
@@ -2093,7 +2101,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
       />
       
       {osDataForPrint && (
-        <PrintableOS clientData={osClientData} osData={osDataForPrint} />
+        <PrintableOS clientData={osClientData || osDataForPrint?.clientData || {}} osData={osDataForPrint} />
       )}
 
       {/* Modal de Perfil e Histórico */}
