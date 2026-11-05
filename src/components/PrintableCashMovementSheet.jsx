@@ -379,16 +379,18 @@ export const PrintableCashMovementSheet = ({
             <tr style={{ backgroundColor: '#ffffff', borderBottom: '1.5px solid #000000' }}>
               <th
                 style={{
-                  width: '13%',
-                  padding: '4px 2px',
+                  width: '12%',
+                  padding: '3px 2px',
                   textAlign: 'center',
                   fontWeight: 900,
                   fontSize: '8.5px',
                   textTransform: 'uppercase',
-                  borderRight: '1px solid #000000'
+                  borderRight: '1px solid #000000',
+                  lineHeight: 1.15
                 }}
+                title="DOC. Nº"
               >
-                DOC. Nº
+                DOC.<br />Nº
               </th>
               <th
                 style={{
