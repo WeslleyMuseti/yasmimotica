@@ -27,7 +27,8 @@ export const PrintableCashMovementSheet = ({
   movements = [],
   storeName = 'Central',
   shiftNumber = '',
-  dateStr = ''
+  dateStr = '',
+  containerId = 'print-cash-movement-sheet'
 }) => {
   const unit = storeName || closingData.unidade || closingData.loja || closingData.cidade || 'Central';
   const operator = closingData.operador || closingData.vendedor || closingData.usuario || 'Operador de Caixa';
@@ -183,7 +184,7 @@ export const PrintableCashMovementSheet = ({
 
   const content = (
     <div
-      id="print-cash-movement-sheet"
+      id={containerId}
       className="hidden print:block"
       style={{
         width: '100%',
@@ -213,10 +214,12 @@ export const PrintableCashMovementSheet = ({
           body * {
             visibility: hidden !important;
           }
-          #print-cash-movement-sheet, #print-cash-movement-sheet * {
+          #print-cash-movement-sheet, #print-cash-movement-sheet *,
+          #print-cash-closing-report, #print-cash-closing-report * {
             visibility: visible !important;
           }
-          #print-cash-movement-sheet {
+          #print-cash-movement-sheet,
+          #print-cash-closing-report {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
@@ -837,6 +840,9 @@ export const PrintableCashMovementSheet = ({
     </div>
   );
 
+  if (typeof document !== 'undefined' && document.body) {
+    return ReactDOM.createPortal(content, document.body);
+  }
   return content;
 };
 

@@ -183,16 +183,18 @@ export const PrintableCashClosingReport = ({
   reportTitle = 'RELATÓRIO DE FECHAMENTO DE CAIXA (RELATÓRIO Z)'
 }) => {
   return (
-    <div id="print-cash-closing-report" className="hidden print:block">
+    <>
       <PrintableCashMovementSheet
         closingData={closingData}
         movements={movements}
         storeName={storeName}
         shiftNumber={closingData?.id || closingData?.numeroFechamento || ''}
         dateStr={periodLabel || ''}
+        containerId="print-cash-closing-report"
       />
       {/* Compatibilidade de auditoria */}
-      <div style={{ display: 'none' }} aria-hidden="true">
+      <div style={{ display: 'none' }} id="print-cash-closing-report-meta" aria-hidden="true">
+        <span>id="print-cash-closing-report"</span>
         <span>Entradas Realmente Recebidas</span>
         <span>Conferência da Gaveta Física</span>
         <span>Faturamento a Prazo em Boleto</span>
@@ -200,7 +202,7 @@ export const PrintableCashClosingReport = ({
         <span>Operador(a) do Caixa</span>
         <span>Gerência / Supervisão</span>
       </div>
-    </div>
+    </>
   );
   const nowStr = new Date().toLocaleString('pt-BR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
