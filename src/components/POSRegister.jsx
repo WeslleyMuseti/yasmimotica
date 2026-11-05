@@ -937,23 +937,13 @@ const POSRegister = ({
     return totalFinal > 0 && remaining <= 0.01;
   }, [totalFinal, remaining]);
 
-  // ─── HANDLERS DE VOUCHER / CUPOM (MÚLTIPLOS VOUCHERS) ───────────
+  // ─── HANDLERS DE VOUCHER / CUPOM (MÚLTIPLOS VOUCHERS E MÚLTIPLOS USOS DO MESMO CUPOM) ───
   const handleApplyVoucher = (codeParam) => {
     const rawCode = codeParam || voucherCodeInput;
     const code = String(rawCode || '').trim().toUpperCase();
     setVoucherError('');
     if (!code) {
       setVoucherError('Digite o código do voucher.');
-      return;
-    }
-
-    // Verificar se este voucher já foi adicionado nesta venda
-    const isAlreadyAdded = appliedVouchers.some(v => {
-      const c = String(v.CODIGO || v.codigo || '').trim().toUpperCase();
-      return c === code;
-    });
-    if (isAlreadyAdded) {
-      setVoucherError(`O voucher "${code}" já foi adicionado nesta venda.`);
       return;
     }
 
@@ -973,10 +963,23 @@ const POSRegister = ({
       return;
     }
 
+    const baseCode = String(found.CODIGO || found.codigo || code).trim().toUpperCase();
+    // 🎟️ Suporte a múltiplos usos do mesmo voucher na mesma venda:
+    const alreadyAddedCount = appliedVouchers.filter(v => {
+      const c = String(v.CODIGO || v.codigo || '').trim().toUpperCase();
+      return c === baseCode;
+    }).length;
+
     const totalQtd = parseInt(found.QUANTIDADE_TOTAL || found.quantidade_total || 0, 10);
     const usedQtd = parseInt(found.QUANTIDADE_USADA || found.quantidade_usada || 0, 10);
-    if (totalQtd > 0 && usedQtd >= totalQtd) {
-      setVoucherError(`Voucher "${code}" esgotado (${usedQtd}/${totalQtd} usados).`);
+    const effectiveUsed = usedQtd + alreadyAddedCount;
+
+    if (totalQtd > 0 && effectiveUsed >= totalQtd) {
+      if (alreadyAddedCount > 0) {
+        setVoucherError(`Limite do voucher "${code}" atingido nesta venda (${effectiveUsed}/${totalQtd} usados).`);
+      } else {
+        setVoucherError(`Voucher "${code}" esgotado (${usedQtd}/${totalQtd} usados).`);
+      }
       return;
     }
 
@@ -996,10 +999,9 @@ const POSRegister = ({
       return;
     }
 
-    // 🎟️ Geração do Contador Sequencial do Cupom na OS (ex: CUPOM10%-01) e Indicador para o Lojista (ex: 01 de 100)
-    const nextNum = usedQtd + 1;
+    // 🎟️ Geração do Contador Sequencial do Cupom na OS (ex: CUPOM10%-01, CUPOM10%-02) e Indicador para o Lojista (ex: 01 de 100)
+    const nextNum = effectiveUsed + 1;
     const padSize = 2;
-    const baseCode = String(found.CODIGO || found.codigo || code).trim().toUpperCase();
     const seqCode = `${baseCode}-${String(nextNum).padStart(padSize, '0')}`;
     const progressLabel = totalQtd > 0 
       ? `${String(nextNum).padStart(2, '0')} de ${totalQtd}`
@@ -1007,6 +1009,7 @@ const POSRegister = ({
 
     const voucherWithSeq = {
       ...found,
+      instanceId: `${found.id || baseCode}_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       sequentialCode: seqCode,
       sequenceNumber: nextNum,
       progressLabel: progressLabel,
@@ -1021,7 +1024,29 @@ const POSRegister = ({
 
   const handleRemoveVoucher = (indexToRemove) => {
     if (typeof indexToRemove === 'number') {
-      setAppliedVouchers(prev => prev.filter((_, idx) => idx !== indexToRemove));
+      setAppliedVouchers(prev => {
+        const filtered = prev.filter((_, idx) => idx !== indexToRemove);
+        const codeCounters = {};
+        return filtered.map(v => {
+          const baseCode = String(v.CODIGO || v.codigo || '').trim().toUpperCase();
+          const baseUsed = parseInt(v.usedQtd !== undefined ? v.usedQtd : (v.QUANTIDADE_USADA || 0), 10);
+          const totalQtd = parseInt(v.totalQtd !== undefined ? v.totalQtd : (v.QUANTIDADE_TOTAL || 0), 10);
+          const inCartIndex = (codeCounters[baseCode] || 0) + 1;
+          codeCounters[baseCode] = inCartIndex;
+          const nextNum = baseUsed + inCartIndex;
+          const padSize = 2;
+          const seqCode = `${baseCode}-${String(nextNum).padStart(padSize, '0')}`;
+          const progressLabel = totalQtd > 0 
+            ? `${String(nextNum).padStart(2, '0')} de ${totalQtd}`
+            : `${String(nextNum).padStart(2, '0')} usado(s)`;
+          return {
+            ...v,
+            sequentialCode: seqCode,
+            sequenceNumber: nextNum,
+            progressLabel
+          };
+        });
+      });
     } else {
       setAppliedVouchers([]);
     }
@@ -1449,55 +1474,68 @@ const POSRegister = ({
           }
         }
 
-        // 1.1 Atualizar uso dos Cupons/Vouchers se aplicados e salvar histórico de uso detalhado
+        // 1.1 Atualizar uso dos Cupons/Vouchers se aplicados e salvar histórico de uso detalhado (suporte a múltiplos usos do mesmo cupom)
         if (appliedVouchers.length > 0 && onUpdateRow) {
+          const voucherGroups = new Map();
           for (const v of appliedVouchers) {
+            const vKey = v.id || String(v.CODIGO || v.codigo || '').trim().toUpperCase();
+            if (!voucherGroups.has(vKey)) {
+              voucherGroups.set(vKey, { voucher: v, usages: [] });
+            }
+            voucherGroups.get(vKey).usages.push(v);
+          }
+
+          for (const [, group] of voucherGroups.entries()) {
             try {
-              const currentUsed = parseInt(v.QUANTIDADE_USADA || v.quantidade_usada || 0, 10);
-              const totalQtd = parseInt(v.QUANTIDADE_TOTAL || v.quantidade_total || 0, 10);
-              const nextUsed = currentUsed + 1;
+              const baseV = group.voucher;
+              const timesUsed = group.usages.length;
+              const currentUsed = parseInt(baseV.QUANTIDADE_USADA || baseV.quantidade_usada || 0, 10);
+              const totalQtd = parseInt(baseV.QUANTIDADE_TOTAL || baseV.quantidade_total || 0, 10);
+              const nextUsed = currentUsed + timesUsed;
               const isEsgotado = totalQtd > 0 && nextUsed >= totalQtd;
-
-              const tipoDesc = String(v.TIPO_DESCONTO || v.tipo_desconto || 'VALOR').toUpperCase();
-              const valDescRaw = cleanVal(v.VALOR_DESCONTO || v.valor_desconto);
-              const descThisVoucher = tipoDesc === 'PORCENTAGEM'
-                ? Math.round((subtotal * (valDescRaw / 100)) * 100) / 100
-                : valDescRaw;
-
-              const generatedSeqCode = v.sequentialCode || `${String(v.CODIGO || v.codigo).trim().toUpperCase()}-${String(nextUsed).padStart(2, '0')}`;
-              const usoEntry = {
-                cliente: clientName,
-                cpf: clientCpf,
-                dataHora: new Date().toLocaleString('pt-BR'),
-                os: newSale?.['OS DA VENDA'] || newSale?.['OS'] || selectedClient?.['OS'] || selectedClient?.['OS DA VENDA'] || 'PDV',
-                codigoGerado: generatedSeqCode,
-                codigoUtilizado: generatedSeqCode,
-                numeroSequencial: v.sequenceNumber || nextUsed,
-                valorDesconto: descThisVoucher
-              };
 
               let existingHistory = [];
               try {
-                const rawH = v.HISTORICO_USO || v.usos_json || v.historico_uso;
+                const rawH = baseV.HISTORICO_USO || baseV.usos_json || baseV.historico_uso;
                 if (typeof rawH === 'string') existingHistory = JSON.parse(rawH);
                 else if (Array.isArray(rawH)) existingHistory = rawH;
               } catch (e) {
                 existingHistory = [];
               }
               if (!Array.isArray(existingHistory)) existingHistory = [];
-              const updatedHistory = [...existingHistory, usoEntry];
+
+              const newEntries = group.usages.map((uItem, uIdx) => {
+                const tipoDesc = String(uItem.TIPO_DESCONTO || uItem.tipo_desconto || 'VALOR').toUpperCase();
+                const valDescRaw = cleanVal(uItem.VALOR_DESCONTO || uItem.valor_desconto);
+                const descThisVoucher = tipoDesc === 'PORCENTAGEM'
+                  ? Math.round((subtotal * (valDescRaw / 100)) * 100) / 100
+                  : valDescRaw;
+                const generatedSeqCode = uItem.sequentialCode || `${String(baseV.CODIGO || baseV.codigo).trim().toUpperCase()}-${String(currentUsed + uIdx + 1).padStart(2, '0')}`;
+                return {
+                  cliente: clientName,
+                  cpf: clientCpf,
+                  dataHora: new Date().toLocaleString('pt-BR'),
+                  os: newSale?.['OS DA VENDA'] || newSale?.['OS'] || selectedClient?.['OS'] || selectedClient?.['OS DA VENDA'] || 'PDV',
+                  codigoGerado: generatedSeqCode,
+                  codigoUtilizado: generatedSeqCode,
+                  numeroSequencial: uItem.sequenceNumber || (currentUsed + uIdx + 1),
+                  valorDesconto: descThisVoucher
+                };
+              });
+
+              const updatedHistory = [...existingHistory, ...newEntries];
 
               const updatedVoucher = {
-                ...v,
+                ...baseV,
                 QUANTIDADE_USADA: nextUsed,
                 quantidade_usada: nextUsed,
-                STATUS: isEsgotado ? 'Esgotado' : (v.STATUS || v.status || 'Ativo'),
-                status: isEsgotado ? 'Esgotado' : (v.STATUS || v.status || 'Ativo'),
+                STATUS: isEsgotado ? 'Esgotado' : (baseV.STATUS || baseV.status || 'Ativo'),
+                status: isEsgotado ? 'Esgotado' : (baseV.STATUS || baseV.status || 'Ativo'),
                 HISTORICO_USO: JSON.stringify(updatedHistory),
                 historico_uso: JSON.stringify(updatedHistory),
                 usos_json: JSON.stringify(updatedHistory)
               };
-              await withTimeout(onUpdateRow('VOUCHERS', v, updatedVoucher), 3000);
+              await withTimeout(onUpdateRow('VOUCHERS', baseV, updatedVoucher), 3000);
             } catch (vErr) {
               console.warn('Aviso ao atualizar cupom/voucher:', vErr);
             }
@@ -1819,6 +1857,10 @@ const POSRegister = ({
             if (Array.isArray(hist) && hist.length > 0) {
               const targetEntry = [...hist].reverse().find(entry =>
                 (entry && (entry.os === 'PDV' || !entry.os)) &&
+                (!clientName || entry.cliente === clientName) &&
+                (!v.sequentialCode || entry.codigoGerado === v.sequentialCode)
+              ) || [...hist].reverse().find(entry =>
+                (entry && (entry.os === 'PDV' || !entry.os)) &&
                 (!clientName || entry.cliente === clientName)
               ) || hist[hist.length - 1];
               if (targetEntry && (targetEntry.os === 'PDV' || !targetEntry.os)) {
@@ -2118,6 +2160,10 @@ const POSRegister = ({
           let hist = typeof rawH === 'string' ? JSON.parse(rawH) : (Array.isArray(rawH) ? rawH : []);
           if (Array.isArray(hist) && hist.length > 0) {
             const targetEntry = [...hist].reverse().find(entry =>
+              (entry && (entry.os === 'PDV' || !entry.os)) &&
+              (!clientName || entry.cliente === clientName) &&
+              (!v.sequentialCode || entry.codigoGerado === v.sequentialCode)
+            ) || [...hist].reverse().find(entry =>
               (entry && (entry.os === 'PDV' || !entry.os)) &&
               (!clientName || entry.cliente === clientName)
             ) || hist[hist.length - 1];

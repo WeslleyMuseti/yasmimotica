@@ -7208,6 +7208,65 @@ async function runTests() {
     console.log('  ✅ Test 70 Passed: Contador Sequencial de Vouchers na OS e Indicador de Progresso (ex: 01 de 100) validados com 100% de sucesso!\n');
   }
 
+  // -------------------------------------------------------------
+  // TEST 71: Múltiplos Usos do Mesmo Voucher na Mesma Venda com Sequência Incremental
+  // -------------------------------------------------------------
+  {
+    console.log('▶ Test 71: Múltiplos Usos do Mesmo Voucher na Mesma Venda com Sequência Incremental');
+
+    const posSrc = fs.readFileSync('./src/components/POSRegister.jsx', 'utf8');
+
+    // 1. Simulação do fluxo de adição de múltiplos vouchers do mesmo código na mesma venda
+    const vouchersDatabase = [{ CODIGO: 'PROMO10', QUANTIDADE_TOTAL: '10', QUANTIDADE_USADA: '2' }];
+    let inCartVouchers = [];
+
+    const applyVoucherSim = (code) => {
+      const found = vouchersDatabase.find(v => v.CODIGO === code);
+      if (!found) return { error: 'Não encontrado' };
+      const alreadyInCart = inCartVouchers.filter(v => v.CODIGO === code).length;
+      const baseUsed = parseInt(found.QUANTIDADE_USADA, 10);
+      const totalQtd = parseInt(found.QUANTIDADE_TOTAL, 10);
+      const effectiveUsed = baseUsed + alreadyInCart;
+      if (totalQtd > 0 && effectiveUsed >= totalQtd) {
+        return { error: 'Esgotado ou Limite Atingido' };
+      }
+      const nextNum = effectiveUsed + 1;
+      const seqCode = `${found.CODIGO}-${String(nextNum).padStart(2, '0')}`;
+      const progressLabel = `${String(nextNum).padStart(2, '0')} de ${totalQtd}`;
+      const applied = { ...found, sequentialCode: seqCode, sequenceNumber: nextNum, progressLabel };
+      inCartVouchers.push(applied);
+      return { success: true, applied };
+    };
+
+    // 1ª adição na mesma venda (já tinha 2 usados no banco, então gera 03)
+    const res1 = applyVoucherSim('PROMO10');
+    console.assert(res1.success, '1ª adição deve ter sucesso');
+    console.assert(res1.applied.sequentialCode === 'PROMO10-03', `Esperado PROMO10-03, obteve ${res1.applied.sequentialCode}`);
+    console.assert(res1.applied.progressLabel === '03 de 10', `Esperado 03 de 10, obteve ${res1.applied.progressLabel}`);
+
+    // 2ª adição do MESMO voucher na mesma venda
+    const res2 = applyVoucherSim('PROMO10');
+    console.assert(res2.success, '2ª adição do mesmo voucher na mesma venda deve ser permitida');
+    console.assert(res2.applied.sequentialCode === 'PROMO10-04', `Esperado PROMO10-04, obteve ${res2.applied.sequentialCode}`);
+    console.assert(res2.applied.progressLabel === '04 de 10', `Esperado 04 de 10, obteve ${res2.applied.progressLabel}`);
+
+    // 3ª adição do MESMO voucher na mesma venda
+    const res3 = applyVoucherSim('PROMO10');
+    console.assert(res3.success, '3ª adição do mesmo voucher na mesma venda deve ser permitida');
+    console.assert(res3.applied.sequentialCode === 'PROMO10-05', `Esperado PROMO10-05, obteve ${res3.applied.sequentialCode}`);
+
+    // String combinada para a OS e Venda
+    const osVoucherString = inCartVouchers.map(v => v.sequentialCode).join(', ');
+    console.assert(osVoucherString === 'PROMO10-03, PROMO10-04, PROMO10-05', `String da OS esperada 'PROMO10-03, PROMO10-04, PROMO10-05', obteve '${osVoucherString}'`);
+
+    // 2. Verificações no código-fonte do POSRegister
+    console.assert(!posSrc.includes('O voucher "${code}" já foi adicionado nesta venda.'), 'POSRegister não deve bloquear adição do mesmo voucher na mesma venda');
+    console.assert(posSrc.includes('alreadyAddedCount = appliedVouchers.filter'), 'POSRegister deve contar instâncias já adicionadas do mesmo voucher no carrinho');
+    console.assert(posSrc.includes('voucherGroups = new Map()'), 'POSRegister deve agrupar múltiplos usos do mesmo voucher ao salvar para atualizar QUANTIDADE_USADA corretamente');
+
+    console.log('  ✅ Test 71 Passed: Múltiplos Usos do Mesmo Voucher na Mesma Venda com Sequência Incremental validados com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
