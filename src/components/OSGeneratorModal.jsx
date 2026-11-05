@@ -795,6 +795,8 @@ const OSGeneratorModal = ({
         responsavel: clientData['Responsável Nome'] || clientData['Responsável'] || clientData['responsavel'] || '',
         rg: clientData['RG'] || clientData['rg'] || '',
         laboratorio: clientData['LABORATORIO'] || clientData['laboratorio'] || '',
+        voucher: clientData['voucher'] || clientData['VOUCHER'] || saleData?.['VOUCHER'] || saleData?.voucher || '',
+        descontoVoucher: clientData['descontoVoucher'] || clientData['DESCONTO_VOUCHER'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || '',
         numeroOS: nextBase
       }));
     }
@@ -1245,7 +1247,11 @@ const OSGeneratorModal = ({
         PARCELAS_JSON: JSON.stringify(finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || [])),
         selectedCity: selectedCity || 'Cajati',
         unidade: selectedCity || 'Cajati',
-        laboratorio: activeOS.laboratorio || formData.laboratorio || ''
+        laboratorio: activeOS.laboratorio || formData.laboratorio || '',
+        voucher: activeOS.voucher || formData.voucher || safeClient['VOUCHER'] || safeClient['voucher'] || saleData?.['VOUCHER'] || saleData?.voucher || '',
+        descontoVoucher: activeOS.descontoVoucher || formData.descontoVoucher || safeClient['DESCONTO_VOUCHER'] || safeClient['descontoVoucher'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || '',
+        VOUCHER: activeOS.voucher || formData.voucher || safeClient['VOUCHER'] || safeClient['voucher'] || saleData?.['VOUCHER'] || saleData?.voucher || '',
+        DESCONTO_VOUCHER: activeOS.descontoVoucher || formData.descontoVoucher || safeClient['DESCONTO_VOUCHER'] || safeClient['descontoVoucher'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || ''
       };
       onSaveAndPrint(singleData);
     } else {
@@ -1280,6 +1286,10 @@ const OSGeneratorModal = ({
         valorTotal: formData.valorTotal,
         valorEntrada: formData.valorEntrada,
         restante: formData.restante,
+        voucher: formData.voucher || safeClient['VOUCHER'] || safeClient['voucher'] || saleData?.['VOUCHER'] || saleData?.voucher || '',
+        descontoVoucher: formData.descontoVoucher || safeClient['DESCONTO_VOUCHER'] || safeClient['descontoVoucher'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || '',
+        VOUCHER: formData.voucher || safeClient['VOUCHER'] || safeClient['voucher'] || saleData?.['VOUCHER'] || saleData?.voucher || '',
+        DESCONTO_VOUCHER: formData.descontoVoucher || safeClient['DESCONTO_VOUCHER'] || safeClient['descontoVoucher'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || '',
         RESPONSAVEL_LEGAL_INADIMPLENTE: !!responsavelDebtCheck?.isInadimplente,
         RESPONSAVEL_LEGAL_DEBITO: responsavelDebtCheck?.totalAberto || 0,
         orders: osList.map((item, idx) => {

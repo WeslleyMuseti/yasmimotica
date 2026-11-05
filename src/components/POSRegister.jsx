@@ -996,7 +996,25 @@ const POSRegister = ({
       return;
     }
 
-    setAppliedVouchers(prev => [...prev, found]);
+    // 🎟️ Geração do Contador Sequencial do Cupom na OS (ex: CUPOM10%-01) e Indicador para o Lojista (ex: 01 de 100)
+    const nextNum = usedQtd + 1;
+    const padSize = 2;
+    const baseCode = String(found.CODIGO || found.codigo || code).trim().toUpperCase();
+    const seqCode = `${baseCode}-${String(nextNum).padStart(padSize, '0')}`;
+    const progressLabel = totalQtd > 0 
+      ? `${String(nextNum).padStart(2, '0')} de ${totalQtd}`
+      : `${String(nextNum).padStart(2, '0')} usado(s)`;
+
+    const voucherWithSeq = {
+      ...found,
+      sequentialCode: seqCode,
+      sequenceNumber: nextNum,
+      progressLabel: progressLabel,
+      totalQtd: totalQtd,
+      usedQtd: usedQtd
+    };
+
+    setAppliedVouchers(prev => [...prev, voucherWithSeq]);
     setVoucherError('');
     setVoucherCodeInput('');
   };
@@ -1324,8 +1342,10 @@ const POSRegister = ({
       'parcelas': todasParcelas,
       'PARCELAS_JSON': JSON.stringify(todasParcelas),
       'VENDEDOR': currentUser?.username || 'Caixa',
-      'VOUCHER': appliedVouchers.map(v => v.CODIGO || v.codigo).join(', '),
-      'DESCONTO_VOUCHER': voucherDiscount
+      'VOUCHER': appliedVouchers.map(v => v.sequentialCode || v.CODIGO || v.codigo).join(', '),
+      'voucher': appliedVouchers.map(v => v.sequentialCode || v.CODIGO || v.codigo).join(', '),
+      'DESCONTO_VOUCHER': voucherDiscount,
+      'descontoVoucher': voucherDiscount
     };
 
     // Identificar itens de armação e lente vendidos para pré-carregar na OS
@@ -1335,6 +1355,10 @@ const POSRegister = ({
 
     const clientForOS = {
       ...selectedClient,
+      'VOUCHER': appliedVouchers.map(v => v.sequentialCode || v.CODIGO || v.codigo).join(', '),
+      'voucher': appliedVouchers.map(v => v.sequentialCode || v.CODIGO || v.codigo).join(', '),
+      'DESCONTO_VOUCHER': voucherDiscount,
+      'descontoVoucher': voucherDiscount,
       'Modelo de Armação': armacaoItem ? armacaoItem.nome : (selectedClient['Modelo de Armação'] || ''),
       'Marca de Lente': lenteItem ? lenteItem.nome : (selectedClient['Marca de Lente'] || ''),
       'Armação': armacaoItem ? armacaoItem.nome : (selectedClient['Modelo de Armação'] || ''),
@@ -1375,7 +1399,7 @@ const POSRegister = ({
       subtotal,
       desconto: discount,
       descontoVoucher: voucherDiscount,
-      voucher: appliedVouchers.map(v => v.CODIGO || v.codigo).join(', '),
+      voucher: appliedVouchers.map(v => v.sequentialCode || v.CODIGO || v.codigo).join(', '),
       vouchers: appliedVouchers,
       valorTotal: totalFinal,
       formaPagamento: formaPagamentoTexto,
@@ -1440,11 +1464,15 @@ const POSRegister = ({
                 ? Math.round((subtotal * (valDescRaw / 100)) * 100) / 100
                 : valDescRaw;
 
+              const generatedSeqCode = v.sequentialCode || `${String(v.CODIGO || v.codigo).trim().toUpperCase()}-${String(nextUsed).padStart(2, '0')}`;
               const usoEntry = {
                 cliente: clientName,
                 cpf: clientCpf,
                 dataHora: new Date().toLocaleString('pt-BR'),
                 os: newSale?.['OS DA VENDA'] || newSale?.['OS'] || selectedClient?.['OS'] || selectedClient?.['OS DA VENDA'] || 'PDV',
+                codigoGerado: generatedSeqCode,
+                codigoUtilizado: generatedSeqCode,
+                numeroSequencial: v.sequenceNumber || nextUsed,
                 valorDesconto: descThisVoucher
               };
 
@@ -1795,6 +1823,10 @@ const POSRegister = ({
               ) || hist[hist.length - 1];
               if (targetEntry && (targetEntry.os === 'PDV' || !targetEntry.os)) {
                 targetEntry.os = singleData.numeroOS;
+                if (!targetEntry.codigoGerado && v.sequentialCode) {
+                  targetEntry.codigoGerado = v.sequentialCode;
+                  targetEntry.codigoUtilizado = v.sequentialCode;
+                }
                 await withTimeout(onUpdateRow('VOUCHERS', currentV, {
                   ...currentV,
                   HISTORICO_USO: JSON.stringify(hist),
@@ -2091,6 +2123,10 @@ const POSRegister = ({
             ) || hist[hist.length - 1];
             if (targetEntry && (targetEntry.os === 'PDV' || !targetEntry.os)) {
               targetEntry.os = osStr;
+              if (!targetEntry.codigoGerado && v.sequentialCode) {
+                targetEntry.codigoGerado = v.sequentialCode;
+                targetEntry.codigoUtilizado = v.sequentialCode;
+              }
               await withTimeout(onUpdateRow('VOUCHERS', currentV, {
                 ...currentV,
                 HISTORICO_USO: JSON.stringify(hist),
@@ -3005,8 +3041,13 @@ const POSRegister = ({
                               <Ticket size={12} />
                             </div>
                             <div className="min-w-0">
-                              <div className="text-xs font-black text-emerald-300 font-mono tracking-wider truncate">
-                                {v.CODIGO || v.codigo}
+                              <div className="text-xs font-black text-emerald-300 font-mono tracking-wider truncate flex items-center gap-1.5 flex-wrap">
+                                <span>{v.sequentialCode || v.CODIGO || v.codigo}</span>
+                                {v.progressLabel && (
+                                  <span className="text-[9px] font-black text-amber-300 bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.2 rounded-md tracking-normal font-sans shadow-2xs">
+                                    {v.progressLabel}
+                                  </span>
+                                )}
                               </div>
                               <div className="text-[10px] text-emerald-400/80 truncate">
                                 {v.NOME || v.nome || (tipo === 'PORCENTAGEM' ? `${val}% de desconto` : 'Voucher promocional')}

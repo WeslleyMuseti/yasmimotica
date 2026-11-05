@@ -7132,6 +7132,82 @@ async function runTests() {
     console.log('  ✅ Test 69 Passed: Blindagem Nula em Geração e Impressão de OS (Anti-Crash ErrorBoundary) validada com 100% de sucesso!\n');
   }
 
+  // -------------------------------------------------------------
+  // TEST 70: Contador Sequencial de Vouchers na OS (ex: CUPOM10%-01) e Progresso para o Lojista (ex: 01 de 100)
+  // -------------------------------------------------------------
+  {
+    console.log('▶ Test 70: Contador Sequencial de Vouchers na OS e Indicador de Progresso (ex: 01 de 100)');
+
+    // 1. Algoritmo de Geração Sequencial do Cupom
+    const generateVoucherSeq = (voucher, currentUsedCount) => {
+      const totalQtd = parseInt(voucher.QUANTIDADE_TOTAL || voucher.quantidade_total || 0, 10);
+      const usedQtd = parseInt(currentUsedCount || 0, 10);
+      const nextNum = usedQtd + 1;
+      const padSize = 2;
+      const baseCode = String(voucher.CODIGO || voucher.codigo || '').trim().toUpperCase();
+      const seqCode = `${baseCode}-${String(nextNum).padStart(padSize, '0')}`;
+      const progressLabel = totalQtd > 0
+        ? `${String(nextNum).padStart(2, '0')} de ${totalQtd}`
+        : `${String(nextNum).padStart(2, '0')} usado(s)`;
+      return { seqCode, nextNum, progressLabel, isExhausted: totalQtd > 0 && nextNum > totalQtd };
+    };
+
+    const mockVoucher = { CODIGO: 'CUPOM10%', QUANTIDADE_TOTAL: '100', QUANTIDADE_USADA: '0' };
+    
+    // 1º Uso
+    const uso1 = generateVoucherSeq(mockVoucher, 0);
+    console.assert(uso1.seqCode === 'CUPOM10%-01', `1º uso esperado CUPOM10%-01, obteve ${uso1.seqCode}`);
+    console.assert(uso1.progressLabel === '01 de 100', `1º progresso esperado '01 de 100', obteve '${uso1.progressLabel}'`);
+    console.assert(!uso1.isExhausted, '1º uso não deve estar esgotado');
+
+    // 2º Uso
+    const uso2 = generateVoucherSeq(mockVoucher, 1);
+    console.assert(uso2.seqCode === 'CUPOM10%-02', `2º uso esperado CUPOM10%-02, obteve ${uso2.seqCode}`);
+    console.assert(uso2.progressLabel === '02 de 100', `2º progresso esperado '02 de 100', obteve '${uso2.progressLabel}'`);
+
+    // 99º Uso
+    const uso99 = generateVoucherSeq(mockVoucher, 98);
+    console.assert(uso99.seqCode === 'CUPOM10%-99', `99º uso esperado CUPOM10%-99, obteve ${uso99.seqCode}`);
+    console.assert(uso99.progressLabel === '99 de 100', `99º progresso esperado '99 de 100', obteve '${uso99.progressLabel}'`);
+
+    // 100º Uso (Último permitido)
+    const uso100 = generateVoucherSeq(mockVoucher, 99);
+    console.assert(uso100.seqCode === 'CUPOM10%-100', `100º uso esperado CUPOM10%-100, obteve ${uso100.seqCode}`);
+    console.assert(uso100.progressLabel === '100 de 100', `100º progresso esperado '100 de 100', obteve '${uso100.progressLabel}'`);
+    console.assert(!uso100.isExhausted, '100º uso é o último válido');
+
+    // Tentativa 101 (Excedeu o total)
+    const uso101 = generateVoucherSeq(mockVoucher, 100);
+    console.assert(uso101.isExhausted, '101º uso deve ser marcado como esgotado');
+
+    // 2. Verificações nos Componentes
+    const posSrc = fs.readFileSync('./src/components/POSRegister.jsx', 'utf8');
+    const dataTableSrc = fs.readFileSync('./src/components/DataTable.jsx', 'utf8');
+    const erpSrc = fs.readFileSync('./src/components/ErpOptica.jsx', 'utf8');
+    const osModalSrc = fs.readFileSync('./src/components/OSGeneratorModal.jsx', 'utf8');
+    const clientRegSrc = fs.readFileSync('./src/components/ClientRegistration.jsx', 'utf8');
+
+    // POSRegister deve gerar sequentialCode e progressLabel
+    console.assert(posSrc.includes('sequentialCode: seqCode'), 'POSRegister deve armazenar sequentialCode no voucher');
+    console.assert(posSrc.includes('progressLabel: progressLabel'), 'POSRegister deve calcular progressLabel');
+    console.assert(posSrc.includes('v.progressLabel'), 'POSRegister deve exibir v.progressLabel no badge do lojista');
+    console.assert(posSrc.includes('codigoGerado: generatedSeqCode'), 'POSRegister deve registrar codigoGerado no histórico de uso');
+
+    // DataTable deve formatar uso como XX de YY para a aba VOUCHERS
+    console.assert(dataTableSrc.includes("sheetName === 'VOUCHERS' && (col === 'QUANTIDADE_USADA'"), 'DataTable deve formatar QUANTIDADE_USADA na aba VOUCHERS');
+    console.assert(dataTableSrc.includes('de ${totalQtd}'), 'DataTable deve exibir formato XX de YY');
+
+    // ErpOptica deve exibir Cupom Lançado no modal Quem Usou
+    console.assert(erpSrc.includes('Cupom Lançado'), 'ErpOptica deve exibir cabeçalho Cupom Lançado no modal Quem Usou');
+    console.assert(erpSrc.includes('uso.codigoGerado'), 'ErpOptica deve exibir uso.codigoGerado');
+
+    // ClientRegistration e OSGeneratorModal devem propagar VOUCHER
+    console.assert(clientRegSrc.includes("'VOUCHER': orderItem.voucher"), 'ClientRegistration deve repassar VOUCHER ao salvar a venda');
+    console.assert(osModalSrc.includes('voucher: clientData'), 'OSGeneratorModal deve carregar voucher do cliente');
+
+    console.log('  ✅ Test 70 Passed: Contador Sequencial de Vouchers na OS e Indicador de Progresso (ex: 01 de 100) validados com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

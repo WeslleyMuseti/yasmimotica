@@ -817,6 +817,60 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                     }
                   }
 
+                  // ─── PROGRESSO DE USO DO VOUCHER PARA O LOJISTA (ex: 01 de 100) ───
+                  if (sheetName === 'VOUCHERS' && (col === 'QUANTIDADE_USADA' || col === 'quantidade_usada' || col === 'USO' || col === 'PROGRESSO')) {
+                    const totalQtd = parseInt(row['QUANTIDADE_TOTAL'] || row['quantidade_total'] || 0, 10);
+                    const usedQtd = parseInt(val || row['QUANTIDADE_USADA'] || row['quantidade_usada'] || 0, 10);
+                    const pct = totalQtd > 0 ? Math.round((usedQtd / totalQtd) * 100) : 0;
+                    const isEsgotado = totalQtd > 0 && usedQtd >= totalQtd;
+                    const displayLabel = totalQtd > 0
+                      ? `${String(usedQtd).padStart(2, '0')} de ${totalQtd}`
+                      : `${String(usedQtd).padStart(2, '0')} usado(s)`;
+
+                    return (
+                      <td key={col} className="px-4 py-3 whitespace-nowrap text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className={`font-mono font-black text-xs ${
+                            isEsgotado 
+                              ? 'text-rose-400' 
+                              : usedQtd > 0 
+                              ? 'text-amber-300' 
+                              : 'text-slate-400'
+                          }`}>
+                            {displayLabel}
+                          </span>
+                          {totalQtd > 0 && (
+                            <div className="w-16 h-2 bg-slate-800 rounded-full overflow-hidden border border-white/10 shrink-0">
+                              <div 
+                                className={`h-full transition-all duration-300 ${
+                                  isEsgotado 
+                                    ? 'bg-rose-500' 
+                                    : pct >= 80 
+                                    ? 'bg-amber-400' 
+                                    : 'bg-emerald-400'
+                                }`}
+                                style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+                              />
+                            </div>
+                          )}
+                          <span className="text-[10px] text-slate-500 font-bold">
+                            {totalQtd > 0 ? `${pct}%` : ''}
+                          </span>
+                        </div>
+                      </td>
+                    );
+                  }
+
+                  if (sheetName === 'VOUCHERS' && (col === 'CODIGO' || col === 'codigo')) {
+                    return (
+                      <td key={col} className="px-4 py-3 whitespace-nowrap text-xs">
+                        <span className="font-mono font-black text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-lg shadow-2xs">
+                          🎟️ {val}
+                        </span>
+                      </td>
+                    );
+                  }
+
                   if (col === 'IMAGEM' && val && String(val).startsWith('data:image')) {
                     return (
                       <td key={col} className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">

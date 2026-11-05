@@ -864,6 +864,10 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           'OE_ALT': orderItem.oeAlt || '',
           'ADICAO': orderItem.adicao || '',
           'MEDICO': orderItem.medico || '',
+          'VOUCHER': orderItem.voucher || primaryOrder.voucher || osData.voucher || clientSnapshot['VOUCHER'] || clientSnapshot['voucher'] || '',
+          'voucher': orderItem.voucher || primaryOrder.voucher || osData.voucher || clientSnapshot['VOUCHER'] || clientSnapshot['voucher'] || '',
+          'DESCONTO_VOUCHER': orderItem.descontoVoucher || primaryOrder.descontoVoucher || osData.descontoVoucher || clientSnapshot['DESCONTO_VOUCHER'] || '',
+          'descontoVoucher': orderItem.descontoVoucher || primaryOrder.descontoVoucher || osData.descontoVoucher || clientSnapshot['DESCONTO_VOUCHER'] || '',
           'OBSERVACOES': itemObservacoes
         });
       });

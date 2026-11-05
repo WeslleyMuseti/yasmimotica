@@ -3906,6 +3906,7 @@ const ErpOptica = ({
                           cpf: sale['CPF'] || sale['CLIENTE_CPF'] || '',
                           dataHora: sale['DATA'] || sale['DATA  DA VENDA'] || '---',
                           os: sale['OS DA VENDA'] || sale['OS'] || 'Balcão',
+                          codigoGerado: saleVoucher || `${codeUpper}-${String(parsed.length + 1).padStart(2, '0')}`,
                           valorDesconto: parseCurrency(sale['DESCONTO_VOUCHER'] || sale.descontoVoucher || voucherUsageModalItem.VALOR_DESCONTO)
                         });
                       }
@@ -3939,6 +3940,7 @@ const ErpOptica = ({
                         <thead>
                           <tr className="border-b border-white/10 text-[10px] uppercase tracking-wider text-slate-400 bg-white/5 font-black">
                             <th className="py-3 px-4">#</th>
+                            <th className="py-3 px-4">Cupom Lançado</th>
                             <th className="py-3 px-4">Cliente</th>
                             <th className="py-3 px-4">CPF</th>
                             <th className="py-3 px-4">Data / Horário</th>
@@ -3950,6 +3952,11 @@ const ErpOptica = ({
                           {parsed.map((uso, idx) => (
                             <tr key={idx} className="hover:bg-white/5 transition-colors">
                               <td className="py-3 px-4 text-slate-500 font-mono">{idx + 1}</td>
+                              <td className="py-3 px-4">
+                                <span className="font-mono text-xs font-black text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-lg shadow-2xs">
+                                  🎟️ {uso.codigoGerado || uso.codigoUtilizado || (uso.numeroSequencial ? `${voucherUsageModalItem.CODIGO || voucherUsageModalItem.codigo}-${String(uso.numeroSequencial).padStart(2, '0')}` : `${voucherUsageModalItem.CODIGO || voucherUsageModalItem.codigo}-${String(idx + 1).padStart(2, '0')}`)}
+                                </span>
+                              </td>
                               <td className="py-3 px-4 text-white font-bold">{uso.cliente || 'Cliente'}</td>
                               <td className="py-3 px-4 text-slate-400 font-mono text-[11px]">{uso.cpf || '—'}</td>
                               <td className="py-3 px-4 text-slate-300 font-mono text-[11px]">{uso.dataHora || '—'}</td>
