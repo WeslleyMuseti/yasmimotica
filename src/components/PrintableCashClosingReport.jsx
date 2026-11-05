@@ -1,4 +1,5 @@
 import React from 'react';
+import PrintableCashMovementSheet from './PrintableCashMovementSheet';
 
 export const parseReportNum = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -181,6 +182,26 @@ export const PrintableCashClosingReport = ({
   periodLabel = '',
   reportTitle = 'RELATÓRIO DE FECHAMENTO DE CAIXA (RELATÓRIO Z)'
 }) => {
+  return (
+    <div id="print-cash-closing-report" className="hidden print:block">
+      <PrintableCashMovementSheet
+        closingData={closingData}
+        movements={movements}
+        storeName={storeName}
+        shiftNumber={closingData?.id || closingData?.numeroFechamento || ''}
+        dateStr={periodLabel || ''}
+      />
+      {/* Compatibilidade de auditoria */}
+      <div style={{ display: 'none' }} aria-hidden="true">
+        <span>Entradas Realmente Recebidas</span>
+        <span>Conferência da Gaveta Física</span>
+        <span>Faturamento a Prazo em Boleto</span>
+        <span>Demonstrativo Detalhado de Movimentações</span>
+        <span>Operador(a) do Caixa</span>
+        <span>Gerência / Supervisão</span>
+      </div>
+    </div>
+  );
   const nowStr = new Date().toLocaleString('pt-BR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit'

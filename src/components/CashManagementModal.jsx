@@ -1651,14 +1651,14 @@ const CashManagementModal = ({
         />
       )}
 
-      {/* Componente Invisível de Impressão Oficial em PDF A4 */}
+      {/* Componente Invisível de Impressão Oficial em PDF A4 - FORMATO CONTÁBIL DA FOTO */}
       {pdfReportData && (
-        <PrintableCashClosingReport
+        <PrintableCashMovementSheet
           closingData={pdfReportData.closingData}
           movements={pdfReportData.movements}
           storeName={pdfReportData.storeName}
-          periodLabel={pdfReportData.periodLabel}
-          reportTitle={pdfReportData.reportTitle || 'RELATÓRIO DE FECHAMENTO DE CAIXA (RELATÓRIO Z)'}
+          shiftNumber={pdfReportData.shiftNumber || pdfReportData.closingData?.id || ''}
+          dateStr={pdfReportData.periodLabel || pdfReportData.closingData?.dataFechamento || ''}
         />
       )}
 

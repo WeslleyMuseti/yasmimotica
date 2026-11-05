@@ -3789,14 +3789,14 @@ const POSRegister = ({
         />
       )}
 
-      {/* RELATÓRIO OFICIAL DE FECHAMENTO DE CAIXA EM PDF (A4) */}
+      {/* RELATÓRIO OFICIAL DE FECHAMENTO DE CAIXA EM PDF (A4) - FORMATO CONTÁBIL DA FOTO */}
       {cashClosingPdfData && (
-        <PrintableCashClosingReport
+        <PrintableCashMovementSheet
           closingData={cashClosingPdfData.closingData}
           movements={cashClosingPdfData.movements}
           storeName={cashClosingPdfData.storeName || selectedPOSCity}
-          periodLabel={cashClosingPdfData.periodLabel}
-          reportTitle={cashClosingPdfData.reportTitle || cashClosingPdfData.title}
+          shiftNumber={cashClosingPdfData.shiftNumber || cashClosingPdfData.closingData?.id || ''}
+          dateStr={cashClosingPdfData.periodLabel || cashClosingPdfData.closingData?.dataFechamento || ''}
         />
       )}
 

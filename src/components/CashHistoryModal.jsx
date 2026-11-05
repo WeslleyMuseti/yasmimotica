@@ -2077,14 +2077,14 @@ export const CashHistoryContent = ({
         />
       )}
 
-      {/* Componente Invisível de Impressão de Relatório Oficial de Fechamento de Caixa em PDF A4 */}
+      {/* Componente Invisível de Impressão de Relatório Oficial de Fechamento de Caixa em PDF A4 - FORMATO CONTÁBIL DA FOTO */}
       {pdfReportData && (
-        <PrintableCashClosingReport
+        <PrintableCashMovementSheet
           closingData={pdfReportData.closingData}
           movements={pdfReportData.movements}
           storeName={pdfReportData.storeName}
-          periodLabel={pdfReportData.periodLabel}
-          reportTitle={pdfReportData.title}
+          shiftNumber={pdfReportData.shiftNumber || pdfReportData.closingData?.id || ''}
+          dateStr={pdfReportData.periodLabel || pdfReportData.closingData?.dataFechamento || ''}
         />
       )}
 
