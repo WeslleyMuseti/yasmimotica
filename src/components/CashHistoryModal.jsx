@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { PrintableCashVoucher } from './CashManagementModal';
 import PrintableCashClosingReport from './PrintableCashClosingReport';
+import PrintableCashMovementSheet from './PrintableCashMovementSheet';
 import { buildCashHistoryXml, downloadXmlFile } from '../xmlUtils';
 import * as XLSX from 'xlsx';
 
@@ -452,6 +453,7 @@ export const CashHistoryContent = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [localPrintData, setLocalPrintData] = useState(null);
   const [pdfReportData, setPdfReportData] = useState(null);
+  const [contabilSheetData, setContabilSheetData] = useState(null);
   const [editingMovement, setEditingMovement] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
@@ -1270,6 +1272,111 @@ export const CashHistoryContent = ({
     }
   };
 
+  // Imprimir Folha de Movimento do Caixa (Modelo A4 Físico da foto) do período filtrado
+  const handlePrintContabilSheet = () => {
+    if (filteredMovements.length === 0) {
+      alert('Nenhuma movimentação para emitir a folha contábil no período selecionado.');
+      return;
+    }
+
+    const unit = selectedUnit || 'Todas as Lojas';
+    const closingData = {
+      unidade: unit,
+      operador: currentUser?.username || 'Gerência / Supervisão',
+      dataFechamento: new Date().toLocaleString('pt-BR'),
+      fundoInicial: metrics.fundoInicial,
+      vendasDinheiro: metrics.totalVendasDinheiro,
+      totalRecebimentosDinheiro: metrics.totalRecebimentosDinheiro,
+      vendasPix: metrics.totalPix,
+      vendasDebito: metrics.totalDebito,
+      vendasCredito: metrics.totalCredito,
+      vendasBoletoTotal: metrics.totalFaturadoBoletoOS,
+      totalSangrias: metrics.totalSangrias,
+      totalSaidas: metrics.totalSaidas,
+      totalSuprimentos: metrics.totalSuprimentos,
+      dinheiroContado: metrics.saldoEstimadoGaveta,
+      observacoes: 'Folha de Movimento de Caixa'
+    };
+
+    const sheetPayload = {
+      type: 'CONTABIL_SHEET',
+      closingData,
+      movements: filteredMovements,
+      storeName: unit,
+      shiftNumber: 'GERAL',
+      dateStr: new Date().toLocaleDateString('pt-BR')
+    };
+
+    setLocalPrintData(null);
+    setPdfReportData(null);
+
+    if (onPrint) {
+      setContabilSheetData(null);
+      onPrint(sheetPayload);
+    } else {
+      setContabilSheetData(sheetPayload);
+      setTimeout(() => {
+        window.print();
+      }, 250);
+    }
+  };
+
+  // Imprimir Folha Contábil de um Fechamento Específico (2ª via oficial da foto)
+  const handlePrintContabilSingle = (mov) => {
+    const unit = mov.unidade || selectedUnit || 'Todas as Lojas';
+    const movDate = parseItemDate(mov);
+    const dateFormatted = movDate ? movDate.toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+
+    // Movimentações associadas a este fechamento ou do mesmo dia/loja
+    const dayMovements = allMovements.filter(m => {
+      if (m.id === mov.id || String(m.tipo || '').toUpperCase() === 'FECHAMENTO') return false;
+      const mDate = parseItemDate(m);
+      if (!mDate || !movDate) return false;
+      const sameDay = mDate.toDateString() === movDate.toDateString();
+      const sameStore = (m.unidade || m.CIDADE || m.LOJA || '') === unit;
+      return sameDay && (unit === 'Todas as Lojas' || sameStore);
+    });
+
+    const closingData = {
+      ...mov,
+      unidade: unit,
+      operador: mov.operador || currentUser?.username || 'Caixa',
+      fundoInicial: parseCurrency(mov.fundoInicial),
+      vendasDinheiro: parseCurrency(mov.vendasDinheiro),
+      totalRecebimentosDinheiro: parseCurrency(mov.totalRecebimentosDinheiro),
+      vendasPix: parseCurrency(mov.vendasPix),
+      vendasDebito: parseCurrency(mov.vendasDebito),
+      vendasCredito: parseCurrency(mov.vendasCredito),
+      vendasBoletoTotal: parseCurrency(mov.vendasBoletoTotal ?? mov.vendasBoleto),
+      totalSangrias: parseCurrency(mov.totalSangrias),
+      totalSaidas: parseCurrency(mov.totalSaidas),
+      totalSuprimentos: parseCurrency(mov.totalSuprimentos),
+      dinheiroContado: parseCurrency(mov.dinheiroContado !== undefined ? mov.dinheiroContado : mov.valor)
+    };
+
+    const sheetPayload = {
+      type: 'CONTABIL_SHEET',
+      closingData,
+      movements: dayMovements.length > 0 ? dayMovements : [mov],
+      storeName: unit,
+      shiftNumber: mov.id ? String(mov.id).slice(-4) : '001',
+      dateStr: dateFormatted
+    };
+
+    setLocalPrintData(null);
+    setPdfReportData(null);
+
+    if (onPrint) {
+      setContabilSheetData(null);
+      onPrint(sheetPayload);
+    } else {
+      setContabilSheetData(sheetPayload);
+      setTimeout(() => {
+        window.print();
+      }, 250);
+    }
+  };
+
   // Exportar histórico para XML estruturado (integração entre sistemas)
   const handleExportXML = () => {
     if (filteredMovements.length === 0) {
@@ -1513,6 +1620,15 @@ export const CashHistoryContent = ({
 
           {/* Botões de Ação Lateral */}
           <div className="flex flex-wrap items-center gap-2 self-end lg:self-center mt-2 lg:mt-0 pt-3 lg:pt-0">
+            <button
+              type="button"
+              onClick={handlePrintContabilSheet}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-600/25 transition-all whitespace-nowrap min-h-[42px] active:scale-95"
+              title="Imprimir Folha de Movimento do Caixa (Modelo Contábil Físico A4 idêntico ao modelo da foto)"
+            >
+              <FileSpreadsheet size={16} />
+              <span>Movimento de Caixa (Ficha A4)</span>
+            </button>
             <button
               type="button"
               onClick={handlePrintPdfReport}
@@ -1913,6 +2029,17 @@ export const CashHistoryContent = ({
                             <Printer size={13} className="text-emerald-400" />
                             <span>2ª Via</span>
                           </button>
+                          {tipo === 'FECHAMENTO' && (
+                            <button
+                              type="button"
+                              onClick={() => handlePrintContabilSingle(mov)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950/60 hover:bg-emerald-800 text-emerald-300 hover:text-white rounded-xl text-xs font-bold border border-emerald-500/40 shadow-sm transition-all active:scale-95"
+                              title="Imprimir Folha de Movimento do Caixa (Modelo A4 Físico da foto)"
+                            >
+                              <FileSpreadsheet size={13} className="text-emerald-400" />
+                              <span>Ficha A4</span>
+                            </button>
+                          )}
                           {isAdmin && onDeleteRow && (
                             <button
                               type="button"
@@ -1958,6 +2085,17 @@ export const CashHistoryContent = ({
           storeName={pdfReportData.storeName}
           periodLabel={pdfReportData.periodLabel}
           reportTitle={pdfReportData.title}
+        />
+      )}
+
+      {/* Componente Invisível de Impressão da Ficha Contábil A4 (Modelo da Foto) */}
+      {contabilSheetData && (
+        <PrintableCashMovementSheet
+          closingData={contabilSheetData.closingData}
+          movements={contabilSheetData.movements}
+          storeName={contabilSheetData.storeName}
+          shiftNumber={contabilSheetData.shiftNumber}
+          dateStr={contabilSheetData.dateStr}
         />
       )}
 

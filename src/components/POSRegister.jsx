@@ -14,6 +14,7 @@ import OSGeneratorModal from './OSGeneratorModal';
 import CashManagementModal, { PrintableCashVoucher, parseItemDate } from './CashManagementModal';
 import CashHistoryModal from './CashHistoryModal';
 import PrintableCashClosingReport from './PrintableCashClosingReport';
+import PrintableCashMovementSheet from './PrintableCashMovementSheet';
 import { PrintableLabelModal } from './PrintableLabel';
 import { decrementStockAtomically, isSameClient } from '../firebaseSync';
 
@@ -177,15 +178,22 @@ const POSRegister = ({
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [cashVoucherPrintData, setCashVoucherPrintData] = useState(null);
   const [cashClosingPdfData, setCashClosingPdfData] = useState(null);
+  const [cashContabilSheetData, setCashContabilSheetData] = useState(null);
 
   const handleTriggerCashPrint = (voucher) => {
     setOsPrintData(null);
     setReceiptPrintData(null);
-    if (voucher && voucher.type === 'PDF_REPORT') {
+    if (voucher && voucher.type === 'CONTABIL_SHEET') {
       setCashVoucherPrintData(null);
+      setCashClosingPdfData(null);
+      setCashContabilSheetData(voucher);
+    } else if (voucher && voucher.type === 'PDF_REPORT') {
+      setCashVoucherPrintData(null);
+      setCashContabilSheetData(null);
       setCashClosingPdfData(voucher);
     } else {
       setCashClosingPdfData(null);
+      setCashContabilSheetData(null);
       setCashVoucherPrintData(voucher);
     }
     setTimeout(() => {
@@ -3789,6 +3797,17 @@ const POSRegister = ({
           storeName={cashClosingPdfData.storeName || selectedPOSCity}
           periodLabel={cashClosingPdfData.periodLabel}
           reportTitle={cashClosingPdfData.reportTitle || cashClosingPdfData.title}
+        />
+      )}
+
+      {/* FICHA CONTÁBIL DE MOVIMENTO DE CAIXA EM A4 (MODELO DA FOTO) */}
+      {cashContabilSheetData && (
+        <PrintableCashMovementSheet
+          closingData={cashContabilSheetData.closingData}
+          movements={cashContabilSheetData.movements}
+          storeName={cashContabilSheetData.storeName || selectedPOSCity}
+          shiftNumber={cashContabilSheetData.shiftNumber}
+          dateStr={cashContabilSheetData.dateStr}
         />
       )}
 

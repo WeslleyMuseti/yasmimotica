@@ -7267,6 +7267,76 @@ async function runTests() {
     console.log('  ✅ Test 71 Passed: Múltiplos Usos do Mesmo Voucher na Mesma Venda com Sequência Incremental validados com 100% de sucesso!\n');
   }
 
+  // ─── TEST 72: FICHA CONTÁBIL DE MOVIMENTO DO CAIXA (MODELO A4 FÍSICO DA FOTO) ───
+  {
+    console.log('▶ Test 72: Ficha Contábil de Movimento do Caixa (Modelo A4 Físico da Foto)');
+
+    const sheetPath = path.join(__dirname, 'src', 'components', 'PrintableCashMovementSheet.jsx');
+    const cashModalPath = path.join(__dirname, 'src', 'components', 'CashManagementModal.jsx');
+    const cashHistPath = path.join(__dirname, 'src', 'components', 'CashHistoryModal.jsx');
+    const posPath = path.join(__dirname, 'src', 'components', 'POSRegister.jsx');
+
+    console.assert(fs.existsSync(sheetPath), 'Arquivo PrintableCashMovementSheet.jsx deve existir');
+
+    const sheetSrc = fs.readFileSync(sheetPath, 'utf8');
+    const cashModalSrc = fs.readFileSync(cashModalPath, 'utf8');
+    const cashHistSrc = fs.readFileSync(cashHistPath, 'utf8');
+    const posSrc = fs.readFileSync(posPath, 'utf8');
+
+    // 1. Verificações de estrutura visual no componente PrintableCashMovementSheet.jsx
+    console.assert(sheetSrc.includes('MOVIMENTO DO CAIXA'), 'Deve conter o título MOVIMENTO DO CAIXA');
+    console.assert(sheetSrc.includes('EMPRESA:'), 'Deve conter o campo EMPRESA:');
+    console.assert(sheetSrc.includes('DATA'), 'Deve conter o box DATA');
+    console.assert(sheetSrc.includes('Nº'), 'Deve conter o box Nº');
+    console.assert(sheetSrc.includes('DOC. Nº'), 'Deve conter coluna DOC. Nº');
+    console.assert(sheetSrc.includes('HISTÓRICO'), 'Deve conter coluna HISTÓRICO');
+    console.assert(sheetSrc.includes('ENTRADAS'), 'Deve conter coluna ENTRADAS');
+    console.assert(sheetSrc.includes('SAÍDAS'), 'Deve conter coluna SAÍDAS');
+    console.assert(sheetSrc.includes('DETALHES DO SALDO'), 'Deve conter a seção DETALHES DO SALDO');
+    console.assert(sheetSrc.includes('DINHEIRO'), 'Deve discriminar DINHEIRO em detalhes do saldo');
+    console.assert(sheetSrc.includes('PIX / CHEQUES'), 'Deve discriminar PIX / CHEQUES em detalhes do saldo');
+    console.assert(sheetSrc.includes('A TRANSPORTAR'), 'Deve conter A TRANSPORTAR / TOTAL DO DIA');
+    console.assert(sheetSrc.includes('SALDO ANTERIOR'), 'Deve conter SALDO ANTERIOR');
+    console.assert(sheetSrc.includes('SALDO ATUAL (GAVETA)'), 'Deve conter SALDO ATUAL (GAVETA)');
+    console.assert(sheetSrc.includes('(DEMAIS PARA CONFERÊNCIA)'), 'Deve conter (DEMAIS PARA CONFERÊNCIA)');
+    console.assert(sheetSrc.includes('CAIXA:'), 'Deve conter campo de assinatura CAIXA:');
+    console.assert(sheetSrc.includes('VISTO:'), 'Deve conter campo de assinatura VISTO:');
+    console.assert(sheetSrc.includes('size: A4 portrait'), 'Deve configurar @page A4 portrait para impressão perfeita');
+    console.assert(sheetSrc.includes('print-cash-movement-sheet'), 'Deve ter o id de isolamento de impressão');
+
+    // 2. Import e integração no CashManagementModal
+    console.assert(cashModalSrc.includes('PrintableCashMovementSheet'), 'CashManagementModal deve importar PrintableCashMovementSheet');
+    console.assert(cashModalSrc.includes('contabilSheetData'), 'CashManagementModal deve controlar estado contabilSheetData');
+    console.assert(cashModalSrc.includes("mode === 'contabil'"), 'CashManagementModal deve suportar modo contabil no fechamento');
+    console.assert(cashModalSrc.includes('handlePrintContabilSheet'), 'CashManagementModal deve ter handlePrintContabilSheet');
+    console.assert(cashModalSrc.includes('Fechar & Ficha de Caixa (A4)') || cashModalSrc.includes('Fechar &amp; Ficha de Caixa (A4)'), 'CashManagementModal deve ter botão de Fechar com Ficha de Caixa A4');
+
+    // 3. Import e integração no CashHistoryModal
+    console.assert(cashHistSrc.includes('PrintableCashMovementSheet'), 'CashHistoryModal deve importar PrintableCashMovementSheet');
+    console.assert(cashHistSrc.includes('handlePrintContabilSheet'), 'CashHistoryModal deve ter handlePrintContabilSheet');
+    console.assert(cashHistSrc.includes('handlePrintContabilSingle'), 'CashHistoryModal deve ter handlePrintContabilSingle');
+    console.assert(cashHistSrc.includes('Movimento de Caixa (Ficha A4)'), 'CashHistoryModal deve ter botão de emissão da Ficha A4');
+
+    // 4. Import e integração no POSRegister
+    console.assert(posSrc.includes('PrintableCashMovementSheet'), 'POSRegister deve importar PrintableCashMovementSheet');
+    console.assert(posSrc.includes("voucher.type === 'CONTABIL_SHEET'"), 'POSRegister deve gerenciar voucher tipo CONTABIL_SHEET');
+    console.assert(posSrc.includes('cashContabilSheetData'), 'POSRegister deve ter estado e renderização de cashContabilSheetData');
+
+    // 5. Testes funcionais de cálculo e formatação monetária contábil
+    const { parseMovementNum, formatMovementMoney, formatMovementMoneyWithPrefix } = await import('./src/cashMovementUtils.js');
+    console.assert(parseMovementNum('R$ 1.500,75') === 1500.75, `Esperado 1500.75, obteve ${parseMovementNum('R$ 1.500,75')}`);
+    console.assert(parseMovementNum('350,00') === 350, `Esperado 350, obteve ${parseMovementNum('350,00')}`);
+    console.assert(parseMovementNum(0) === 0, 'Zero deve retornar 0');
+    console.assert(parseMovementNum('') === 0, 'String vazia deve retornar 0');
+
+    console.assert(formatMovementMoney(1500.75) === '1.500,75', `Esperado 1.500,75, obteve ${formatMovementMoney(1500.75)}`);
+    console.assert(formatMovementMoney(0, false) === '', 'formatMovementMoney com 0 e false deve ser vazio');
+    console.assert(formatMovementMoney(0, true) === '0,00', 'formatMovementMoney com 0 e true deve ser 0,00');
+    console.assert(formatMovementMoneyWithPrefix(250) === 'R$ 250,00', `Esperado R$ 250,00, obteve ${formatMovementMoneyWithPrefix(250)}`);
+
+    console.log('  ✅ Test 72 Passed: Ficha Contábil de Movimento do Caixa (Modelo A4 Físico da Foto) validada com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

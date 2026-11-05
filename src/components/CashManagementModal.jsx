@@ -2,9 +2,10 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   DollarSign, ArrowDownRight, ArrowUpRight, Lock, Unlock, 
   Printer, CheckCircle2, AlertTriangle, AlertCircle, X, ShieldAlert,
-  Calendar, Clock, User, Building, FileText, Check, ChevronRight
+  Calendar, Clock, User, Building, FileText, Check, ChevronRight, FileSpreadsheet
 } from 'lucide-react';
 import PrintableCashClosingReport from './PrintableCashClosingReport';
+import PrintableCashMovementSheet from './PrintableCashMovementSheet';
 
 const formatCurrency = (val) => {
   const n = typeof val === 'number' ? val : parseCurrency(val);
@@ -490,7 +491,8 @@ const CashManagementModal = ({
 
   const [printData, setPrintData] = useState(null);
   const [pdfReportData, setPdfReportData] = useState(null);
-  const [fechamentoPrintMode, setFechamentoPrintMode] = useState('pdf');
+  const [contabilSheetData, setContabilSheetData] = useState(null);
+  const [fechamentoPrintMode, setFechamentoPrintMode] = useState('contabil');
 
   // Sugere o saldo do último fechamento da loja como Fundo Inicial da nova Abertura
   const lastClosingCash = useMemo(() => {
@@ -867,7 +869,30 @@ const CashManagementModal = ({
 
     const mode = forcedMode || fechamentoPrintMode;
 
-    if (mode === 'pdf') {
+    if (mode === 'contabil') {
+      const combinedMovements = buildCombinedShiftMovements(sessionStats.listaMovimentos, sessionStats.vendasDoTurno, selectedCity, currentUser?.username || 'Caixa');
+      const sheetPayload = {
+        type: 'CONTABIL_SHEET',
+        closingData: fechamentoData,
+        movements: combinedMovements,
+        storeName: selectedCity,
+        shiftNumber: fechamentoData.id || fechamentoData.numeroFechamento || '',
+        dateStr: fechamentoData.dataFechamento ? fechamentoData.dataFechamento.split(' ')[0] : ''
+      };
+
+      setPrintData(null);
+      setPdfReportData(null);
+      if (onTriggerPrint) {
+        onTriggerPrint(sheetPayload);
+        onClose();
+      } else {
+        setContabilSheetData(sheetPayload);
+        setTimeout(() => {
+          window.print();
+          onClose();
+        }, 300);
+      }
+    } else if (mode === 'pdf') {
       const combinedMovements = buildCombinedShiftMovements(sessionStats.listaMovimentos, sessionStats.vendasDoTurno, selectedCity, currentUser?.username || 'Caixa');
       const reportPayload = {
         type: 'PDF_REPORT',
@@ -879,6 +904,7 @@ const CashManagementModal = ({
       };
 
       setPrintData(null);
+      setContabilSheetData(null);
       if (onTriggerPrint) {
         onTriggerPrint(reportPayload);
         onClose();
@@ -892,6 +918,7 @@ const CashManagementModal = ({
     } else {
       // Dispara impressão do Relatório Z em Cupom Térmico (80mm)
       setPdfReportData(null);
+      setContabilSheetData(null);
       if (onTriggerPrint) {
         onTriggerPrint({ type: 'FECHAMENTO', data: fechamentoData });
         onClose();
@@ -1055,10 +1082,59 @@ const CashManagementModal = ({
     };
 
     setPrintData(null);
+    setContabilSheetData(null);
     if (onTriggerPrint) {
       onTriggerPrint(reportPayload);
     } else {
       setPdfReportData(reportPayload);
+      setTimeout(() => {
+        window.print();
+      }, 300);
+    }
+  };
+
+  // 7. Imprimir Extrato em Ficha Contábil de Movimento do Caixa (Modelo da Foto A4)
+  const handlePrintContabilSheet = () => {
+    const combinedMovements = buildCombinedShiftMovements(sessionStats.listaMovimentos, sessionStats.vendasDoTurno, selectedCity, currentUser?.username || 'Caixa');
+
+    const sheetPayload = {
+      type: 'CONTABIL_SHEET',
+      closingData: {
+        unidade: selectedCity,
+        operador: currentUser?.username || 'Caixa',
+        dataAbertura: activeSession?.dataHoraAbertura ? new Date(activeSession.dataHoraAbertura).toLocaleString('pt-BR') : '---',
+        dataFechamento: new Date().toLocaleString('pt-BR'),
+        fundoInicial: sessionStats.fundoInicial,
+        vendasDinheiro: sessionStats.vendasDinheiro,
+        vendasPix: sessionStats.vendasPix,
+        vendasDebito: sessionStats.vendasDebito,
+        vendasCredito: sessionStats.vendasCredito,
+        vendasBoleto: sessionStats.vendasBoleto,
+        vendasBoletoTotal: sessionStats.vendasBoletoTotal,
+        vendasBoletoQtd: sessionStats.vendasBoletoQtd,
+        totalRecebidosCaixa: sessionStats.totalRecebidosCaixa,
+        totalRecebimentosDinheiro: sessionStats.totalRecebimentosDinheiro,
+        totalEntradasEspecie: sessionStats.totalEntradasEspecie,
+        totalVendas: sessionStats.totalVendas,
+        totalSangrias: sessionStats.totalSangrias,
+        totalSaidas: sessionStats.totalSaidas,
+        totalSuprimentos: sessionStats.totalSuprimentos,
+        dinheiroEsperado: sessionStats.dinheiroEsperado,
+        dinheiroContado: sessionStats.dinheiroEsperado,
+        diferenca: 0,
+        observacoes: 'Extrato de Movimento de Caixa'
+      },
+      movements: combinedMovements,
+      storeName: selectedCity,
+      dateStr: new Date().toLocaleDateString('pt-BR')
+    };
+
+    setPrintData(null);
+    setPdfReportData(null);
+    if (onTriggerPrint) {
+      onTriggerPrint(sheetPayload);
+    } else {
+      setContabilSheetData(sheetPayload);
       setTimeout(() => {
         window.print();
       }, 300);
@@ -1450,18 +1526,26 @@ const CashManagementModal = ({
                 <button
                   type="button"
                   onClick={(e) => handleFechamentoSubmit(e, 'cupom')}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all"
+                  className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all"
                   title="Fechar caixa e imprimir comprovante em bobina térmica (80mm)"
                 >
-                  <Printer size={15} /> Cupom Térmico (80mm)
+                  <Printer size={15} /> Cupom (80mm)
                 </button>
                 <button
                   type="button"
                   onClick={(e) => handleFechamentoSubmit(e, 'pdf')}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-black shadow-lg shadow-purple-600/30 flex items-center gap-2 transition-all active:scale-95"
-                  title="Fechar caixa e gerar Relatório Oficial em PDF A4 com todas as movimentações detalhadas"
+                  className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all"
+                  title="Fechar caixa e gerar Relatório Executivo Oficial em PDF A4"
                 >
-                  <FileText size={16} /> Fechar &amp; Relatório PDF (A4)
+                  <FileText size={15} /> Relatório PDF (A4)
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => handleFechamentoSubmit(e, 'contabil')}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-all active:scale-95"
+                  title="Fechar caixa e imprimir Folha de Movimento do Caixa (Modelo Contábil Físico A4 idêntico à imagem)"
+                >
+                  <FileSpreadsheet size={16} /> Fechar &amp; Ficha de Caixa (A4)
                 </button>
               </div>
             </form>
@@ -1521,25 +1605,33 @@ const CashManagementModal = ({
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-white/10">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button 
                     type="button" 
                     onClick={handlePrintExtratoParcial}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white border border-white/10 text-xs font-bold transition-all"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white border border-white/10 text-xs font-bold transition-all"
                     title="Imprimir extrato resumido em bobina térmica (80mm)"
                   >
-                    <Printer size={15} /> Cupom (80mm)
+                    <Printer size={14} /> Cupom (80mm)
                   </button>
                   <button 
                     type="button" 
                     onClick={handlePrintExtratoPdf}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-black shadow-md shadow-purple-600/25 transition-all"
-                    title="Gerar extrato completo em folha A4 com movimentações para salvar em PDF"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white border border-white/10 text-xs font-bold transition-all"
+                    title="Gerar extrato executivo em folha A4 com movimentações para salvar em PDF"
                   >
-                    <FileText size={15} /> Extrato em PDF (A4)
+                    <FileText size={14} /> Relatório PDF (A4)
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={handlePrintContabilSheet}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-md shadow-emerald-600/25 transition-all active:scale-95"
+                    title="Imprimir Folha de Movimento do Caixa contábil idêntica à ficha física tradicional (A4)"
+                  >
+                    <FileSpreadsheet size={15} /> Movimento de Caixa (Ficha A4)
                   </button>
                 </div>
-                <button type="button" onClick={onClose} className="px-5 py-2 rounded-xl bg-white/10 text-white text-xs font-bold hover:bg-white/20">
+                <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl bg-white/10 text-white text-xs font-bold hover:bg-white/20">
                   Fechar Extrato
                 </button>
               </div>
@@ -1567,6 +1659,17 @@ const CashManagementModal = ({
           storeName={pdfReportData.storeName}
           periodLabel={pdfReportData.periodLabel}
           reportTitle={pdfReportData.reportTitle || 'RELATÓRIO DE FECHAMENTO DE CAIXA (RELATÓRIO Z)'}
+        />
+      )}
+
+      {/* Componente Invisível de Impressão da Ficha Contábil A4 (Modelo da Imagem) */}
+      {contabilSheetData && (
+        <PrintableCashMovementSheet
+          closingData={contabilSheetData.closingData}
+          movements={contabilSheetData.movements}
+          storeName={contabilSheetData.storeName}
+          shiftNumber={contabilSheetData.shiftNumber}
+          dateStr={contabilSheetData.dateStr}
         />
       )}
     </>
