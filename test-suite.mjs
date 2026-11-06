@@ -7321,9 +7321,20 @@ async function runTests() {
     console.assert(posSrc.includes('PrintableCashMovementSheet'), 'POSRegister deve importar PrintableCashMovementSheet');
     console.assert(posSrc.includes("voucher.type === 'CONTABIL_SHEET'"), 'POSRegister deve gerenciar voucher tipo CONTABIL_SHEET');
     console.assert(posSrc.includes('cashContabilSheetData'), 'POSRegister deve ter estado e renderização de cashContabilSheetData');
+    console.assert(posSrc.includes('openContabilCashMovementSheet'), 'POSRegister deve disponibilizar openContabilCashMovementSheet');
 
-    // 5. Testes funcionais de cálculo e formatação monetária contábil
-    const { parseMovementNum, formatMovementMoney, formatMovementMoneyWithPrefix } = await import('./src/cashMovementUtils.js');
+    // 5. Verificação da nova coluna VENDAS igual à foto física anotada
+    console.assert(sheetSrc.includes('VENDAS'), 'PrintableCashMovementSheet deve conter a coluna VENDAS adicionada pelo usuário na foto');
+
+    // 6. Testes funcionais de cálculo, formatação monetária e preparação contábil
+    const {
+      parseMovementNum,
+      formatMovementMoney,
+      formatMovementMoneyWithPrefix,
+      prepareCashMovementRows,
+      buildSynthesizedMovementRows
+    } = await import('./src/cashMovementUtils.js');
+
     console.assert(parseMovementNum('R$ 1.500,75') === 1500.75, `Esperado 1500.75, obteve ${parseMovementNum('R$ 1.500,75')}`);
     console.assert(parseMovementNum('350,00') === 350, `Esperado 350, obteve ${parseMovementNum('350,00')}`);
     console.assert(parseMovementNum(0) === 0, 'Zero deve retornar 0');
@@ -7334,7 +7345,67 @@ async function runTests() {
     console.assert(formatMovementMoney(0, true) === '0,00', 'formatMovementMoney com 0 e true deve ser 0,00');
     console.assert(formatMovementMoneyWithPrefix(250) === 'R$ 250,00', `Esperado R$ 250,00, obteve ${formatMovementMoneyWithPrefix(250)}`);
 
-    console.log('  ✅ Test 72 Passed: Ficha Contábil de Movimento do Caixa (Modelo A4 Físico da Foto) validada com 100% de sucesso!\n');
+    // 7. Simulação do Cenário da Foto do Usuário (vendasDinheiro: 91.25 sem movimentos avulsos)
+    const photoScenarioResult = prepareCashMovementRows({
+      unidade: 'Soledade',
+      operador: 'Operador',
+      fundoInicial: 0,
+      vendasDinheiro: 91.25,
+      dinheiroContado: 91.25
+    }, []);
+
+    console.assert(photoScenarioResult.rows.length === 24, 'Grid contábil deve manter exatamente 24 linhas padronizadas');
+    console.assert(photoScenarioResult.rows[0].docNo === 'VD-01', 'Linha 1 deve ser gerada com docNo VD-01');
+    console.assert(photoScenarioResult.rows[0].venda === '91,25', 'Coluna VENDAS da linha 1 deve ter 91,25');
+    console.assert(photoScenarioResult.rows[0].entrada === '91,25', 'Coluna ENTRADAS da linha 1 deve ter 91,25');
+    console.assert(photoScenarioResult.totalVendasFinal === 91.25, 'Total de vendas final deve ser 91.25');
+    console.assert(photoScenarioResult.totalEntradasFinal === 91.25, 'Total de entradas final deve ser 91.25');
+    console.assert(photoScenarioResult.saldoAtual === 91.25, 'Saldo atual na gaveta deve ser 91.25');
+
+    // 8. Simulação Completa com Venda Mista (Entrada + Boleto), Sangria e Suprimento
+    const fullScenarioResult = prepareCashMovementRows({
+      fundoInicial: 100.00,
+      vendasDinheiro: 200.00
+    }, [
+      { tipo: 'ABERTURA', valor: 100.00, motivo: 'Fundo Inicial' },
+      { tipo: 'VENDA', osNumero: '1050', valorTotalOS: 1200.00, valorEntrada: 200.00, valorRestanteBoleto: 1000.00, cliente: 'Carlos', formaPagamento: 'Boleto/Dinheiro' },
+      { tipo: 'SUPRIMENTO', valor: 50.00, motivo: 'Troco Extra' },
+      { tipo: 'SANGRIA', valor: 70.00, motivo: 'Retirada Cofre' }
+    ]);
+
+    const vendaRow = fullScenarioResult.rows[1];
+    console.assert(vendaRow.docNo === 'OS-1050', 'Doc Nº da OS deve ser OS-1050');
+    console.assert(vendaRow.venda === '1.200,00', 'Coluna VENDAS da OS deve exibir o valor total da venda (1.200,00)');
+    console.assert(vendaRow.entrada === '200,00', 'Coluna ENTRADAS da OS deve exibir a entrada recebida (200,00)');
+    console.assert(fullScenarioResult.totalVendasFinal === 1200.00, 'Total de Vendas do Dia deve ser 1200.00');
+    console.assert(fullScenarioResult.totalEntradasFinal === 250.00, 'Total de Entradas (200 venda + 50 suprimento) deve ser 250.00');
+    console.assert(fullScenarioResult.totalSaidasFinal === 70.00, 'Total de Saídas deve ser 70.00');
+    console.assert(fullScenarioResult.saldoAnterior === 100.00, 'Saldo Anterior deve ser 100.00');
+    console.assert(fullScenarioResult.saldoAtual === 280.00, `Saldo Atual (100 + 250 - 70) deve ser 280.00, obteve ${fullScenarioResult.saldoAtual}`);
+
+    // 9. Simulação Híbrida: Lista com apenas ABERTURA + Vendas no closingData (Garante que vendas nunca fiquem de fora)
+    const hybridScenarioResult = prepareCashMovementRows({
+      fundoInicial: 50.00,
+      vendasDinheiro: 91.25,
+      dinheiroContado: 141.25
+    }, [
+      { tipo: 'ABERTURA', valor: 50.00, motivo: 'Abertura de Caixa' }
+    ]);
+    console.assert(hybridScenarioResult.rows.some(r => r.docNo === 'VD-01' && r.venda === '91,25'), 'Vendas devem ser sintetizadas mesmo se a lista contiver apenas a Abertura');
+    console.assert(hybridScenarioResult.totalVendasFinal === 91.25, 'Total de vendas final deve ser 91.25');
+    console.assert(hybridScenarioResult.saldoAnterior === 50.00, 'Saldo anterior deve ser 50.00');
+    console.assert(hybridScenarioResult.saldoAtual === 141.25, 'Saldo atual na gaveta deve ser 141.25');
+
+    // 10. Blindagem de POSRegister.jsx: dtDateTime e persistência completa em handleCloseCash
+    console.assert(posSrc.includes('const dtDateTime = closeData.dataFechamento'), 'POSRegister deve declarar dtDateTime em handleCloseCash sem ReferenceError');
+    console.assert(posSrc.includes('vendasDinheiro: closeData.vendasDinheiro'), 'POSRegister deve persistir vendasDinheiro no fechamento');
+    console.assert(posSrc.includes('vendasBoletoTotal: closeData.vendasBoletoTotal'), 'POSRegister deve persistir vendasBoletoTotal no fechamento');
+
+    // 11. Conformidade com a foto física (EMPRESA e SOBRA)
+    console.assert(sheetSrc.includes('YASMIN ÓTICA LTDA'), 'Ficha deve conter a razão social idêntica à foto física');
+    console.assert(sheetSrc.includes('SOBRA'), 'Ficha deve conter a linha SOBRA idêntica à foto física');
+
+    console.log('  ✅ Test 72 Passed: Ficha Contábil de Movimento do Caixa (Modelo A4 Físico da Foto com Coluna Vendas e Linhas Reais) validada com 100% de sucesso!\n');
   }
 
   // ----------------------------------------------------

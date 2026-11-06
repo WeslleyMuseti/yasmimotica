@@ -201,6 +201,17 @@ const POSRegister = ({
     }, 250);
   };
 
+  const openContabilCashMovementSheet = (customData = {}) => {
+    handleTriggerCashPrint({
+      type: 'CONTABIL_SHEET',
+      closingData: customData.closingData || {},
+      movements: customData.movements || [],
+      storeName: customData.storeName || selectedPOSCity,
+      shiftNumber: customData.shiftNumber || '',
+      dateStr: customData.dateStr || new Date().toLocaleDateString('pt-BR')
+    });
+  };
+
   const cashMovements = useMemo(() => {
     return data?.['FLUXO_CAIXA'] || [];
   }, [data]);
@@ -364,9 +375,12 @@ const POSRegister = ({
       const dtObj = new Date(dtIso);
       const dtFormatted = closeData.data || dtObj.toLocaleDateString('pt-BR');
       const dtTime = closeData.hora || closeData.HORA || dtObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      const dtDateTime = closeData.DATA_HORA || dtObj.toLocaleString('pt-BR');
+      const dtDateTime = closeData.dataFechamento || closeData.DATA_HORA || dtObj.toLocaleString('pt-BR');
+      const rowId = closeData.id || `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+      const rowSeqNo = closeData.numeroFechamento || rowId.replace(/\D/g, '').slice(-4);
       await onAddRow('FLUXO_CAIXA', {
-        id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        id: rowId,
+        numeroFechamento: rowSeqNo,
         tipo: 'FECHAMENTO',
         dataHora: dtIso,
         dataHoraFechamento: dtIso,
@@ -381,13 +395,28 @@ const POSRegister = ({
         operador: closeData.operador,
         valor: closeData.dinheiroContado,
         fundoInicial: closeData.fundoInicial,
+        vendasDinheiro: closeData.vendasDinheiro,
+        vendasPix: closeData.vendasPix,
+        vendasDebito: closeData.vendasDebito,
+        vendasCredito: closeData.vendasCredito,
+        vendasBoleto: closeData.vendasBoleto,
+        vendasBoletoTotal: closeData.vendasBoletoTotal,
+        vendasBoletoQtd: closeData.vendasBoletoQtd,
+        totalRecebidosCaixa: closeData.totalRecebidosCaixa,
+        totalRecebimentosDinheiro: closeData.totalRecebimentosDinheiro,
+        totalEntradasEspecie: closeData.totalEntradasEspecie,
         totalVendas: closeData.totalVendas,
+        totalSangrias: closeData.totalSangrias,
+        totalSuprimentos: closeData.totalSuprimentos,
+        totalSaidas: closeData.totalSaidas,
         dinheiroEsperado: closeData.dinheiroEsperado,
+        dinheiroContado: closeData.dinheiroContado,
         diferenca: closeData.diferenca,
         status: closeData.status,
         formaPagamento: 'TODAS',
         motivo: `Fechamento de Caixa - ${closeData.status}`,
-        detalhes: closeData.observacoes || ''
+        detalhes: closeData.observacoes || '',
+        dataAbertura: closeData.dataAbertura || ''
       });
     }
   };

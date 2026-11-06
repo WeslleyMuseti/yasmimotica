@@ -3,13 +3,17 @@ import ReactDOM from 'react-dom';
 import {
   parseMovementNum,
   formatMovementMoney,
-  formatMovementMoneyWithPrefix
+  formatMovementMoneyWithPrefix,
+  prepareCashMovementRows,
+  buildSynthesizedMovementRows
 } from '../cashMovementUtils';
 
 export {
   parseMovementNum,
   formatMovementMoney,
-  formatMovementMoneyWithPrefix
+  formatMovementMoneyWithPrefix,
+  prepareCashMovementRows,
+  buildSynthesizedMovementRows
 };
 
 /**
@@ -17,9 +21,9 @@ export {
  * Ficha Contábil Oficial de "MOVIMENTO DO CAIXA"
  * Reproduz com 100% de fidelidade o layout físico tradicional em papel A4:
  * - Cabeçalho: MOVIMENTO DO CAIXA, DATA, Nº, EMPRESA
- * - Tabela: DOC. Nº, HISTÓRICO, ENTRADAS, SAÍDAS com pauta contábil completa
+ * - Tabela com 5 colunas oficiais: DOC. Nº, HISTÓRICO, VENDAS, ENTRADAS, SAÍDAS
  * - Rodapé: DETALHES DO SALDO (Dinheiro, PIX/Cheques, Cartão Débito, Cartão Crédito, Boleto/Carnê, Total)
- * - Totalizadores: A TRANSPORTAR / TOTAL DO DIA, SALDO ANTERIOR, SALDO ATUAL, DEMAIS PARA CONFERÊNCIA
+ * - Totalizadores: A TRANSPORTAR / TOTAL DO DIA (Vendas, Entradas, Saídas), SALDO ANTERIOR, SALDO ATUAL (GAVETA), (DEMAIS PARA CONFERÊNCIA)
  * - Assinaturas: CAIXA e VISTO
  */
 export const PrintableCashMovementSheet = ({
@@ -54,133 +58,22 @@ export const PrintableCashMovementSheet = ({
     return raw ? raw.slice(-4) : '001';
   })();
 
-  // Valores financeiros
-  const fundoInicial = parseMovementNum(closingData.fundoInicial);
-  const vendasDinheiro = parseMovementNum(closingData.vendasDinheiro);
-  const totalRecebimentosDinheiro = parseMovementNum(closingData.totalRecebimentosDinheiro);
-  const vendasPix = parseMovementNum(closingData.vendasPix);
-  const vendasDebito = parseMovementNum(closingData.vendasDebito);
-  const vendasCredito = parseMovementNum(closingData.vendasCredito);
-  const vendasBoleto = parseMovementNum(closingData.vendasBoletoTotal ?? closingData.vendasBoleto);
-  const totalSuprimentos = parseMovementNum(closingData.totalSuprimentos);
-  const totalSangrias = parseMovementNum(closingData.totalSangrias);
-  const totalSaidas = parseMovementNum(closingData.totalSaidas);
-
-  // Normalização e extração de linhas da tabela
-  let totalEntradasCalculadas = 0;
-  let totalSaidasCalculadas = 0;
-
-  const validMovements = (Array.isArray(movements) ? movements : []).filter(m => {
-    if (!m) return false;
-    const tipo = String(m.tipo || m.TIPO || '').toUpperCase().trim();
-    return tipo !== 'FECHAMENTO';
-  });
-
-  const parsedRows = validMovements.map((m, idx) => {
-    const tipo = String(m.tipo || m.TIPO || 'MOVIMENTO').toUpperCase().trim();
-    const isSaida = tipo === 'SANGRIA' || tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'DESPESA' || tipo === 'PAGAMENTO';
-    const isAbertura = tipo === 'ABERTURA';
-
-    const rawValor = parseMovementNum(m.valor ?? m.VALOR ?? m['VALOR TOTAL'] ?? m['VALOR DA VENDA'] ?? 0);
-    const restBoleto = parseMovementNum(m.valorRestanteBoleto ?? m.RESTANTE ?? 0);
-    const totalOS = parseMovementNum(m.valorTotalOS ?? m['VALOR TOTAL'] ?? 0);
-
-    const forma = String(m.formaPagamento || m.forma || m.FORMA_PAGTO || m['FORMA DE PAGAMENTO'] || '').trim();
-    const isPureBoleto = tipo === 'VENDA' && rawValor === 0 && (restBoleto > 0 || /boleto/i.test(forma));
-    const displayValor = isPureBoleto ? (restBoleto || totalOS) : rawValor;
-
-    // Doc Nº
-    const osRaw = m.osNumero || m.os || m['OS DA VENDA'] || m['Nº DA OS'] || m.OS || '';
-    let docNo = '';
-    if (osRaw) {
-      docNo = `OS-${String(osRaw).replace(/^#|^os[-_ ]?/i, '').trim()}`;
-    } else if (isSaida) {
-      docNo = `SG-${String(idx + 1).padStart(2, '0')}`;
-    } else if (tipo === 'SUPRIMENTO') {
-      docNo = `SP-${String(idx + 1).padStart(2, '0')}`;
-    } else if (isAbertura) {
-      docNo = 'AB-01';
-    } else if (m.id) {
-      const idClean = String(m.id).replace(/\D/g, '');
-      docNo = idClean ? `DOC-${idClean.slice(-4)}` : `DOC-${idx + 1}`;
-    } else {
-      docNo = `DOC-${idx + 1}`;
-    }
-
-    // Histórico
-    const cliente = m.cliente || m.CLIENTE || m.NOME || '';
-    const motivo = m.motivo || m.MOTIVO || m.descricao || m.detalhes || '';
-    let historico = '';
-
-    if (tipo === 'VENDA') {
-      historico = `Venda ${cliente ? `- ${cliente}` : ''}${forma ? ` (${forma})` : ''}`.trim();
-    } else if (tipo === 'RECEBIMENTO') {
-      historico = `Recebimento Parcela ${cliente ? `- ${cliente}` : ''}${forma ? ` (${forma})` : ''}`.trim();
-    } else if (tipo === 'SANGRIA') {
-      historico = `Sangria: ${motivo || 'Retirada de Caixa'}`;
-    } else if (tipo === 'SUPRIMENTO') {
-      historico = `Suprimento: ${motivo || 'Entrada de Troco Adicional'}`;
-    } else if (isAbertura) {
-      historico = `Fundo de Troco / Abertura de Caixa`;
-    } else {
-      historico = `${motivo || cliente || 'Movimentação Diversa'}${forma ? ` (${forma})` : ''}`;
-    }
-
-    // Entradas e Saídas
-    let entrada = '';
-    let saida = '';
-
-    if (isSaida) {
-      saida = displayValor;
-      totalSaidasCalculadas += displayValor;
-    } else if (!isAbertura) {
-      entrada = displayValor;
-      totalEntradasCalculadas += displayValor;
-    }
-
-    return {
-      docNo,
-      historico,
-      entrada: entrada ? formatMovementMoney(entrada) : '',
-      saida: saida ? formatMovementMoney(saida) : ''
-    };
-  });
-
-  // Garantir no mínimo 24 linhas para simular perfeitamente a folha do bloco físico
-  const TOTAL_GRID_ROWS = 24;
-  const emptyRowsNeeded = Math.max(0, TOTAL_GRID_ROWS - parsedRows.length);
-  const blankRows = Array.from({ length: emptyRowsNeeded }, () => ({
-    docNo: '',
-    historico: '',
-    entrada: '',
-    saida: ''
-  }));
-
-  const allDisplayRows = [...parsedRows, ...blankRows];
-
-  // Totais Finais
-  const totalEntradasFinal = totalEntradasCalculadas > 0
-    ? totalEntradasCalculadas
-    : (vendasDinheiro + totalRecebimentosDinheiro + vendasPix + vendasDebito + vendasCredito + totalSuprimentos);
-
-  const totalSaidasFinal = totalSaidasCalculadas > 0
-    ? totalSaidasCalculadas
-    : (totalSangrias + totalSaidas);
-
-  const totalDinheiroDetalhes = vendasDinheiro + totalRecebimentosDinheiro + totalSuprimentos;
-  const totalChequesPixDetalhes = vendasPix;
-  const totalDebitoDetalhes = vendasDebito;
-  const totalCreditoDetalhes = vendasCredito;
-  const totalBoletoDetalhes = vendasBoleto;
-  const totalGeralDetalhes = totalDinheiroDetalhes + totalChequesPixDetalhes + totalDebitoDetalhes + totalCreditoDetalhes + totalBoletoDetalhes;
-
-  const saldoAnterior = fundoInicial;
-  const saldoAtualCalculado = saldoAnterior + (vendasDinheiro + totalRecebimentosDinheiro + totalSuprimentos) - totalSaidasFinal;
-  const saldoAtual = closingData.dinheiroContado !== undefined && parseMovementNum(closingData.dinheiroContado) > 0
-    ? parseMovementNum(closingData.dinheiroContado)
-    : saldoAtualCalculado;
-
-  const demaisConferencia = totalChequesPixDetalhes + totalDebitoDetalhes + totalCreditoDetalhes + totalBoletoDetalhes;
+  // Cálculo e estruturação de linhas e balanço contábil
+  const {
+    rows: allDisplayRows,
+    totalVendasFinal,
+    totalEntradasFinal,
+    totalSaidasFinal,
+    saldoAnterior,
+    saldoAtual,
+    demaisConferencia,
+    totalDinheiroDetalhes,
+    totalChequesPixDetalhes,
+    totalDebitoDetalhes,
+    totalCreditoDetalhes,
+    totalBoletoDetalhes,
+    totalGeralDetalhes
+  } = prepareCashMovementRows(closingData, movements, 24);
 
   const content = (
     <div
@@ -298,7 +191,7 @@ export const PrintableCashMovementSheet = ({
                   color: '#111111'
                 }}
               >
-                YASMIN ÓTICA &bull; {String(unit).toUpperCase()}
+                YASMIN ÓTICA LTDA{unit && unit !== 'Central' && unit !== 'Todas as Lojas' ? ` • ${String(unit).toUpperCase()}` : ''}
               </span>
             </div>
           </div>
@@ -362,13 +255,13 @@ export const PrintableCashMovementSheet = ({
                   color: '#000000'
                 }}
               >
-                #{displayShiftNo}
+                {String(displayShiftNo).startsWith('#') ? displayShiftNo : `#${displayShiftNo}`}
               </span>
             </div>
           </div>
         </div>
 
-        {/* ─── 2. TABELA DE MOVIMENTAÇÕES (GRID CONTÁBIL) ─── */}
+        {/* ─── 2. TABELA DE MOVIMENTAÇÕES (GRID CONTÁBIL COM CAMPO DE VENDAS) ─── */}
         <table
           style={{
             width: '100%',
@@ -382,7 +275,7 @@ export const PrintableCashMovementSheet = ({
             <tr style={{ backgroundColor: '#ffffff', borderBottom: '1.5px solid #000000' }}>
               <th
                 style={{
-                  width: '12%',
+                  width: '10%',
                   padding: '3px 2px',
                   textAlign: 'center',
                   fontWeight: 900,
@@ -397,7 +290,7 @@ export const PrintableCashMovementSheet = ({
               </th>
               <th
                 style={{
-                  width: '53%',
+                  width: '42%',
                   padding: '4px 6px',
                   textAlign: 'center',
                   fontWeight: 900,
@@ -410,7 +303,21 @@ export const PrintableCashMovementSheet = ({
               </th>
               <th
                 style={{
-                  width: '17%',
+                  width: '16%',
+                  padding: '4px 4px',
+                  textAlign: 'center',
+                  fontWeight: 900,
+                  fontSize: '8.5px',
+                  textTransform: 'uppercase',
+                  borderRight: '1px solid #000000'
+                }}
+                title="VENDAS REALIZADAS"
+              >
+                VENDAS
+              </th>
+              <th
+                style={{
+                  width: '16%',
                   padding: '4px 4px',
                   textAlign: 'center',
                   fontWeight: 900,
@@ -423,7 +330,7 @@ export const PrintableCashMovementSheet = ({
               </th>
               <th
                 style={{
-                  width: '17%',
+                  width: '16%',
                   padding: '4px 4px',
                   textAlign: 'center',
                   fontWeight: 900,
@@ -475,6 +382,20 @@ export const PrintableCashMovementSheet = ({
                   }}
                 >
                   {row.historico}
+                </td>
+
+                {/* VENDAS */}
+                <td
+                  style={{
+                    borderRight: '1px solid #000000',
+                    padding: '0 6px',
+                    textAlign: 'right',
+                    fontWeight: 700,
+                    fontSize: '9.5px',
+                    fontFamily: "'Courier New', Courier, monospace"
+                  }}
+                >
+                  {row.venda}
                 </td>
 
                 {/* ENTRADAS */}
@@ -609,13 +530,26 @@ export const PrintableCashMovementSheet = ({
                 </tr>
 
                 {/* Linha TOTAL DOS DETALHES */}
-                <tr style={{ height: '20px', backgroundColor: '#e5e7eb', fontWeight: 900 }}>
+                <tr style={{ height: '20px', backgroundColor: '#e5e7eb', fontWeight: 900, borderBottom: '1px solid #000000' }}>
                   <td style={{ padding: '0 6px', textTransform: 'uppercase', borderRight: '1px solid #000000', fontSize: '9px' }}>
                     TOTAL
                   </td>
                   <td style={{ borderRight: '1px solid #000000' }} />
                   <td style={{ padding: '0 6px', textAlign: 'right', fontSize: '9.5px', fontFamily: "'Courier New', monospace" }}>
                     {formatMovementMoney(totalGeralDetalhes, true)}
+                  </td>
+                </tr>
+
+                {/* Linha SOBRA (Idêntico ao formulário físico da foto) */}
+                <tr style={{ height: '18px' }}>
+                  <td style={{ padding: '0 6px', textTransform: 'uppercase', borderRight: '1px solid #000000', fontSize: '8px', fontWeight: 800, color: '#333333' }}>
+                    {parseMovementNum(closingData.diferenca) < 0 ? 'FALTA' : 'SOBRA'}
+                  </td>
+                  <td style={{ borderRight: '1px solid #000000', textAlign: 'center', color: '#888' }} />
+                  <td style={{ padding: '0 6px', textAlign: 'right', fontSize: '9px', fontFamily: "'Courier New', monospace", fontWeight: 800 }}>
+                    {closingData.diferenca !== undefined && parseMovementNum(closingData.diferenca) !== 0
+                      ? formatMovementMoney(Math.abs(parseMovementNum(closingData.diferenca)), true)
+                      : ''}
                   </td>
                 </tr>
               </tbody>
@@ -644,7 +578,7 @@ export const PrintableCashMovementSheet = ({
                 <tr style={{ height: '22px', borderBottom: '1px solid #000000', backgroundColor: '#f9fafb' }}>
                   <td
                     style={{
-                      width: '46%',
+                      width: '37%',
                       padding: '0 6px',
                       fontWeight: 900,
                       textTransform: 'uppercase',
@@ -655,29 +589,48 @@ export const PrintableCashMovementSheet = ({
                     A TRANSPORTAR<br />
                     <span style={{ fontSize: '7.5px', fontWeight: 700, color: '#444' }}>TOTAL DO DIA</span>
                   </td>
-                  {/* Entradas */}
+                  {/* Vendas */}
                   <td
                     style={{
-                      width: '27%',
-                      padding: '0 6px',
+                      width: '21%',
+                      padding: '0 4px',
                       textAlign: 'right',
                       fontWeight: 900,
                       fontFamily: "'Courier New', monospace",
                       borderRight: '1px solid #000000'
                     }}
+                    title="Total de Vendas do Dia"
                   >
+                    <div style={{ fontSize: '6.5px', fontWeight: 800, color: '#555', textTransform: 'uppercase', lineHeight: 1 }}>VENDAS</div>
+                    {formatMovementMoney(totalVendasFinal, true)}
+                  </td>
+                  {/* Entradas */}
+                  <td
+                    style={{
+                      width: '21%',
+                      padding: '0 4px',
+                      textAlign: 'right',
+                      fontWeight: 900,
+                      fontFamily: "'Courier New', monospace",
+                      borderRight: '1px solid #000000'
+                    }}
+                    title="Total de Entradas do Dia"
+                  >
+                    <div style={{ fontSize: '6.5px', fontWeight: 800, color: '#555', textTransform: 'uppercase', lineHeight: 1 }}>ENTRADAS</div>
                     {formatMovementMoney(totalEntradasFinal, true)}
                   </td>
                   {/* Saídas */}
                   <td
                     style={{
-                      width: '27%',
-                      padding: '0 6px',
+                      width: '21%',
+                      padding: '0 4px',
                       textAlign: 'right',
                       fontWeight: 900,
                       fontFamily: "'Courier New', monospace"
                     }}
+                    title="Total de Saídas do Dia"
                   >
+                    <div style={{ fontSize: '6.5px', fontWeight: 800, color: '#555', textTransform: 'uppercase', lineHeight: 1 }}>SAÍDAS</div>
                     {formatMovementMoney(totalSaidasFinal, true)}
                   </td>
                 </tr>
@@ -695,7 +648,7 @@ export const PrintableCashMovementSheet = ({
                     SALDO ANTERIOR
                   </td>
                   <td
-                    colSpan={2}
+                    colSpan={3}
                     style={{
                       padding: '0 6px',
                       textAlign: 'right',
@@ -722,7 +675,7 @@ export const PrintableCashMovementSheet = ({
                     SALDO ATUAL (GAVETA)
                   </td>
                   <td
-                    colSpan={2}
+                    colSpan={3}
                     style={{
                       padding: '0 6px',
                       textAlign: 'right',
@@ -750,7 +703,7 @@ export const PrintableCashMovementSheet = ({
                     (DEMAIS PARA CONFERÊNCIA)
                   </td>
                   <td
-                    colSpan={2}
+                    colSpan={3}
                     style={{
                       padding: '0 6px',
                       textAlign: 'right',

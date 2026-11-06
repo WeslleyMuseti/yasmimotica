@@ -1327,14 +1327,31 @@ export const CashHistoryContent = ({
     const movDate = parseItemDate(mov);
     const dateFormatted = movDate ? movDate.toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
 
+    const targetUnitNorm = normStr(unit);
+    const matchUnit = (u) => {
+      if (unit === 'Todas as Lojas' || targetUnitNorm === 'todas as lojas' || !targetUnitNorm) return true;
+      const unNorm = normStr(u);
+      return unNorm === targetUnitNorm || unNorm.includes(targetUnitNorm) || targetUnitNorm.includes(unNorm);
+    };
+
+    const shiftStart = parseItemDate({ dataHora: mov.dataHoraAbertura || mov.dataAbertura });
+    const shiftEnd = movDate || parseItemDate({ dataHora: mov.dataHoraFechamento || mov.dataFechamento || mov.timestamp });
+
     // Movimentações associadas a este fechamento ou do mesmo dia/loja
     const dayMovements = allMovements.filter(m => {
       if (m.id === mov.id || String(m.tipo || '').toUpperCase() === 'FECHAMENTO') return false;
+      if (!matchUnit(m.unidade || m.CIDADE || m.LOJA || '')) return false;
+
       const mDate = parseItemDate(m);
-      if (!mDate || !movDate) return false;
-      const sameDay = mDate.toDateString() === movDate.toDateString();
-      const sameStore = (m.unidade || m.CIDADE || m.LOJA || '') === unit;
-      return sameDay && (unit === 'Todas as Lojas' || sameStore);
+      if (!mDate) return false;
+
+      if (shiftStart && shiftEnd) {
+        return mDate >= shiftStart && mDate <= shiftEnd;
+      }
+      if (movDate) {
+        return mDate.toDateString() === movDate.toDateString();
+      }
+      return true;
     });
 
     const closingData = {
@@ -1342,7 +1359,8 @@ export const CashHistoryContent = ({
       unidade: unit,
       operador: mov.operador || currentUser?.username || 'Caixa',
       fundoInicial: parseCurrency(mov.fundoInicial),
-      vendasDinheiro: parseCurrency(mov.vendasDinheiro),
+      totalVendas: parseCurrency(mov.totalVendas ?? mov.valor),
+      vendasDinheiro: parseCurrency(mov.vendasDinheiro !== undefined ? mov.vendasDinheiro : (mov.formaPagamento === 'DINHEIRO' ? mov.valor : 0)),
       totalRecebimentosDinheiro: parseCurrency(mov.totalRecebimentosDinheiro),
       vendasPix: parseCurrency(mov.vendasPix),
       vendasDebito: parseCurrency(mov.vendasDebito),
@@ -1354,12 +1372,17 @@ export const CashHistoryContent = ({
       dinheiroContado: parseCurrency(mov.dinheiroContado !== undefined ? mov.dinheiroContado : mov.valor)
     };
 
+    const seqShift = mov.numeroFechamento || (() => {
+      const raw = String(mov.id || '').replace(/\D/g, '');
+      return raw ? raw.slice(-4) : '001';
+    })();
+
     const sheetPayload = {
       type: 'CONTABIL_SHEET',
       closingData,
-      movements: dayMovements.length > 0 ? dayMovements : [mov],
+      movements: dayMovements.length > 0 ? dayMovements : [],
       storeName: unit,
-      shiftNumber: mov.id ? String(mov.id).slice(-4) : '001',
+      shiftNumber: seqShift,
       dateStr: dateFormatted
     };
 

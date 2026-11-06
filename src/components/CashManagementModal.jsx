@@ -552,10 +552,17 @@ const CashManagementModal = ({
     const sessionStart = parseItemDate({ dataHora: activeSession.dataHoraAbertura || activeSession.timestamp }) || new Date(0);
     const sessionEnd = (modalType === 'FECHAMENTO' && fechamentoDataHoraInput) ? new Date(fechamentoDataHoraInput) : new Date(Date.now() + 86400000);
     const unit = selectedCity || activeSession.unidade || 'Central';
+    const normUnit = (str) => String(str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    const unitNorm = normUnit(unit);
+    const matchUnit = (u) => {
+      if (unit === 'ALL' || unitNorm === 'all' || !unitNorm) return true;
+      const uNorm = normUnit(u);
+      return uNorm === unitNorm || uNorm.includes(unitNorm) || unitNorm.includes(uNorm);
+    };
 
     // Movimentações deste turno (utiliza parseItemDate para suporte perfeito a DD/MM/YYYY e ISO com fidelidade de data/horário)
     const sessionMovements = cashMovements.filter(m => {
-      if (m.unidade !== unit && unit !== 'ALL') return false;
+      if (!matchUnit(m.unidade)) return false;
       const mDate = parseItemDate(m);
       if (!mDate) return false;
       return mDate >= sessionStart && mDate <= sessionEnd;
@@ -564,7 +571,7 @@ const CashManagementModal = ({
     // Vendas deste turno (com filtro de data >= início do turno e <= encerramento do turno)
     const sessionSales = salesData.filter(s => {
       const sUnit = s["UNIDADE"] || s["CIDADE"] || s["LOJA"] || "Central";
-      if (sUnit !== unit && unit !== "ALL") return false;
+      if (!matchUnit(sUnit)) return false;
       const sDate = parseItemDate(s);
       if (!sDate) return false;
       const rawStr = String(s.dataHora || s.timestamp || s.DATA_HORA || s.data || s.DATA || s['DATA  DA VENDA'] || s['DATA DA VENDA'] || '');
@@ -829,15 +836,20 @@ const CashManagementModal = ({
     const dtFormatted = dt.toLocaleDateString('pt-BR');
     const dtDateTime = dt.toLocaleString('pt-BR');
     const dtTime = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const shiftTimestamp = dt.getTime();
+    const shiftSeqNo = String(shiftTimestamp).slice(-4);
+    const shiftId = `fech_${shiftTimestamp}_${Math.random().toString(36).substr(2, 4)}`;
 
     const fechamentoData = {
+      id: shiftId,
+      numeroFechamento: shiftSeqNo,
       unidade: selectedCity,
       operador: currentUser?.username || 'Caixa',
       dataAbertura: activeSession?.dataHoraAbertura ? new Date(activeSession.dataHoraAbertura).toLocaleString('pt-BR') : '---',
       dataFechamento: dtDateTime,
       dataHoraFechamento: dtIso,
       dataHora: dtIso,
-      timestamp: dt.getTime(),
+      timestamp: shiftTimestamp,
       DATA_HORA: dtDateTime,
       data: dtFormatted,
       DATA: dtFormatted,
@@ -876,7 +888,7 @@ const CashManagementModal = ({
         closingData: fechamentoData,
         movements: combinedMovements,
         storeName: selectedCity,
-        shiftNumber: fechamentoData.id || fechamentoData.numeroFechamento || '',
+        shiftNumber: fechamentoData.numeroFechamento || fechamentoData.id.slice(-4),
         dateStr: fechamentoData.dataFechamento ? fechamentoData.dataFechamento.split(' ')[0] : ''
       };
 
@@ -1126,6 +1138,7 @@ const CashManagementModal = ({
       },
       movements: combinedMovements,
       storeName: selectedCity,
+      shiftNumber: activeSession?.id ? String(activeSession.id).replace(/\D/g, '').slice(-4) : 'EXTRATO',
       dateStr: new Date().toLocaleDateString('pt-BR')
     };
 
