@@ -7483,8 +7483,11 @@ async function runTests() {
 
     const {
       buildInstagramUrl,
+      buildInstagramSearchUrl,
       buildFacebookUrl,
+      buildFacebookSearchUrl,
       buildTikTokUrl,
+      buildTikTokSearchUrl,
       buildWhatsAppUrl,
       formatSocialHandle
     } = await import('./src/socialUtils.js');
@@ -7492,12 +7495,14 @@ async function runTests() {
     // 1. Validar gerador de links Instagram
     console.assert(buildInstagramUrl('@maria_otica') === 'https://www.instagram.com/maria_otica/', 'Instagram com @ deve gerar URL completa');
     console.assert(buildInstagramUrl('maria_otica') === 'https://www.instagram.com/maria_otica/', 'Instagram sem @ deve gerar URL completa');
-    console.assert(buildInstagramUrl('https://instagram.com/maria_otica') === 'https://instagram.com/maria_otica', 'Instagram com https deve manter URL');
+    console.assert(buildInstagramUrl('https://instagram.com/maria_otica') === 'https://www.instagram.com/maria_otica', 'Instagram com https deve normalizar com www');
     console.assert(buildInstagramUrl('') === '', 'Instagram vazio deve retornar string vazia');
 
     // 2. Validar gerador de links Facebook
-    console.assert(buildFacebookUrl('maria.silva') === 'https://www.facebook.com/maria.silva', 'Facebook com username deve gerar URL completa');
-    console.assert(buildFacebookUrl('https://facebook.com/maria.silva') === 'https://facebook.com/maria.silva', 'Facebook com https deve manter URL');
+    console.assert(buildFacebookUrl('weslleymuseti') === 'https://www.facebook.com/weslleymuseti', 'Facebook weslleymuseti deve gerar https://www.facebook.com/weslleymuseti');
+    console.assert(buildFacebookUrl('https://facebook.com/weslleymuseti') === 'https://www.facebook.com/weslleymuseti', 'Facebook com https deve normalizar com www');
+    console.assert(buildFacebookUrl('weslley museti').includes('search/people/?q=weslley%20museti'), 'Nome com espaço no Facebook deve gerar busca');
+    console.assert(buildFacebookSearchUrl('weslleymuseti').includes('search/people/?q=weslleymuseti'), 'Busca no Facebook deve gerar URL de busca');
 
     // 3. Validar gerador de links TikTok
     console.assert(buildTikTokUrl('@maria_otica') === 'https://www.tiktok.com/@maria_otica', 'TikTok com @ deve gerar URL completa');

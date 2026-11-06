@@ -1,9 +1,12 @@
-import React from 'react';
-import { ExternalLink, MessageCircle, Mail, Plus } from 'lucide-react';
+import React, { useState } from 'react';
+import { ExternalLink, Search, Copy, Check, Plus, MessageCircle } from 'lucide-react';
 import { 
   buildInstagramUrl, 
+  buildInstagramSearchUrl,
   buildFacebookUrl, 
+  buildFacebookSearchUrl,
   buildTikTokUrl, 
+  buildTikTokSearchUrl,
   buildWhatsAppUrl, 
   formatSocialHandle 
 } from '../socialUtils';
@@ -43,16 +46,36 @@ export const WhatsAppIcon = ({ size = 16, className = "" }) => (
  * Suporta o modo 'pills' (para o cabeçalho) e 'cards' (para a seção de detalhes)
  */
 export const SocialMediaButtons = ({ client = {}, variant = 'pills', onEditSocial }) => {
+  const [copiedKey, setCopiedKey] = useState(null);
+
   const rawInsta = client['Instagram'] || client['INSTAGRAM'] || '';
   const rawFace = client['Facebook'] || client['FACEBOOK'] || '';
   const rawTikTok = client['TikTok'] || client['TIKTOK'] || '';
   const rawWhats = client['WhatsApp'] || client['TELEFONE'] || client['TELEFONE CLIENTE'] || client['Celular'] || '';
-  const rawEmail = client['E-mail'] || client['EMAIL'] || '';
+
+  const clientName = client['Nome Completo'] || client['NOME'] || '';
 
   const instaUrl = buildInstagramUrl(rawInsta);
+  const instaSearchUrl = buildInstagramSearchUrl(rawInsta || clientName);
+
   const faceUrl = buildFacebookUrl(rawFace);
+  const faceSearchUrl = buildFacebookSearchUrl(rawFace || clientName);
+
   const tikTokUrl = buildTikTokUrl(rawTikTok);
+  const tikTokSearchUrl = buildTikTokSearchUrl(rawTikTok || clientName);
+
   const whatsUrl = buildWhatsAppUrl(rawWhats);
+
+  const copyToClipboard = (text, key) => {
+    if (!text) return;
+    try {
+      navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 1800);
+    } catch (e) {
+      console.warn('Erro ao copiar URL:', e);
+    }
+  };
 
   const hasAnySocial = Boolean(instaUrl || faceUrl || tikTokUrl || whatsUrl);
 
@@ -86,11 +109,10 @@ export const SocialMediaButtons = ({ client = {}, variant = 'pills', onEditSocia
     );
   }
 
-  // Modo 'pills' (barra rápida para o cabeçalho do perfil)
+  // Modo 'pills' (para o cabeçalho)
   if (variant === 'pills') {
     return (
       <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-        {/* Instagram */}
         {instaUrl && (
           <a
             href={instaUrl}
@@ -108,7 +130,6 @@ export const SocialMediaButtons = ({ client = {}, variant = 'pills', onEditSocia
           </a>
         )}
 
-        {/* Facebook */}
         {faceUrl && (
           <a
             href={faceUrl}
@@ -126,7 +147,6 @@ export const SocialMediaButtons = ({ client = {}, variant = 'pills', onEditSocia
           </a>
         )}
 
-        {/* TikTok */}
         {tikTokUrl && (
           <a
             href={tikTokUrl}
@@ -144,7 +164,6 @@ export const SocialMediaButtons = ({ client = {}, variant = 'pills', onEditSocia
           </a>
         )}
 
-        {/* WhatsApp */}
         {whatsUrl && (
           <a
             href={whatsUrl}
@@ -162,30 +181,59 @@ export const SocialMediaButtons = ({ client = {}, variant = 'pills', onEditSocia
     );
   }
 
-  // Modo 'cards' (painel detalhado com botões grandes)
+  // Modo 'cards' (painel detalhado com link simplificado e busca integrada)
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      {/* Instagram Card */}
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+      
+      {/* ─── CARD INSTAGRAM ─── */}
       {instaUrl ? (
         <div className="bg-gradient-to-br from-pink-500/10 via-purple-500/10 to-transparent border border-pink-500/30 hover:border-pink-500/60 rounded-2xl p-4 flex flex-col justify-between transition-all group shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-black uppercase tracking-wider text-pink-400 flex items-center gap-1.5">
-              <InstagramIcon size={15} className="text-pink-400" /> Instagram
-            </span>
-            <span className="text-[10px] bg-pink-500/20 text-pink-300 px-2 py-0.5 rounded-full font-bold">Perfil</span>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-pink-400 flex items-center gap-1.5">
+                <InstagramIcon size={15} className="text-pink-400" /> Instagram
+              </span>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(instaUrl, 'insta')}
+                title="Copiar link do perfil"
+                className="text-[10px] text-pink-300/80 hover:text-white flex items-center gap-1 bg-pink-500/10 hover:bg-pink-500/20 px-1.5 py-0.5 rounded transition-all"
+              >
+                {copiedKey === 'insta' ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
+                <span>{copiedKey === 'insta' ? 'Copiado!' : 'Copiar Link'}</span>
+              </button>
+            </div>
+            <p className="text-sm font-black text-white truncate mb-1">
+              {formatSocialHandle(rawInsta, '@')}
+            </p>
+            <p className="text-[10px] text-pink-300/80 font-mono truncate mb-3 select-all bg-black/40 px-2 py-1 rounded-lg border border-pink-500/20" title={instaUrl}>
+              {instaUrl}
+            </p>
           </div>
-          <p className="text-sm font-black text-white truncate mb-3">
-            {formatSocialHandle(rawInsta, '@')}
-          </p>
-          <a
-            href={instaUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full py-2 px-3 bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 hover:text-white border border-pink-500/40 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95"
-          >
-            <span>Acessar Instagram</span>
-            <ExternalLink size={12} />
-          </a>
+
+          <div className="space-y-1.5">
+            <a
+              href={instaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-2 px-3 bg-gradient-to-r from-pink-500/30 to-purple-500/30 hover:from-pink-500/40 hover:to-purple-500/40 text-white border border-pink-500/50 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95"
+            >
+              <span>Acessar Perfil Direto</span>
+              <ExternalLink size={12} />
+            </a>
+            {instaSearchUrl && (
+              <a
+                href={instaSearchUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-1.5 px-3 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 rounded-xl text-[11px] font-medium flex items-center justify-center gap-1.5 transition-all"
+                title="Buscar no Instagram caso o perfil tenha mudado"
+              >
+                <Search size={11} className="text-pink-400" />
+                <span>Buscar no Instagram</span>
+              </a>
+            )}
+          </div>
         </div>
       ) : (
         <div className="bg-white/[0.02] border border-dashed border-white/10 rounded-2xl p-4 flex flex-col justify-between opacity-60">
@@ -205,27 +253,55 @@ export const SocialMediaButtons = ({ client = {}, variant = 'pills', onEditSocia
         </div>
       )}
 
-      {/* Facebook Card */}
+      {/* ─── CARD FACEBOOK ─── */}
       {faceUrl ? (
         <div className="bg-gradient-to-br from-blue-500/10 to-transparent border border-blue-500/30 hover:border-blue-500/60 rounded-2xl p-4 flex flex-col justify-between transition-all group shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-black uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
-              <FacebookIcon size={15} className="text-blue-400" /> Facebook
-            </span>
-            <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-bold">Perfil</span>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+                <FacebookIcon size={15} className="text-blue-400" /> Facebook
+              </span>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(faceUrl, 'face')}
+                title="Copiar link do perfil"
+                className="text-[10px] text-blue-300/80 hover:text-white flex items-center gap-1 bg-blue-500/10 hover:bg-blue-500/20 px-1.5 py-0.5 rounded transition-all"
+              >
+                {copiedKey === 'face' ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
+                <span>{copiedKey === 'face' ? 'Copiado!' : 'Copiar Link'}</span>
+              </button>
+            </div>
+            <p className="text-sm font-black text-white truncate mb-1">
+              {formatSocialHandle(rawFace, '')}
+            </p>
+            <p className="text-[10px] text-blue-300/80 font-mono truncate mb-3 select-all bg-black/40 px-2 py-1 rounded-lg border border-blue-500/20" title={faceUrl}>
+              {faceUrl}
+            </p>
           </div>
-          <p className="text-sm font-black text-white truncate mb-3">
-            {formatSocialHandle(rawFace, '')}
-          </p>
-          <a
-            href={faceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full py-2 px-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 hover:text-white border border-blue-500/40 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95"
-          >
-            <span>Acessar Facebook</span>
-            <ExternalLink size={12} />
-          </a>
+
+          <div className="space-y-1.5">
+            <a
+              href={faceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-2 px-3 bg-blue-500/25 hover:bg-blue-500/35 text-white border border-blue-500/50 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95"
+            >
+              <span>Acessar Perfil Direto</span>
+              <ExternalLink size={12} />
+            </a>
+            {faceSearchUrl && (
+              <a
+                href={faceSearchUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-1.5 px-3 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 rounded-xl text-[11px] font-medium flex items-center justify-center gap-1.5 transition-all"
+                title="Pesquisar este nome no Facebook"
+              >
+                <Search size={11} className="text-blue-400" />
+                <span>Buscar no Facebook</span>
+              </a>
+            )}
+          </div>
         </div>
       ) : (
         <div className="bg-white/[0.02] border border-dashed border-white/10 rounded-2xl p-4 flex flex-col justify-between opacity-60">
@@ -245,27 +321,55 @@ export const SocialMediaButtons = ({ client = {}, variant = 'pills', onEditSocia
         </div>
       )}
 
-      {/* TikTok Card */}
+      {/* ─── CARD TIKTOK ─── */}
       {tikTokUrl ? (
         <div className="bg-gradient-to-br from-rose-500/10 via-cyan-500/5 to-transparent border border-rose-500/30 hover:border-cyan-400/50 rounded-2xl p-4 flex flex-col justify-between transition-all group shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-black uppercase tracking-wider text-rose-400 flex items-center gap-1.5">
-              <TikTokIcon size={15} className="text-rose-400" /> TikTok
-            </span>
-            <span className="text-[10px] bg-rose-500/20 text-rose-300 px-2 py-0.5 rounded-full font-bold">Perfil</span>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-rose-400 flex items-center gap-1.5">
+                <TikTokIcon size={15} className="text-rose-400" /> TikTok
+              </span>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(tikTokUrl, 'tiktok')}
+                title="Copiar link do perfil"
+                className="text-[10px] text-rose-300/80 hover:text-white flex items-center gap-1 bg-rose-500/10 hover:bg-rose-500/20 px-1.5 py-0.5 rounded transition-all"
+              >
+                {copiedKey === 'tiktok' ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
+                <span>{copiedKey === 'tiktok' ? 'Copiado!' : 'Copiar Link'}</span>
+              </button>
+            </div>
+            <p className="text-sm font-black text-white truncate mb-1">
+              {formatSocialHandle(rawTikTok, '@')}
+            </p>
+            <p className="text-[10px] text-rose-300/80 font-mono truncate mb-3 select-all bg-black/40 px-2 py-1 rounded-lg border border-rose-500/20" title={tikTokUrl}>
+              {tikTokUrl}
+            </p>
           </div>
-          <p className="text-sm font-black text-white truncate mb-3">
-            {formatSocialHandle(rawTikTok, '@')}
-          </p>
-          <a
-            href={tikTokUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full py-2 px-3 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-white border border-rose-500/40 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95"
-          >
-            <span>Acessar TikTok</span>
-            <ExternalLink size={12} />
-          </a>
+
+          <div className="space-y-1.5">
+            <a
+              href={tikTokUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-2 px-3 bg-gradient-to-r from-rose-500/25 to-cyan-500/20 hover:from-rose-500/35 hover:to-cyan-500/30 text-white border border-rose-500/50 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95"
+            >
+              <span>Acessar Perfil Direto</span>
+              <ExternalLink size={12} />
+            </a>
+            {tikTokSearchUrl && (
+              <a
+                href={tikTokSearchUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-1.5 px-3 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 rounded-xl text-[11px] font-medium flex items-center justify-center gap-1.5 transition-all"
+                title="Pesquisar este usuário no TikTok"
+              >
+                <Search size={11} className="text-rose-400" />
+                <span>Buscar no TikTok</span>
+              </a>
+            )}
+          </div>
         </div>
       ) : (
         <div className="bg-white/[0.02] border border-dashed border-white/10 rounded-2xl p-4 flex flex-col justify-between opacity-60">
@@ -284,6 +388,7 @@ export const SocialMediaButtons = ({ client = {}, variant = 'pills', onEditSocia
           )}
         </div>
       )}
+
     </div>
   );
 };
