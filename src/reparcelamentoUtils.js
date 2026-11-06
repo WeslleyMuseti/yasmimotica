@@ -991,8 +991,20 @@ export const buildGeneralPaymentReceiptPayload = ({
  * impedindo que a cidade residencial do cliente ou fallbacks indevidos forcem Cajati.
  */
 export const resolveOSUnit = (osData = {}, clientData = {}) => {
-  // 1. Prefixo explícito no número da OS (REG-, JAC-, EXT-, CAJ-)
-  const osNum = String(osData?.numeroOS || osData?.OS || osData?.['OS DA VENDA'] || osData?.VENDA_OS || '').toUpperCase().trim();
+  // 1. Prefixo explícito no número da OS (REG-, JAC-, EXT-, CAJ- ou sem traço como CAJ25, REG10)
+  const osNum = String(
+    osData?.numeroOS || 
+    osData?.osNumero || 
+    osData?.['OS DA VENDA'] || 
+    osData?.['OS da VENDA'] || 
+    osData?.['Nº DA OS'] || 
+    osData?.['Num OS'] || 
+    osData?.OS || 
+    osData?.os || 
+    osData?.VENDA_OS || 
+    osData?.venda_os || 
+    ''
+  ).toUpperCase().trim();
   if (osNum.startsWith('REG-') || osNum.startsWith('REG')) return 'Registro';
   if (osNum.startsWith('JAC-') || osNum.startsWith('JAC')) return 'Jacupiranga';
   if (osNum.startsWith('EXT-') || osNum.startsWith('EXT')) return 'Venda Externa';

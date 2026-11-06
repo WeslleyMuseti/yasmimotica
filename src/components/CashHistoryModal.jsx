@@ -10,6 +10,7 @@ import { PrintableCashVoucher } from './CashManagementModal';
 import PrintableCashClosingReport from './PrintableCashClosingReport';
 import PrintableCashMovementSheet from './PrintableCashMovementSheet';
 import { buildCashHistoryXml, downloadXmlFile } from '../xmlUtils';
+import { resolveOSUnit } from '../reparcelamentoUtils';
 import * as XLSX from 'xlsx';
 
 const formatCurrency = (val) => {
@@ -460,7 +461,7 @@ export const CashHistoryContent = ({
 
   // Unificar os movimentos registrados em FLUXO_CAIXA + Vendas do Sistema
   const allMovements = useMemo(() => {
-    const cleanId = (id) => String(id || '').replace(/^#|^os[-_ ]?/i, '').trim().toLowerCase();
+    const cleanId = (id) => String(id || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
     const normStr = (v) => String(v || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
     // Índice rápido de vendas/OS em salesData para enriquecer e vincular o FLUXO_CAIXA
@@ -629,7 +630,8 @@ export const CashHistoryContent = ({
           const valorRestante = parseCurrency(s['RESTANTE'] ?? s['VALOR RESTANTE'] ?? s['Restante'] ?? 0);
 
           if (valorTotalOS > 0 || valorEntrada > 0) {
-            const loja = s['CIDADE'] || s['Loja'] || s['UNIDADE'] || s['loja'] || s['Cidade'] || 'Cajati';
+            const resolvedUnit = resolveOSUnit({ numeroOS: osRaw, ...s });
+            const loja = resolvedUnit || s['CIDADE'] || s['Loja'] || s['UNIDADE'] || s['loja'] || s['Cidade'] || 'Cajati';
             const vendedor = s['VENDEDOR'] || s['OPERADOR'] || s['Vendedor'] || 'Vendedor';
             const formaRaw = s['FORMAS_PAGAMENTO'] || s['FORMA_PAGTO'] || s['FORMA DE PAGAMENTO'] || s['MEIO_PAGAMENTO'] || s['FORMA'] || s['PAGAMENTO'] || s['Forma de Pagamento'] || 'Dinheiro';
             const forma = cleanBoletoDisplay(formaRaw);

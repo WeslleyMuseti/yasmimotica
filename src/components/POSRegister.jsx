@@ -17,6 +17,7 @@ import PrintableCashClosingReport from './PrintableCashClosingReport';
 import PrintableCashMovementSheet from './PrintableCashMovementSheet';
 import { PrintableLabelModal } from './PrintableLabel';
 import { decrementStockAtomically, isSameClient } from '../firebaseSync';
+import { resolveOSUnit } from '../reparcelamentoUtils';
 
 const cleanVal = (v) => {
   if (v === null || v === undefined || v === '') return 0;
@@ -1816,9 +1817,13 @@ const POSRegister = ({
         'RESPONSAVEL_LEGAL_INADIMPLENTE': !!singleData.RESPONSAVEL_LEGAL_INADIMPLENTE,
         'RESPONSAVEL_LEGAL_DEBITO': singleData.RESPONSAVEL_LEGAL_DEBITO || 0,
         'TELEFONE': savedClientForOS['WhatsApp'] || savedClientForOS['TELEFONE'] || completedSale?.TELEFONE || '',
-        'CIDADE': singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
-        'LOJA': singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
-        'UNIDADE': singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
+        'CIDADE': resolveOSUnit({ numeroOS: singleData.numeroOS, unidade: singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity }, savedClientForOS) || 'Cajati',
+        'LOJA': resolveOSUnit({ numeroOS: singleData.numeroOS, unidade: singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity }, savedClientForOS) || 'Cajati',
+        'UNIDADE': resolveOSUnit({ numeroOS: singleData.numeroOS, unidade: singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity }, savedClientForOS) || 'Cajati',
+        'cidade': resolveOSUnit({ numeroOS: singleData.numeroOS, unidade: singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity }, savedClientForOS) || 'Cajati',
+        'loja': resolveOSUnit({ numeroOS: singleData.numeroOS, unidade: singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity }, savedClientForOS) || 'Cajati',
+        'unidade': resolveOSUnit({ numeroOS: singleData.numeroOS, unidade: singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity }, savedClientForOS) || 'Cajati',
+        'selectedCity': resolveOSUnit({ numeroOS: singleData.numeroOS, unidade: singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity }, savedClientForOS) || 'Cajati',
         'DIOPTRIA': `OD: ${singleData.odEsf || ''}/${singleData.odCil || ''} OE: ${singleData.oeEsf || ''}/${singleData.oeCil || ''} AD: ${singleData.adicao || ''}`,
         'OD_ESF': singleData.odEsf || '',
         'OD_CIL': singleData.odCil || '',
@@ -1857,7 +1862,12 @@ const POSRegister = ({
       // 🛡️ Sincronizar data e OS no FLUXO_CAIXA (incluindo data e horário) para que não fique preso na data de hoje
       if (completedSale?.id && onUpdateRow && Array.isArray(cashMovements)) {
         try {
-          const matchingMovements = cashMovements.filter(m => m.saleId === completedSale.id || (m.osNumero && m.osNumero === singleData.numeroOS));
+          const normOS = String(singleData.numeroOS || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+          const targetStoreOS = resolveOSUnit({ numeroOS: singleData.numeroOS }, savedClientForOS) || 'Cajati';
+          const matchingMovements = cashMovements.filter(m => 
+            m.saleId === completedSale.id || 
+            (m.osNumero && String(m.osNumero).replace(/[^a-zA-Z0-9]/g, '').toLowerCase() === normOS)
+          );
           const labelRestante = resolvedFormaRestante && !resolvedFormaRestante.toLowerCase().includes('boleto')
             ? `Restante (${resolvedFormaRestante})`
             : 'Parcelado Boleto';
@@ -1872,6 +1882,8 @@ const POSRegister = ({
               hora: singleSaleHoraFmt,
               HORA: singleSaleHoraFmt,
               osNumero: singleData.numeroOS,
+              unidade: targetStoreOS,
+              cidade: targetStoreOS,
               cliente: clientName,
               valorTotalOS: parseCurrency(singleData.valorTotal),
               valorEntradaOS: parseCurrency(singleData.valorEntrada),

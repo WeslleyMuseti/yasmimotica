@@ -15,6 +15,7 @@ import { Upload as UploadIcon, FileCode } from 'lucide-react';
 import DataTable from './DataTable';
 import VendorRanking from './VendorRanking';
 import { buildSalesHistoryXml, downloadXmlFile } from '../xmlUtils';
+import { resolveOSUnit } from '../reparcelamentoUtils';
 import * as XLSX from 'xlsx';
 
 const COLORS = ['#38bdf8', '#818cf8', '#10b981', '#f59e0b', '#f43f5e', '#a855f7', '#14b8a6', '#ec4899', '#64748b'];
@@ -820,19 +821,56 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
     return data;
   }, [data]);
 
-  // Filtragem por cidade
+  // 🛡️ Unificação e Consolidação Soberana das Vendas para Relatórios e Gráficos
+  const allSales = useMemo(() => {
+    const s1 = Array.isArray(sheets['Registro_Vendas']) ? sheets['Registro_Vendas'] : [];
+    const s2 = Array.isArray(sheets['BD MARKETING']) ? sheets['BD MARKETING'] : [];
+    const s3 = Array.isArray(sheets['VENDAS']) ? sheets['VENDAS'] : [];
+
+    const combined = [...s1, ...s2, ...s3];
+    if (combined.length === 0) return [];
+
+    const seen = new Set();
+    const unique = [];
+    combined.forEach(item => {
+      if (!item || typeof item !== 'object') return;
+      const osKey = String(
+        item.id || 
+        item._id || 
+        item['OS DA VENDA'] || 
+        item['OS da VENDA'] || 
+        item['Nº DA OS'] || 
+        item['Num OS'] || 
+        item.OS || 
+        item.os || 
+        item.numeroOS || 
+        item.osNumero || 
+        item.VENDA_OS || 
+        ''
+      ).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+      if (osKey && seen.has(osKey)) return;
+      if (osKey) seen.add(osKey);
+      unique.push(item);
+    });
+    return unique;
+  }, [sheets]);
+
+  // Filtragem por cidade com suporte inteligente a prefixos de OS (CAJ, REG, JAC, EXT)
   const filterByCity = (rows) => {
     if (!rows || !Array.isArray(rows)) return [];
-    if (selectedCity === 'ALL') return rows;
+    if (selectedCity === 'ALL' || selectedCity === 'TODAS' || !selectedCity) return rows;
+    const target = selectedCity.trim().toLowerCase();
     return rows.filter(r => {
-      const cid = String(r['CIDADE'] || r['Cidade'] || r['Unidade'] || r['UNIDADE'] || r['Loja'] || r['QUAL LOJA'] || r['Responsável Cidade'] || '').trim().toLowerCase();
-      const target = selectedCity.toLowerCase();
+      const osNum = String(r['OS DA VENDA'] || r['OS da VENDA'] || r['Nº DA OS'] || r['Num OS'] || r.OS || r.os || r.osNumero || r.numeroOS || r.VENDA_OS || '').trim();
+      const resolvedUnit = resolveOSUnit({ numeroOS: osNum, ...r });
+      const cid = String(r['CIDADE'] || r['Cidade'] || r['Unidade'] || r['UNIDADE'] || r['Loja'] || r['QUAL LOJA'] || r['Responsável Cidade'] || resolvedUnit || '').trim().toLowerCase();
       return cid.includes(target) || target.includes(cid);
     });
   };
 
   // Dados filtrados das coleções em tempo real
-  const vendasRows = useMemo(() => filterByCity(sheets['Registro_Vendas'] || sheets['BD MARKETING'] || []), [sheets, selectedCity]);
+  const vendasRows = useMemo(() => filterByCity(allSales), [allSales, selectedCity]);
   const clientesRows = useMemo(() => filterByCity(sheets['CLIENTES_CADASTRADOS'] || []), [sheets, selectedCity]);
 
   // Exportação do Histórico de Vendas em formato nativo Excel (.xlsx) compatível com Excel Online
@@ -938,13 +976,15 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
   // Vendas por Cidade para gráfico
   const chartVendasCidade = useMemo(() => {
     const map = {};
-    (sheets['Registro_Vendas'] || sheets['BD MARKETING'] || []).forEach(r => {
-      const cid = String(r['CIDADE'] || r['Cidade'] || r['Unidade'] || r['UNIDADE'] || 'Central').trim();
+    allSales.forEach(r => {
+      const osNum = String(r['OS DA VENDA'] || r['OS da VENDA'] || r['Nº DA OS'] || r['Num OS'] || r.OS || r.os || r.osNumero || r.numeroOS || r.VENDA_OS || '').trim();
+      const resolvedUnit = resolveOSUnit({ numeroOS: osNum, ...r });
+      const cid = String(r['CIDADE'] || r['Cidade'] || r['Unidade'] || r['UNIDADE'] || r['Loja'] || resolvedUnit || 'Central').trim();
       const val = cleanVal(r['VALOR TOTAL'] || r['VALOR'] || 0);
       map[cid] = (map[cid] || 0) + val;
     });
     return Object.entries(map).map(([name, value]) => ({ name, value }));
-  }, [sheets]);
+  }, [allSales]);
 
   // Top Produtos
   const chartTopProdutos = useMemo(() => {

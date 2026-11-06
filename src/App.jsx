@@ -942,6 +942,38 @@ function App() {
     }
   };
 
+  // 🛡️ Unificação e Consolidação Blindada das Vendas (Registro_Vendas + BD MARKETING + VENDAS)
+  const unifiedSalesData = useMemo(() => {
+    const list1 = Array.isArray(data?.['Registro_Vendas']) ? data['Registro_Vendas'] : [];
+    const list2 = Array.isArray(data?.['BD MARKETING']) ? data['BD MARKETING'] : [];
+    const list3 = Array.isArray(data?.['VENDAS']) ? data['VENDAS'] : [];
+    if (list1.length === 0 && list2.length === 0 && list3.length === 0) return [];
+
+    const seen = new Set();
+    const result = [];
+    [...list1, ...list2, ...list3].forEach(item => {
+      if (!item || typeof item !== 'object') return;
+      const osKey = String(
+        item.id || 
+        item._id || 
+        item['OS DA VENDA'] || 
+        item['OS da VENDA'] || 
+        item['Nº DA OS'] || 
+        item.OS || 
+        item.os || 
+        item.numeroOS || 
+        item.osNumero || 
+        item.VENDA_OS || 
+        ''
+      ).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+      if (osKey && seen.has(osKey)) return;
+      if (osKey) seen.add(osKey);
+      result.push(item);
+    });
+    return result;
+  }, [data]);
+
   const sanitizedDashboardData = useMemo(() => {
     if (!data) return data;
     const clean = {};
@@ -952,8 +984,13 @@ function App() {
         clean[key] = data[key];
       }
     });
+    // Garantir que as abas e componentes recebam a lista de vendas completa e unificada
+    if (unifiedSalesData.length > 0) {
+      clean['Registro_Vendas'] = unifiedSalesData;
+      clean['BD MARKETING'] = unifiedSalesData;
+    }
     return clean;
-  }, [data]);
+  }, [data, unifiedSalesData]);
 
   useEffect(() => {
     if (view === 'loading' && data) {
@@ -1362,7 +1399,7 @@ function App() {
               data={data}
               setData={setData}
               clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
-              salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || []}
+              salesData={unifiedSalesData}
               armacoesData={data?.['CAD_ARMACOES'] || []}
               lentesData={data?.['CAD_LENTES'] || []}
               receberData={data?.['CONTAS_RECEBER'] || []}
@@ -1387,7 +1424,7 @@ function App() {
               data={data}
               initialTab={clientInitialTab}
               clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
-              salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || []}
+              salesData={unifiedSalesData}
               lentesData={data?.['CAD_LENTES'] || []}
               armacoesData={data?.['CAD_ARMACOES'] || []}
               receberData={data?.['CONTAS_RECEBER'] || []}
@@ -1408,6 +1445,7 @@ function App() {
               data={data}
               currentUser={currentUser}
               clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
+              salesData={unifiedSalesData}
               onAddRow={handleAddRow}
               onAddBatch={handleAddBatch}
               onUpdateRow={handleRowUpdate}
@@ -1418,7 +1456,7 @@ function App() {
           ) : view === 'os-management' ? (
             <OSManagement
               data={data}
-              salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || []}
+              salesData={unifiedSalesData}
               clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
               currentUser={currentUser}
               onAddRow={handleAddRow}

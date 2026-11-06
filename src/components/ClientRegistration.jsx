@@ -808,16 +808,28 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           ? `${orderItem.observacoes ? orderItem.observacoes + ' | ' : ''}[Faturamento Unificado na OS #${primaryNumOS}]`
           : (orderItem.observacoes || '');
 
+        const nowIso = new Date().toISOString();
+        const nowTimeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const nowDateTimeStr = new Date().toLocaleString('pt-BR');
+        const nowTimestamp = Date.now();
+        const resolvedLoja = resolveOSUnit({ numeroOS: itemOsNum, unidade: saleCity, cidade: saleCity }, osClientData) || saleCity;
+
         onAddSale({
           'CLIENTE_ID': clientId,
           'CLIENTE_CPF': clientCpf,
           'CPF': clientCpf,
+          'dataHora': nowIso,
+          'timestamp': nowTimestamp,
+          'DATA_HORA': nowDateTimeStr,
+          'hora': nowTimeStr,
+          'HORA': nowTimeStr,
           'DATA  DA VENDA': dataVendaStr,
           'DATA DA VENDA': dataVendaStr,
           'DATA_VENDA': dataVendaStr,
           'Data da Venda': dataVendaStr,
           'data_venda': dataVendaStr,
           'DATA': dataVendaStr,
+          'data': dataVendaStr,
           'PRODUTO': ((orderItem.lente || '') + (orderItem.armacao ? ` + ${orderItem.armacao}` : '')).trim() || 'Óculos Completo',
           'LENTE': orderItem.lente || '',
           'ARMAÇÃO': orderItem.armacao || '',
@@ -843,9 +855,12 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           'PACIENTE': orderItem.nomePessoa || orderItem.PACIENTE || clientName,
           'NOME_BENEFICIARIO': orderItem.nomePessoa || orderItem.PACIENTE || clientName,
           'TELEFONE': osClientData['WhatsApp'] || osClientData['TELEFONE'] || '',
-          'CIDADE': saleCity,
-          'LOJA': saleCity,
-          'UNIDADE': saleCity,
+          'CIDADE': resolvedLoja,
+          'LOJA': resolvedLoja,
+          'UNIDADE': resolvedLoja,
+          'cidade': resolvedLoja,
+          'unidade': resolvedLoja,
+          'selectedCity': resolvedLoja,
           'PAGAMENTO_CONFERIDO': 'Não',
           'DUPLICATAS_GERADAS': false,
           'PARCELAS_JSON': isSecondary ? '[]' : JSON.stringify(orderItem.parcelas || primaryOrder.parcelas || []),
@@ -882,15 +897,26 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         else if (rawEntradaMethod.includes('DEBITO') || rawEntradaMethod.includes('DÉBITO')) cashMethod = 'DEBITO';
         else if (rawEntradaMethod.includes('CREDITO') || rawEntradaMethod.includes('CRÉDITO')) cashMethod = 'CREDITO';
         else if (rawEntradaMethod.includes('DINHEIRO')) cashMethod = 'DINHEIRO';
+        const targetStore = resolveOSUnit({ numeroOS: String(numeroOS), unidade: saleCity }, osClientData) || saleCity;
+        const nowIso = new Date().toISOString();
+        const nowTimeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const nowDateTimeStr = new Date().toLocaleString('pt-BR');
+        const nowTimestamp = Date.now();
 
         onAddRow('FLUXO_CAIXA', {
           id: `mov_sinal_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
           saleId: `os_${numeroOS}`,
           osNumero: String(numeroOS),
           tipo: 'VENDA',
-          dataHora: new Date().toISOString(),
+          dataHora: nowIso,
+          timestamp: nowTimestamp,
+          DATA_HORA: nowDateTimeStr,
+          hora: nowTimeStr,
+          HORA: nowTimeStr,
           data: todayStr,
-          unidade: saleCity,
+          DATA: todayStr,
+          unidade: targetStore,
+          cidade: targetStore,
           operador: currentUser?.username || 'Caixa',
           valor: valorEntradaNum,
           formaPagamento: cashMethod,

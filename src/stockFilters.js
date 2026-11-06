@@ -1,3 +1,5 @@
+import { resolveOSUnit } from './reparcelamentoUtils.js';
+
 export const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -432,8 +434,10 @@ export function aggregateSalesByBrandAndStore(items = [], salesData = [], option
       const saleDate = parseSaleDate(sale);
       if (!isSaleInPeriod(saleDate, period)) continue;
 
-      // Loja / Filial
-      const rawStore = String(sale.CIDADE || sale.LOJA || sale.UNIDADE || sale.cidade || sale.loja || 'Central').trim();
+      // Loja / Filial com suporte a detecção de prefixo de OS (CAJ, REG, JAC, EXT)
+      const osNum = String(sale.OS || sale['OS DA VENDA'] || sale['OS da VENDA'] || sale['Nº DA OS'] || sale['Num OS'] || sale.osNumero || sale.numeroOS || '').trim();
+      const resolvedUnit = resolveOSUnit({ numeroOS: osNum, ...sale });
+      const rawStore = String(sale.CIDADE || sale.LOJA || sale.UNIDADE || sale.cidade || sale.loja || resolvedUnit || 'Central').trim();
       const storeName = rawStore || 'Central';
       allStoresSet.add(storeName);
 

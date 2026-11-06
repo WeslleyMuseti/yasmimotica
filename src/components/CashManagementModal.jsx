@@ -6,73 +6,15 @@ import {
 } from 'lucide-react';
 import PrintableCashClosingReport from './PrintableCashClosingReport';
 import PrintableCashMovementSheet from './PrintableCashMovementSheet';
+import { resolveOSUnit } from '../reparcelamentoUtils';
+import { 
+  parseCurrency, 
+  formatCurrency, 
+  parseItemDate, 
+  buildCombinedShiftMovements 
+} from '../cashShiftUtils';
 
-const formatCurrency = (val) => {
-  const n = typeof val === 'number' ? val : parseCurrency(val);
-  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
-
-const parseCurrency = (val) => {
-  if (val === null || val === undefined || val === '') return 0;
-  if (typeof val === 'number') return isNaN(val) ? 0 : val;
-  let str = String(val).replace(/R\$\s?/g, '').trim();
-  if (!str) return 0;
-  if (str.includes(',')) {
-    str = str.replace(/\./g, '').replace(',', '.');
-  } else if (str.includes('.')) {
-    const parts = str.split('.');
-    if (parts.length === 2 && parts[1].length === 3 && parts[0].length >= 1) {
-      str = parts.join('');
-    } else if (parts.length > 2) {
-      str = str.replace(/\./g, '');
-    }
-  }
-  const parsed = parseFloat(str);
-  return isNaN(parsed) ? 0 : parsed;
-};
-
-export const parseItemDate = (item) => {
-  if (!item) return null;
-  const raw = item.dataHora || item.timestamp || item.DATA || item['DATA  DA VENDA'] || item['DATA DA VENDA'] || item.DATA_HORA || item.dataHoraAbertura || item.dataHoraFechamento || item.data;
-  if (!raw) return null;
-  if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
-  if (typeof raw === 'string') {
-    const trimmed = raw.trim();
-    if (trimmed.includes('/')) {
-      const parts = trimmed.split(' ')[0].split('/');
-      if (parts.length === 3) {
-        const d = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const y = parseInt(parts[2], 10);
-        const dateObj = new Date(y, m, d);
-        if (trimmed.includes(':')) {
-          const timeParts = trimmed.split(' ')[1]?.split(':') || [];
-          if (timeParts.length >= 2) {
-            dateObj.setHours(parseInt(timeParts[0], 10) || 0, parseInt(timeParts[1], 10) || 0, parseInt(timeParts[2], 10) || 0);
-          }
-        }
-        return isNaN(dateObj.getTime()) ? null : dateObj;
-      }
-    }
-    if (trimmed.includes('-') && !trimmed.includes('T')) {
-      const parts = trimmed.split('-');
-      if (parts.length === 3) {
-        const y = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const d = parseInt(parts[2], 10);
-        const dateObj = new Date(y, m, d, 12, 0, 0);
-        return isNaN(dateObj.getTime()) ? null : dateObj;
-      }
-    }
-    const d = new Date(trimmed);
-    if (!isNaN(d.getTime())) return d;
-  }
-  if (typeof raw === 'number') {
-    const d = new Date(raw);
-    if (!isNaN(d.getTime())) return d;
-  }
-  return null;
-};
+export { parseItemDate, buildCombinedShiftMovements };
 
 // ─── COMPROVANTE IMPRESSO PROFISSIONAL COM LOGO YASMIN ÓTICA (1 PÁGINA PERFEITA) ───
 export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
@@ -562,19 +504,33 @@ const CashManagementModal = ({
 
     // Movimentações deste turno (utiliza parseItemDate para suporte perfeito a DD/MM/YYYY e ISO com fidelidade de data/horário)
     const sessionMovements = cashMovements.filter(m => {
-      if (!matchUnit(m.unidade)) return false;
+      const osNum = m.osNumero || m['OS DA VENDA'] || m.OS || m['Nº DA OS'] || m['Num OS'] || '';
+      const resolvedUnit = resolveOSUnit({ numeroOS: osNum, ...m });
+      const mUnit = m.unidade || m.CIDADE || m.LOJA || m.cidade || m.loja || m.selectedCity || resolvedUnit;
+      if (!matchUnit(mUnit)) return false;
       const mDate = parseItemDate(m);
       if (!mDate) return false;
-      return mDate >= sessionStart && mDate <= sessionEnd;
+      const rawStr = String(m.dataHora || m.timestamp || m.DATA_HORA || m.data || m.DATA || '');
+      const hasTime = rawStr.includes(':') || (typeof m.timestamp === 'number');
+      if (hasTime) {
+        if (mDate < sessionStart || mDate > sessionEnd) return false;
+      } else {
+        const startOfDay = new Date(sessionStart.getFullYear(), sessionStart.getMonth(), sessionStart.getDate());
+        const endOfDay = new Date(sessionEnd.getFullYear(), sessionEnd.getMonth(), sessionEnd.getDate(), 23, 59, 59);
+        if (mDate < startOfDay || mDate > endOfDay) return false;
+      }
+      return true;
     });
 
     // Vendas deste turno (com filtro de data >= início do turno e <= encerramento do turno)
     const sessionSales = salesData.filter(s => {
-      const sUnit = s["UNIDADE"] || s["CIDADE"] || s["LOJA"] || "Central";
+      const osNum = s['OS DA VENDA'] || s['OS da VENDA'] || s['Nº DA OS'] || s['Num OS'] || s.OS || s.os || s.osNumero || s.numeroOS || s.VENDA_OS || '';
+      const resolvedUnit = resolveOSUnit({ numeroOS: osNum, ...s });
+      const sUnit = s["UNIDADE"] || s["CIDADE"] || s["LOJA"] || s.unidade || s.cidade || s.loja || s.selectedCity || s.Cidade || s.Loja || resolvedUnit || "Central";
       if (!matchUnit(sUnit)) return false;
       const sDate = parseItemDate(s);
       if (!sDate) return false;
-      const rawStr = String(s.dataHora || s.timestamp || s.DATA_HORA || s.data || s.DATA || s['DATA  DA VENDA'] || s['DATA DA VENDA'] || '');
+      const rawStr = String(s.dataHora || s.timestamp || s.DATA_HORA || s.data || s.DATA || s['DATA  DA VENDA'] || s['DATA DA VENDA'] || s['DATA_VENDA'] || s.dataVenda || '');
       const hasTime = rawStr.includes(':') || (typeof s.timestamp === 'number');
       if (hasTime) {
         if (sDate < sessionStart || sDate > sessionEnd) return false;
@@ -698,7 +654,8 @@ const CashManagementModal = ({
       totalSaidas,
       dinheiroEsperado,
       listaMovimentos: sessionMovements,
-      vendasDoTurno: sessionSales
+      vendasDoTurno: sessionSales,
+      movimentacoesCombinadas: buildCombinedShiftMovements(sessionMovements, sessionSales, unit, currentUser?.username || 'Caixa')
     };
   }, [activeSession, selectedCity, cashMovements, salesData]);
 
@@ -942,84 +899,6 @@ const CashManagementModal = ({
         }, 300);
       }
     }
-  };
-
-  // Helper para unificar e desduplicar movimentações do turno (FLUXO_CAIXA + Registro_Vendas)
-  const buildCombinedShiftMovements = (movList = [], salesList = [], unitName = 'Central', defaultOp = 'Caixa') => {
-    const cleanKey = (v) => String(v || '').replace(/^#|^os[-_ ]?/i, '').trim().toLowerCase();
-    const salesByOs = new Map();
-    const salesById = new Map();
-
-    (salesList || []).forEach(s => {
-      if (!s || typeof s !== 'object') return;
-      const osK = cleanKey(s['OS DA VENDA'] || s['Nº DA OS'] || s.OS);
-      const idK = cleanKey(s.id || s.saleId);
-      if (osK) salesByOs.set(osK, s);
-      if (idK) salesById.set(idK, s);
-    });
-
-    const seenSaleKeys = new Set();
-
-    const mappedMovs = (movList || []).map(m => {
-      const osK = cleanKey(m.osNumero || m['OS DA VENDA'] || m.OS);
-      const idK = cleanKey(m.saleId || m.id);
-      if (osK) seenSaleKeys.add(osK);
-      if (idK) seenSaleKeys.add(idK);
-
-      const matchedSale = (osK && salesByOs.get(osK)) || (idK && salesById.get(idK)) || null;
-      return {
-        ...m,
-        unidade: m.unidade || unitName,
-        tipo: m.tipo || 'MOVIMENTO',
-        valor: m.valor,
-        forma: m.formaPagamento || m.forma,
-        formaPagamento: m.formaPagamento || m.forma,
-        dataHora: m.dataHora || m.timestamp || m.DATA || m.data,
-        cliente: m.cliente || (matchedSale && (matchedSale.CLIENTE || matchedSale.NOME || matchedSale['NOME CLIENTE'])) || m.motivo || m.descricao || m.favorecido,
-        vendedor: m.vendedor || m.operador || (matchedSale && matchedSale.VENDEDOR) || defaultOp,
-        osNumero: m.osNumero || (matchedSale && (matchedSale['OS DA VENDA'] || matchedSale['Nº DA OS'] || matchedSale.OS)) || ''
-      };
-    });
-
-    (salesList || []).forEach(s => {
-      if (!s || typeof s !== 'object') return;
-      if (s.MULTI_OS_PRINCIPAL === false || s.isSecondaryOS === true || s.FATURAMENTO_UNIFICADO === 'SECUNDARIA') return;
-      const osRaw = s['OS DA VENDA'] || s['Nº DA OS'] || s.OS || '';
-      const idRaw = s.id || s.saleId || '';
-      const osK = cleanKey(osRaw);
-      const idK = cleanKey(idRaw);
-
-      if ((osK && seenSaleKeys.has(osK)) || (idK && seenSaleKeys.has(idK))) {
-        return;
-      }
-      if (osK) seenSaleKeys.add(osK);
-      if (idK) seenSaleKeys.add(idK);
-
-      const totalVal = parseCurrency(s['VALOR TOTAL'] || s['VALOR DA VENDA'] || s.valorTotal || 0);
-      const entradaVal = parseCurrency(s['VALOR ENTRADA'] ?? s['ENTRADA'] ?? 0);
-      const restanteVal = parseCurrency(s['RESTANTE'] ?? s['VALOR RESTANTE'] ?? 0);
-      const fp = String(s['FORMA_PAGTO'] || s['FORMAS_PAGAMENTO'] || s.formaPagamento || 'Dinheiro');
-      const hasBoleto = /boleto|carn[eê]/i.test(fp) || restanteVal > 0;
-      const valorCaixa = hasBoleto ? (entradaVal > 0 ? entradaVal : (restanteVal > 0 ? Math.max(0, totalVal - restanteVal) : 0)) : totalVal;
-      const saldoBoleto = hasBoleto ? (restanteVal > 0 ? restanteVal : Math.max(0, totalVal - valorCaixa)) : 0;
-
-      mappedMovs.push({
-        ...s,
-        unidade: s.UNIDADE || s.CIDADE || s.LOJA || unitName,
-        tipo: 'VENDA',
-        valor: valorCaixa,
-        valorTotalOS: totalVal,
-        valorRestanteBoleto: saldoBoleto,
-        forma: fp,
-        formaPagamento: fp,
-        dataHora: s.dataHora || s.timestamp || s['DATA  DA VENDA'] || s['DATA DA VENDA'] || s.DATA,
-        cliente: s.CLIENTE || s.NOME || s['NOME CLIENTE'] || 'Consumidor Final',
-        vendedor: s.VENDEDOR || s.OPERADOR || defaultOp,
-        osNumero: osRaw || idRaw
-      });
-    });
-
-    return mappedMovs;
   };
 
   // 5. Imprimir Extrato Parcial em Cupom Térmico (80mm)
@@ -1588,31 +1467,50 @@ const CashManagementModal = ({
 
               {/* Lista de Movimentações */}
               <div className="space-y-2">
-                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">Histórico de Movimentações do Turno:</h4>
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">Histórico de Movimentações & Vendas do Turno:</h4>
                 <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-                  {sessionStats.listaMovimentos.length > 0 ? (
-                    sessionStats.listaMovimentos.map((m, idx) => (
-                      <div key={idx} className="bg-black/40 border border-white/5 p-2.5 rounded-xl flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2.5">
-                          <span className={`w-2 h-2 rounded-full ${
-                            m.tipo === 'SANGRIA' ? 'bg-rose-400' :
-                            m.tipo === 'SUPRIMENTO' ? 'bg-sky-400' :
-                            m.tipo === 'VENDA' ? 'bg-emerald-400' : 'bg-amber-400'
-                          }`} />
-                          <div>
-                            <p className="font-bold text-white">{m.tipo} - {m.motivo || m.formaPagamento || 'Movimentação'}</p>
-                            <p className="text-[10px] text-slate-500">{m.dataHora ? new Date(m.dataHora).toLocaleTimeString('pt-BR') : '---'} · {m.operador}</p>
+                  {(sessionStats.movimentacoesCombinadas || sessionStats.listaMovimentos).length > 0 ? (
+                    (sessionStats.movimentacoesCombinadas || sessionStats.listaMovimentos).map((m, idx) => {
+                      const isVenda = m.tipo === 'VENDA' || Boolean(m.osNumero);
+                      const isSangria = m.tipo === 'SANGRIA' || m.tipo === 'SAÍDA' || m.tipo === 'SAIDA';
+                      const isSuprimento = m.tipo === 'SUPRIMENTO';
+                      const tituloMov = m.osNumero 
+                        ? `VENDA OS #${m.osNumero} - ${m.cliente || 'Consumidor Final'}`
+                        : (m.motivo || `${m.tipo} - ${m.formaPagamento || 'Movimentação'}`);
+                      const displayValor = isVenda ? (m.valorTotalOS || m.valor) : m.valor;
+
+                      return (
+                        <div key={idx} className="bg-black/40 border border-white/5 p-2.5 rounded-xl flex items-center justify-between text-xs hover:border-white/10 transition-colors">
+                          <div className="flex items-center gap-2.5">
+                            <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                              isSangria ? 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.5)]' :
+                              isSuprimento ? 'bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.5)]' :
+                              isVenda ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]'
+                            }`} />
+                            <div className="min-w-0">
+                              <p className="font-bold text-white truncate">{tituloMov}</p>
+                              <p className="text-[10px] text-slate-500">
+                                {m.dataHora ? (new Date(m.dataHora).toLocaleTimeString ? new Date(m.dataHora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : String(m.dataHora)) : '---'} · {m.vendedor || m.operador || 'Caixa'} · {m.formaPagamento || m.forma || 'À Vista'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0 ml-2">
+                            <span className={`font-mono font-black ${
+                              isSangria ? 'text-rose-400' : 'text-emerald-400'
+                            }`}>
+                              {isSangria ? '-' : '+'}R$ {formatCurrency(displayValor)}
+                            </span>
+                            {isVenda && m.valorRestanteBoleto > 0 && (
+                              <p className="text-[9px] text-amber-400 font-mono font-bold">
+                                Restante: R$ {formatCurrency(m.valorRestanteBoleto)}
+                              </p>
+                            )}
                           </div>
                         </div>
-                        <span className={`font-mono font-black ${
-                          m.tipo === 'SANGRIA' ? 'text-rose-400' : 'text-emerald-400'
-                        }`}>
-                          {m.tipo === 'SANGRIA' ? '-' : '+'}R$ {formatCurrency(m.valor)}
-                        </span>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
-                    <p className="text-xs text-slate-500 text-center py-4">Nenhuma sangria ou suprimento lançado neste turno ainda.</p>
+                    <p className="text-xs text-slate-500 text-center py-4">Nenhuma venda, sangria ou movimentação lançada neste turno ainda.</p>
                   )}
                 </div>
               </div>

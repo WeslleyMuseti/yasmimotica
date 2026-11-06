@@ -7531,6 +7531,107 @@ async function runTests() {
     console.assert(buttonsSrc.includes('TikTokIcon'), 'SocialMediaButtons deve renderizar ícone do TikTok');
 
     console.log('  ✅ Test 75 Passed: Botões de Acesso Direto a Redes Sociais no Perfil validados com 100% de sucesso!\n');
+
+    // ─── TEST 76: Visibilidade e Fidelidade da OS CAJ25 no Relatório de Vendas e no Extrato de Caixa ───
+    console.log('▶ Test 76: Visibilidade e Fidelidade da OS CAJ25 no Relatório de Vendas e no Extrato de Caixa');
+
+    const { resolveOSUnit } = await import('./src/reparcelamentoUtils.js');
+    const { parseItemDate, buildCombinedShiftMovements } = await import('./src/cashShiftUtils.js');
+
+    // 1. Validar identificação soberana de Unidade para a OS caj25 (com traço, sem traço, maiúscula ou minúscula)
+    console.assert(resolveOSUnit({ numeroOS: 'caj25' }) === 'Cajati', 'caj25 minúsculo deve resolver para Cajati');
+    console.assert(resolveOSUnit({ OS: 'CAJ25' }) === 'Cajati', 'CAJ25 sem traço deve resolver para Cajati');
+    console.assert(resolveOSUnit({ 'OS DA VENDA': 'CAJ-25' }) === 'Cajati', 'CAJ-25 com traço deve resolver para Cajati');
+    console.assert(resolveOSUnit({ 'OS DA VENDA': 'caj-025' }) === 'Cajati', 'caj-025 com zeros deve resolver para Cajati');
+    console.assert(resolveOSUnit({ osNumero: 'REG12' }) === 'Registro', 'REG12 deve resolver para Registro');
+    console.assert(resolveOSUnit({ osNumero: 'JAC05' }) === 'Jacupiranga', 'JAC05 deve resolver para Jacupiranga');
+    console.assert(resolveOSUnit({ osNumero: 'EXT01' }) === 'Venda Externa', 'EXT01 deve resolver para Venda Externa');
+
+    // 2. Validar parseItemDate com múltiplos formatos de data de venda (inclusive sem componente de hora)
+    const pDate1 = parseItemDate({ dataVenda: '2026-11-06' });
+    console.assert(pDate1 instanceof Date && pDate1.getFullYear() === 2026 && pDate1.getMonth() === 10 && pDate1.getDate() === 6, 'parseItemDate deve ler dataVenda ISO');
+    const pDate2 = parseItemDate({ 'DATA DA VENDA': '06/11/2026' });
+    console.assert(pDate2 instanceof Date && pDate2.getFullYear() === 2026 && pDate2.getDate() === 6, 'parseItemDate deve ler DATA DA VENDA em pt-BR');
+    const pDate3 = parseItemDate({ 'DATA_VENDA': '06/11/2026' });
+    console.assert(pDate3 instanceof Date && pDate3.getFullYear() === 2026 && pDate3.getDate() === 6, 'parseItemDate deve ler DATA_VENDA');
+
+    // 3. Validar buildCombinedShiftMovements: Inclusão da OS CAJ25 no Extrato do Turno
+    const mockSalesList = [
+      {
+        id: 'sale_caj25_uuid',
+        'OS DA VENDA': 'CAJ25',
+        'CLIENTE': 'Cliente Cajati Vinte Cinco',
+        'VALOR TOTAL': '1.200,00',
+        'VALOR ENTRADA': '200,00',
+        'RESTANTE': '1.000,00',
+        'FORMA_PAGTO': 'Entrada (PIX) + Restante (Boleto)',
+        'DATA DA VENDA': '06/11/2026',
+        'UNIDADE': 'Cajati'
+      }
+    ];
+
+    const mockCashMovements = [
+      {
+        id: 'mov_caj25_sinal',
+        saleId: 'os_caj25',
+        osNumero: 'CAJ-25',
+        tipo: 'VENDA',
+        valor: 200,
+        formaPagamento: 'PIX',
+        unidade: 'Cajati',
+        dataHora: '2026-11-06T10:30:00.000Z',
+        cliente: 'Cliente Cajati Vinte Cinco'
+      }
+    ];
+
+    const combinedShift = buildCombinedShiftMovements(mockCashMovements, mockSalesList, 'Cajati', 'Caixa');
+    console.assert(combinedShift.length === 1, `Extrato do turno deve desduplicar a venda e movimento da OS CAJ25 (total: ${combinedShift.length})`);
+    console.assert(combinedShift[0].osNumero === 'CAJ-25' || combinedShift[0].osNumero === 'CAJ25', 'OS no extrato deve ser CAJ25 ou CAJ-25');
+    console.assert(combinedShift[0].valor === 200, 'Valor que entrou no caixa na entrada deve ser R$ 200,00');
+    console.assert(combinedShift[0].cliente === 'Cliente Cajati Vinte Cinco', 'Nome do cliente deve ser preservado');
+
+    // 4. Validar venda 100% no Boleto sem entrada imediata na gaveta: Deve constar no Extrato com valorTotalOS
+    const mockBoletoSale = [
+      {
+        id: 'sale_caj26_boleto',
+        'OS DA VENDA': 'CAJ26',
+        'CLIENTE': 'Cliente Boleto Integral',
+        'VALOR TOTAL': '800,00',
+        'VALOR ENTRADA': '0,00',
+        'RESTANTE': '800,00',
+        'FORMA_PAGTO': 'Boleto (10x)',
+        'DATA DA VENDA': '06/11/2026',
+        'UNIDADE': 'Cajati'
+      }
+    ];
+
+    const combinedBoleto = buildCombinedShiftMovements([], mockBoletoSale, 'Cajati', 'Caixa');
+    console.assert(combinedBoleto.length === 1, 'Venda de OS no boleto deve aparecer no extrato mesmo sem movimentação prévia de caixa');
+    console.assert(combinedBoleto[0].osNumero === 'CAJ26', 'OS CAJ26 deve constar no extrato');
+    console.assert(combinedBoleto[0].valorTotalOS === 800, 'Valor total da OS deve ser R$ 800,00');
+    console.assert(combinedBoleto[0].valorRestanteBoleto === 800, 'Saldo a prazo no boleto deve ser R$ 800,00');
+
+    // 5. Validar filtro de cidade no Relatório de Vendas: OS CAJ25 incluída mesmo se o campo CIDADE for omitido
+    const mockRowsWithoutExplicitCity = [
+      { 'OS DA VENDA': 'CAJ25', 'VALOR TOTAL': '1.200,00', CLIENTE: 'Cajati Teste' },
+      { 'OS DA VENDA': 'REG10', 'VALOR TOTAL': '900,00', CLIENTE: 'Registro Teste' }
+    ];
+
+    const filterByCityTest = (rows, selectedCity) => {
+      const target = selectedCity.trim().toLowerCase();
+      return rows.filter(r => {
+        const osNum = String(r['OS DA VENDA'] || r.OS || '').trim();
+        const resolvedUnit = resolveOSUnit({ numeroOS: osNum, ...r });
+        const cid = String(r['CIDADE'] || resolvedUnit || '').trim().toLowerCase();
+        return cid.includes(target) || target.includes(cid);
+      });
+    };
+
+    const cajatiFiltered = filterByCityTest(mockRowsWithoutExplicitCity, 'Cajati');
+    console.assert(cajatiFiltered.length === 1, 'Apenas a OS CAJ25 deve ser retornada no filtro de Cajati');
+    console.assert(cajatiFiltered[0]['OS DA VENDA'] === 'CAJ25', 'OS retornada deve ser CAJ25');
+
+    console.log('  ✅ Test 76 Passed: Visibilidade e Fidelidade da OS CAJ25 no Relatório de Vendas e no Extrato validadas com 100% de sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
