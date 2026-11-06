@@ -171,6 +171,7 @@ function App() {
       'CAD_BRINDES': [],
       'CONTAS_PAGAR': [],
       'CONTAS_RECEBER': [],
+      'VOUCHERS': JSON.parse(localStorage.getItem('YASMIN_VOUCHERS') || '[]'),
       'FLUXO_CAIXA': JSON.parse(localStorage.getItem('YASMIN_FLUXO_CAIXA') || '[]')
     };
     try {
@@ -185,6 +186,7 @@ function App() {
           'CAD_BRINDES': backup['CAD_BRINDES'] || [],
           'CONTAS_PAGAR': backup['CONTAS_PAGAR'] || [],
           'CONTAS_RECEBER': backup['CONTAS_RECEBER'] || [],
+          'VOUCHERS': backup['VOUCHERS'] || JSON.parse(localStorage.getItem('YASMIN_VOUCHERS') || '[]'),
           'FLUXO_CAIXA': backup['FLUXO_CAIXA'] || JSON.parse(localStorage.getItem('YASMIN_FLUXO_CAIXA') || '[]')
         };
       }
@@ -613,6 +615,12 @@ function App() {
         return hasAnyChange ? nextData : prev;
       });
 
+      if (newData['VOUCHERS'] && Array.isArray(newData['VOUCHERS']) && newData['VOUCHERS'].length > 0) {
+        try {
+          localStorage.setItem('YASMIN_VOUCHERS', JSON.stringify(newData['VOUCHERS']));
+        } catch {}
+      }
+
       // 🛡️ Sincronização única de emergência para Stephanie Museti no Firestore (executa no máximo 1 vez por sessão e nunca em loop)
       if (isConfigured && !hasCleanedStephanieCloudRef.current) {
         hasCleanedStephanieCloudRef.current = true;
@@ -740,6 +748,7 @@ function App() {
       'CAD_BRINDES': [],
       'CONTAS_PAGAR': [],
       'CONTAS_RECEBER': [],
+      'VOUCHERS': [],
       'FLUXO_CAIXA': []
     });
     setIsDrawerOpen(false);

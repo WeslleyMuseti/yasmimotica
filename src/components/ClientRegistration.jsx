@@ -927,6 +927,63 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           CPF: clientCpf
         });
       }
+
+      // 🎟️ Se houver voucher na OS, registrar o uso em VOUCHERS
+      const usedVoucherCode = primaryOrder.voucher || osData.voucher || clientSnapshot['VOUCHER'] || clientSnapshot['voucher'];
+      if (usedVoucherCode && onUpdateRow) {
+        const vList = data?.['VOUCHERS'] || data?.VOUCHERS || [];
+        const cleanUsed = String(usedVoucherCode).trim().toUpperCase();
+        const baseUsed = cleanUsed.split(/[-_]/)[0].replace(/[^A-Z0-9]/gi, '');
+        const matchedV = vList.find(v => {
+          const c = String(v.CODIGO || v.codigo || v.Codigo || v.CUPOM || v.cupom || v.NOME || '').trim().toUpperCase();
+          const cleanC = c.replace(/[^A-Z0-9]/gi, '');
+          return cleanC === baseUsed || c === cleanUsed;
+        });
+
+        if (matchedV) {
+          try {
+            const currentUsed = parseInt(matchedV.QUANTIDADE_USADA || matchedV.quantidade_usada || 0, 10);
+            const totalQtd = parseInt(matchedV.QUANTIDADE_TOTAL || matchedV.quantidade_total || 0, 10);
+            const nextUsed = currentUsed + 1;
+            const isEsgotado = totalQtd > 0 && nextUsed >= totalQtd;
+
+            let existingHistory = [];
+            try {
+              const rawH = matchedV.HISTORICO_USO || matchedV.usos_json || matchedV.historico_uso;
+              if (typeof rawH === 'string') existingHistory = JSON.parse(rawH);
+              else if (Array.isArray(rawH)) existingHistory = rawH;
+            } catch (e) {
+              existingHistory = [];
+            }
+            if (!Array.isArray(existingHistory)) existingHistory = [];
+
+            const newEntry = {
+              cliente: clientSnapshot['Nome Completo'] || clientSnapshot['Nome'] || primaryOrder.cliente || 'Cliente',
+              cpf: clientSnapshot['CPF / CNPJ'] || clientSnapshot['CPF'] || '',
+              dataHora: new Date().toLocaleString('pt-BR'),
+              os: primaryNumOS || 'OS',
+              codigoGerado: usedVoucherCode,
+              codigoUtilizado: usedVoucherCode,
+              numeroSequencial: nextUsed,
+              valorDesconto: parseCurrency(primaryOrder.descontoVoucher || osData.descontoVoucher || 0)
+            };
+
+            const updatedVoucher = {
+              ...matchedV,
+              QUANTIDADE_USADA: nextUsed,
+              quantidade_usada: nextUsed,
+              STATUS: isEsgotado ? 'Esgotado' : (matchedV.STATUS || matchedV.status || 'Ativo'),
+              status: isEsgotado ? 'Esgotado' : (matchedV.STATUS || matchedV.status || 'Ativo'),
+              HISTORICO_USO: JSON.stringify([...existingHistory, newEntry]),
+              historico_uso: JSON.stringify([...existingHistory, newEntry]),
+              usos_json: JSON.stringify([...existingHistory, newEntry])
+            };
+            onUpdateRow('VOUCHERS', matchedV, updatedVoucher);
+          } catch (vErr) {
+            console.warn('Aviso ao atualizar uso de voucher em ClientRegistration:', vErr);
+          }
+        }
+      }
     }
 
     // Pequeno delay para garantir que o componente PrintableOS renderize antes de chamar o print
@@ -2123,6 +2180,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         currentUser={currentUser}
         receberData={receberData}
         clientsData={clientsData}
+        vouchersData={data?.['VOUCHERS'] || data?.VOUCHERS || []}
         onClose={() => {
           setOsClientData(null);
           setOsSaleData(null);

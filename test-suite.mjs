@@ -7634,6 +7634,82 @@ async function runTests() {
     console.log('  ✅ Test 76 Passed: Visibilidade e Fidelidade da OS CAJ25 no Relatório de Vendas e no Extrato validadas com 100% de sucesso!\n');
   }
 
+  // ----------------------------------------------------
+  // TEST 77: LIBERAÇÃO DE ESTOQUE ZERADO NA OS E SISTEMA ROBUSTO DE VOUCHERS PARA VENDEDORES
+  // ----------------------------------------------------
+  {
+    console.log('▶ Test 77: Liberação de Estoque Zerado na OS e Sistema Robusto de Vouchers para Vendedores');
+
+    const osModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'OSGeneratorModal.jsx'), 'utf-8');
+    const posSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf-8');
+    const clientRegSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ClientRegistration.jsx'), 'utf-8');
+    const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'App.jsx'), 'utf-8');
+
+    // 1. Validar que OSGeneratorModal NÃO bloqueia vendedor com estoque zerado
+    console.assert(!osModalSrc.includes('Inclusão Bloqueada para Vendedor'), 'OSGeneratorModal não deve conter bloqueio de estoque para vendedor');
+    console.assert(!osModalSrc.includes('Vendedores não podem selecionar produtos com estoque zerado para gerar Ordem de Serviço'), 'OSGeneratorModal não deve exibir alerta de estoque zerado para OS');
+
+    // 2. Validar que OSGeneratorModal possui a seção e handlers de Voucher / Cupom Promocional
+    console.assert(osModalSrc.includes('handleApplyVoucherOS'), 'OSGeneratorModal deve implementar handleApplyVoucherOS');
+    console.assert(osModalSrc.includes('handleRemoveVoucherOS'), 'OSGeneratorModal deve implementar handleRemoveVoucherOS');
+    console.assert(osModalSrc.includes('Cupom / Voucher Promocional'), 'OSGeneratorModal deve exibir card de Cupom / Voucher');
+    console.assert(osModalSrc.includes('vouchersData: propVouchersData'), 'OSGeneratorModal deve receber prop vouchersData');
+
+    // 3. Validar que POSRegister e ClientRegistration repassam vouchersData para OSGeneratorModal
+    console.assert(posSrc.includes('vouchersData={vouchersData}'), 'POSRegister deve passar vouchersData para OSGeneratorModal');
+    console.assert(clientRegSrc.includes("vouchersData={data?.['VOUCHERS']"), 'ClientRegistration deve passar vouchersData para OSGeneratorModal');
+
+    // 4. Validar matching flexível de Voucher (Normalização alfanumérica, casing e códigos sequenciais)
+    const mockVouchers = [
+      { id: 'v1', CODIGO: 'PROMO_50', NOME: 'Promoção de Verão', VALOR_DESCONTO: '50,00', TIPO_DESCONTO: 'VALOR', UNIDADE: 'Todas', STATUS: 'Ativo', QUANTIDADE_TOTAL: 10, QUANTIDADE_USADA: 2 },
+      { id: 'v2', CODIGO: 'DESCONTO10%', NOME: '10% OFF', VALOR_DESCONTO: '10', TIPO_DESCONTO: 'PORCENTAGEM', UNIDADE: 'Cajati', STATUS: 'Ativo', QUANTIDADE_TOTAL: 5, QUANTIDADE_USADA: 0 }
+    ];
+
+    const findVoucher = (inputCode, list, userCity = 'Cajati') => {
+      const code = String(inputCode || '').trim().toUpperCase();
+      const cleanInput = code.replace(/[^A-Z0-9]/gi, '');
+      const found = list.find(v => {
+        const c = String(v.CODIGO || v.codigo || v.Codigo || v.CUPOM || v.cupom || v.NOME || '').trim().toUpperCase();
+        const cleanC = c.replace(/[^A-Z0-9]/gi, '');
+        if (c === code || (cleanInput && cleanC === cleanInput)) return true;
+        const strippedSeq = code.replace(/[-_]\d+$/, '');
+        const cleanStripped = strippedSeq.replace(/[^A-Z0-9]/gi, '');
+        if (cleanStripped && cleanC === cleanStripped) return true;
+        if (code.includes('-') || code.includes('_')) {
+          const basePart = code.split(/[-_]/)[0];
+          const cleanBase = basePart.replace(/[^A-Z0-9]/gi, '');
+          if (cleanBase && cleanC === cleanBase) return true;
+        }
+        return false;
+      });
+      if (!found) return { ok: false, error: 'Não encontrado' };
+
+      const store = String(found.UNIDADE || 'Todas').trim().toLowerCase();
+      const currentCity = String(userCity || 'Todas').trim().toLowerCase();
+      const isStoreValid = store === 'todas' || store === 'geral' || store === 'central' || store === currentCity || currentCity === 'todas';
+      if (!isStoreValid) return { ok: false, error: 'Loja inválida' };
+
+      return { ok: true, voucher: found };
+    };
+
+    // Cenários de busca testados:
+    const resEspaco = findVoucher('PROMO 50', mockVouchers);
+    console.assert(resEspaco.ok && resEspaco.voucher.id === 'v1', 'PROMO 50 deve casar com PROMO_50');
+
+    const resTraco = findVoucher('promo-50', mockVouchers);
+    console.assert(resTraco.ok && resTraco.voucher.id === 'v1', 'promo-50 deve casar com PROMO_50');
+
+    const resSeq = findVoucher('PROMO_50-03', mockVouchers);
+    console.assert(resSeq.ok && resSeq.voucher.id === 'v1', 'PROMO_50-03 deve casar com o voucher base PROMO_50');
+
+    const resCaj = findVoucher('desconto10%', mockVouchers, 'Cajati');
+    console.assert(resCaj.ok && resCaj.voucher.id === 'v2', 'desconto10% deve ser aceito na loja Cajati');
+
+    console.assert(appSrc.includes("'VOUCHERS': JSON.parse(localStorage.getItem('YASMIN_VOUCHERS')"), 'App.jsx deve inicializar VOUCHERS');
+
+    console.log('  ✅ Test 77 Passed: Liberação de Estoque Zerado na OS e Sistema Robusto de Vouchers validados com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

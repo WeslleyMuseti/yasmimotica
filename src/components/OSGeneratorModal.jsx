@@ -4,8 +4,9 @@ import {
   X, Save, Printer, User, Eye, FileText, Calendar, DollarSign, 
   Activity, CheckCircle2, AlertTriangle, Trash2, Plus, CreditCard, 
   QrCode, Glasses, Layers, Copy, Info, MapPin, Tag, FlaskConical, ClipboardList,
-  AlertOctagon, Sparkles
+  AlertOctagon, Sparkles, Ticket
 } from 'lucide-react';
+import { resolveOSUnit } from '../reparcelamentoUtils';
 
 const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -168,6 +169,7 @@ const OSGeneratorModal = ({
   currentUser,
   receberData = [],
   clientsData = [],
+  vouchersData: propVouchersData = [],
   selectedCity: propSelectedCity = '',
   initialCity = ''
 }) => {
@@ -178,6 +180,20 @@ const OSGeneratorModal = ({
   // Lista de Ordens de Serviço para suportar 1 ou MÚLTIPLAS OS na mesma venda
   const [osList, setOsList] = useState([]);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
+
+  // 🎟️ Dados e Controle de Vouchers / Cupons na OS
+  const vouchersData = useMemo(() => {
+    if (Array.isArray(propVouchersData) && propVouchersData.length > 0) return propVouchersData;
+    try {
+      const cached = JSON.parse(localStorage.getItem('YASMIN_VOUCHERS') || '[]');
+      if (Array.isArray(cached) && cached.length > 0) return cached;
+    } catch {}
+    return [];
+  }, [propVouchersData]);
+
+  const [voucherCodeInput, setVoucherCodeInput] = useState('');
+  const [voucherError, setVoucherError] = useState('');
+  const [appliedVoucherInfo, setAppliedVoucherInfo] = useState(null);
 
   const isVendor = currentUser?.role === 'vendedor';
   const isExternalVendor = isVendor && (
@@ -799,6 +815,20 @@ const OSGeneratorModal = ({
         descontoVoucher: clientData['descontoVoucher'] || clientData['DESCONTO_VOUCHER'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || '',
         numeroOS: nextBase
       }));
+
+      const existingVoucher = clientData['voucher'] || clientData['VOUCHER'] || saleData?.['VOUCHER'] || saleData?.voucher || '';
+      const existingDesc = parseCurrency(clientData['descontoVoucher'] || clientData['DESCONTO_VOUCHER'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || 0);
+      if (existingVoucher) {
+        setAppliedVoucherInfo({
+          code: existingVoucher,
+          discountAmount: existingDesc,
+          label: existingDesc > 0 ? `-R$ ${formatCurrency(existingDesc)}` : 'Aplicado'
+        });
+      } else {
+        setAppliedVoucherInfo(null);
+      }
+      setVoucherCodeInput('');
+      setVoucherError('');
     }
   }, [clientData, saleData, isOpen, currentUser, userCity, propSelectedCity, initialCity]);
 
@@ -1099,36 +1129,135 @@ const OSGeneratorModal = ({
     }));
   };
 
-  const handleSaveClick = () => {
-    // 🛡️ Regra: Vendedores não podem salvar/gerar OS com produtos cujo estoque esteja zerado
-    if (isVendor) {
-      for (const osItem of osList) {
-        const armName = String(osItem.armacao || '').trim().toLowerCase();
-        if (armName && armName !== 'armação própria' && armName !== 'não informada') {
-          const matchedArm = (armacoesData || []).find(a => `${a.MARCA || a.marca || ''} ${a.MODELO || a.modelo || ''}`.trim().toLowerCase() === armName);
-          if (matchedArm) {
-            const rawStock = matchedArm['ESTOQUE'] !== undefined ? matchedArm['ESTOQUE'] : (matchedArm['EM ESTOQUE'] !== undefined ? matchedArm['EM ESTOQUE'] : (matchedArm['estoque'] !== undefined ? matchedArm['estoque'] : matchedArm['QTD']));
-            const stockNum = parseInt(rawStock !== undefined && rawStock !== '' ? rawStock : 999, 10);
-            if (stockNum <= 0) {
-              alert(`⚠️ Inclusão Bloqueada para Vendedor:\n\nA armação "${osItem.armacao}" está com estoque esgotado (0 un).\n\nVendedores não podem selecionar produtos com estoque zerado para gerar Ordem de Serviço.`);
-              return;
-            }
-          }
-        }
-        const lenName = String(osItem.lente || '').trim().toLowerCase();
-        if (lenName && lenName !== 'não informada') {
-          const matchedLen = (lentesData || []).find(l => `${l.MARCA || l.marca || ''} ${l.MODELO || l.modelo || ''}`.trim().toLowerCase() === lenName);
-          if (matchedLen) {
-            const rawStock = matchedLen['ESTOQUE'] !== undefined ? matchedLen['ESTOQUE'] : (matchedLen['EM ESTOQUE'] !== undefined ? matchedLen['EM ESTOQUE'] : (matchedLen['estoque'] !== undefined ? matchedLen['estoque'] : matchedLen['QTD']));
-            const stockNum = parseInt(rawStock !== undefined && rawStock !== '' ? rawStock : 999, 10);
-            if (stockNum <= 0) {
-              alert(`⚠️ Inclusão Bloqueada para Vendedor:\n\nA lente "${osItem.lente}" está com estoque esgotado (0 un).\n\nVendedores não podem selecionar produtos com estoque zerado para gerar Ordem de Serviço.`);
-              return;
-            }
-          }
-        }
+  // 🎟️ Aplicação de Voucher / Cupom Promocional na OS
+  const handleApplyVoucherOS = (codeParam) => {
+    const rawCode = codeParam || voucherCodeInput;
+    const code = String(rawCode || '').trim().toUpperCase();
+    setVoucherError('');
+    if (!code) {
+      setVoucherError('Digite o código do voucher.');
+      return;
+    }
+
+    const cleanInput = code.replace(/[^A-Z0-9]/gi, '');
+    const found = vouchersData.find(v => {
+      const c = String(v.CODIGO || v.codigo || v.Codigo || v.CUPOM || v.cupom || v.VOUCHER || v.voucher || v.NOME || v.nome || '').trim().toUpperCase();
+      const cleanC = c.replace(/[^A-Z0-9]/gi, '');
+      if (c === code || (cleanInput && cleanC === cleanInput)) return true;
+      const strippedSeq = code.replace(/[-_]\d+$/, '');
+      const cleanStripped = strippedSeq.replace(/[^A-Z0-9]/gi, '');
+      if (cleanStripped && cleanC === cleanStripped) return true;
+      if (code.includes('-') || code.includes('_')) {
+        const basePart = code.split(/[-_]/)[0];
+        const cleanBase = basePart.replace(/[^A-Z0-9]/gi, '');
+        if (cleanBase && cleanC === cleanBase) return true;
+      }
+      return false;
+    });
+
+    if (!found) {
+      setVoucherError(`Voucher "${code}" não encontrado no sistema.`);
+      return;
+    }
+
+    const status = String(found.STATUS || found.status || 'Ativo').trim().toLowerCase();
+    if (status !== 'ativo') {
+      setVoucherError(`Voucher "${code}" está ${status}.`);
+      return;
+    }
+
+    const store = String(found.UNIDADE || found.unidade || found.LOJA || found.loja || found.CIDADE || found.cidade || 'Todas').trim().toLowerCase();
+    const currentCity = String(selectedCity || userCity || 'Todas').trim().toLowerCase();
+    const isStoreValid = 
+      store === 'todas' || 
+      store === 'todas as lojas' || 
+      store === 'todas lojas' || 
+      store === 'geral' || 
+      store === '' ||
+      store === 'central' ||
+      currentCity === 'todas' ||
+      currentCity === 'central' ||
+      store === currentCity ||
+      resolveOSUnit({ unidade: store }) === resolveOSUnit({ unidade: currentCity });
+
+    if (!isStoreValid) {
+      setVoucherError(`Voucher válido apenas para a loja ${found.UNIDADE || found.unidade || store}.`);
+      return;
+    }
+
+    const totalQtd = parseInt(found.QUANTIDADE_TOTAL || found.quantidade_total || 0, 10);
+    const usedQtd = parseInt(found.QUANTIDADE_USADA || found.quantidade_usada || 0, 10);
+    if (totalQtd > 0 && usedQtd >= totalQtd) {
+      setVoucherError(`Voucher "${code}" esgotado (${usedQtd}/${totalQtd} usados).`);
+      return;
+    }
+
+    const validity = found.VALIDADE || found.validade;
+    if (validity) {
+      const valDate = new Date(validity + 'T23:59:59');
+      if (!isNaN(valDate.getTime()) && new Date() > valDate) {
+        setVoucherError(`Voucher expirou em ${validity}.`);
+        return;
       }
     }
+
+    const nextNum = usedQtd + 1;
+    const baseCode = String(found.CODIGO || found.codigo || code).trim().toUpperCase();
+    const seqCode = `${baseCode}-${String(nextNum).padStart(2, '0')}`;
+    const tipo = String(found.TIPO_DESCONTO || found.tipo_desconto || 'VALOR').toUpperCase();
+    const valDescRaw = parseCurrency(found.VALOR_DESCONTO || found.valor_desconto || 0);
+    
+    const curTotal = parseCurrency(formData.valorTotal) || 0;
+    const descAmount = (tipo === 'PORCENTAGEM' || tipo === 'PERCENTUAL' || tipo === '%')
+      ? Math.round((curTotal * (valDescRaw / 100)) * 100) / 100
+      : valDescRaw;
+
+    const newTotal = Math.max(0, curTotal - descAmount);
+    const entrada = parseCurrency(formData.valorEntrada) || 0;
+    const newRest = Math.max(0, newTotal - entrada);
+
+    setAppliedVoucherInfo({
+      voucher: found,
+      code: seqCode,
+      baseCode: baseCode,
+      discountAmount: descAmount,
+      label: (tipo === 'PORCENTAGEM' || tipo === 'PERCENTUAL' || tipo === '%')
+        ? `${valDescRaw}% OFF (-R$ ${formatCurrency(descAmount)})` 
+        : `-R$ ${formatCurrency(descAmount)}`
+    });
+
+    setFormData(prev => ({
+      ...prev,
+      voucher: seqCode,
+      descontoVoucher: formatCurrency(descAmount),
+      valorTotal: formatCurrency(newTotal),
+      restante: formatCurrency(newRest)
+    }));
+
+    setVoucherCodeInput('');
+    setVoucherError('');
+  };
+
+  const handleRemoveVoucherOS = () => {
+    if (!appliedVoucherInfo) return;
+    const desc = appliedVoucherInfo.discountAmount || 0;
+    const curTotal = parseCurrency(formData.valorTotal) || 0;
+    const restoredTotal = curTotal + desc;
+    const entrada = parseCurrency(formData.valorEntrada) || 0;
+    const restoredRest = Math.max(0, restoredTotal - entrada);
+
+    setAppliedVoucherInfo(null);
+    setFormData(prev => ({
+      ...prev,
+      voucher: '',
+      descontoVoucher: '0,00',
+      valorTotal: formatCurrency(restoredTotal),
+      restante: formatCurrency(restoredRest)
+    }));
+  };
+
+  const handleSaveClick = () => {
+    // ♾️ Nota: Lentes oftálmicas possuem estoque infinito e armações podem ser lançadas mesmo sem estoque (encomenda / reposição), independente de ser admin ou vendedor.
 
     if (isExternalVendor) {
       for (const osItem of osList) {
@@ -2011,6 +2140,76 @@ const OSGeneratorModal = ({
                       </div>
                     </div>
                   )}
+
+                  {/* 🎟️ CUPOM / VOUCHER DE DESCONTO */}
+                  <div className="bg-slate-950/70 border border-emerald-500/30 rounded-xl p-3 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                        <Ticket size={14} />
+                        <span>Cupom / Voucher Promocional</span>
+                      </div>
+                      {appliedVoucherInfo && (
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                          {appliedVoucherInfo.label}
+                        </span>
+                      )}
+                    </div>
+
+                    {appliedVoucherInfo ? (
+                      <div className="flex items-center justify-between bg-emerald-950/30 border border-emerald-500/30 rounded-lg p-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">🎟️</span>
+                          <div>
+                            <span className="text-xs font-black text-emerald-300 font-mono tracking-wider">{appliedVoucherInfo.code}</span>
+                            <span className="text-[10px] text-emerald-400/80 ml-2">Desconto: -R$ {formatCurrency(appliedVoucherInfo.discountAmount)}</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleRemoveVoucherOS}
+                          className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <X size={11} />
+                          <span>Remover</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={voucherCodeInput}
+                            onChange={(e) => {
+                              setVoucherCodeInput(e.target.value.toUpperCase());
+                              setVoucherError('');
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleApplyVoucherOS();
+                              }
+                            }}
+                            placeholder="Digite o código do voucher (ex: PROMO50, VERAO10)..."
+                            className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold uppercase text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleApplyVoucherOS()}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all active:scale-95 shadow-md shadow-emerald-950/40 shrink-0 flex items-center gap-1 cursor-pointer"
+                          >
+                            <Ticket size={12} />
+                            <span>Aplicar</span>
+                          </button>
+                        </div>
+                        {voucherError && (
+                          <div className="text-[11px] text-rose-400 font-medium flex items-center gap-1">
+                            <AlertTriangle size={11} className="shrink-0" />
+                            <span>{voucherError}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Resumo em 3 Cards */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

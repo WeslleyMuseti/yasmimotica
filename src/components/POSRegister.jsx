@@ -105,7 +105,20 @@ const POSRegister = ({
   const [appliedVouchers, setAppliedVouchers] = useState([]);
   const [voucherError, setVoucherError] = useState('');
 
-  const vouchersData = useMemo(() => data?.['VOUCHERS'] || [], [data]);
+  const vouchersData = useMemo(() => {
+    const list = data?.['VOUCHERS'] || data?.['Cupons'] || data?.['CUPONS'] || [];
+    if (Array.isArray(list) && list.length > 0) {
+      try {
+        localStorage.setItem('YASMIN_VOUCHERS', JSON.stringify(list));
+      } catch {}
+      return list;
+    }
+    try {
+      const cached = JSON.parse(localStorage.getItem('YASMIN_VOUCHERS') || '[]');
+      if (Array.isArray(cached) && cached.length > 0) return cached;
+    } catch {}
+    return [];
+  }, [data]);
 
   // ─── SISTEMA DE PAGAMENTO ────────────────────────────────────────
   const [payments, setPayments] = useState([]);
@@ -994,9 +1007,20 @@ const POSRegister = ({
       return;
     }
 
+    const cleanInput = code.replace(/[^A-Z0-9]/gi, '');
     const found = vouchersData.find(v => {
-      const c = String(v.CODIGO || v.codigo || '').trim().toUpperCase();
-      return c === code;
+      const c = String(v.CODIGO || v.codigo || v.Codigo || v.CUPOM || v.cupom || v.VOUCHER || v.voucher || v.NOME || v.nome || '').trim().toUpperCase();
+      const cleanC = c.replace(/[^A-Z0-9]/gi, '');
+      if (c === code || (cleanInput && cleanC === cleanInput)) return true;
+      const strippedSeq = code.replace(/[-_]\d+$/, '');
+      const cleanStripped = strippedSeq.replace(/[^A-Z0-9]/gi, '');
+      if (cleanStripped && cleanC === cleanStripped) return true;
+      if (code.includes('-') || code.includes('_')) {
+        const basePart = code.split(/[-_]/)[0];
+        const cleanBase = basePart.replace(/[^A-Z0-9]/gi, '');
+        if (cleanBase && cleanC === cleanBase) return true;
+      }
+      return false;
     });
 
     if (!found) {
@@ -1039,10 +1063,22 @@ const POSRegister = ({
       }
     }
 
-    const store = found.UNIDADE || found.unidade || 'Todas';
-    const currentCity = userFixedCity || selectedPOSCity || currentUser?.city || 'Todas';
-    if (store !== 'Todas' && currentCity !== 'Todas' && store.toLowerCase() !== currentCity.toLowerCase()) {
-      setVoucherError(`Voucher válido apenas para a loja ${store}.`);
+    const store = String(found.UNIDADE || found.unidade || found.LOJA || found.loja || found.CIDADE || found.cidade || 'Todas').trim().toLowerCase();
+    const currentCity = String(userFixedCity || selectedPOSCity || currentUser?.city || 'Todas').trim().toLowerCase();
+    const isStoreValid = 
+      store === 'todas' || 
+      store === 'todas as lojas' || 
+      store === 'todas lojas' || 
+      store === 'geral' || 
+      store === '' ||
+      store === 'central' ||
+      currentCity === 'todas' ||
+      currentCity === 'central' ||
+      store === currentCity ||
+      resolveOSUnit({ unidade: store }) === resolveOSUnit({ unidade: currentCity });
+
+    if (!isStoreValid) {
+      setVoucherError(`Voucher válido apenas para a loja ${found.UNIDADE || found.unidade || store}.`);
       return;
     }
 
@@ -3819,6 +3855,7 @@ const POSRegister = ({
           currentUser={currentUser}
           receberData={receberData}
           clientsData={clientsData}
+          vouchersData={vouchersData}
         />
       )}
 
