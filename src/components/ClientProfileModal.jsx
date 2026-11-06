@@ -5,9 +5,10 @@ import {
   AlertTriangle, CheckCircle, Activity, Edit2, ClipboardList, DollarSign, 
   AtSign, Trash2, Printer, Glasses, Home, Building2, Hash, Compass, Mail, 
   Sparkles, UserCheck, ArrowLeft, Save, Check, Users, ShieldCheck, FileText, Clock,
-  Pencil, CheckCircle2, Paperclip, Upload
+  Pencil, CheckCircle2, Paperclip, Upload, ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { SocialMediaButtons, InstagramIcon, FacebookIcon, TikTokIcon, WhatsAppIcon } from './SocialMediaButtons';
 import PrintableOS from './PrintableOS';
 import PrintableClientProfile from './PrintableClientProfile';
 import PrintableReparcelamentoReceipt from './PrintableReparcelamentoReceipt';
@@ -728,6 +729,15 @@ const ClientProfileModal = ({
                       : (currentClient['Cidade'] ? `${currentClient['Cidade']} • ` : '') + (currentClient['WhatsApp'] || 'Sem telefone')
                     }
                   </p>
+                  {!isEditing && (
+                    <div className="mt-2.5">
+                      <SocialMediaButtons 
+                        client={currentClient} 
+                        variant="pills" 
+                        onEditSocial={() => setIsEditing(true)} 
+                      />
+                    </div>
+                  )}
                 </div>
                 
                 <div className="flex items-center gap-2 shrink-0">
@@ -880,14 +890,42 @@ const ClientProfileModal = ({
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Instagram</label>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                          <InstagramIcon size={12} className="text-pink-400" /> Instagram
+                        </label>
                         <input
                           type="text"
                           name="Instagram"
                           value={editFormData['Instagram'] || ''}
                           onChange={handleEditChange}
                           placeholder="@usuario"
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-pink-500/50"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                          <FacebookIcon size={12} className="text-blue-400" /> Facebook
+                        </label>
+                        <input
+                          type="text"
+                          name="Facebook"
+                          value={editFormData['Facebook'] || ''}
+                          onChange={handleEditChange}
+                          placeholder="Nome ou link"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500/50"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                          <TikTokIcon size={12} className="text-rose-400" /> TikTok
+                        </label>
+                        <input
+                          type="text"
+                          name="TikTok"
+                          value={editFormData['TikTok'] || ''}
+                          onChange={handleEditChange}
+                          placeholder="@usuario"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-rose-400/50"
                         />
                       </div>
                       {/* Referência 1 do Cliente */}
@@ -1097,6 +1135,45 @@ const ClientProfileModal = ({
                           onChange={handleEditChange}
                           placeholder="(00) 00000-0000"
                           className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                          <InstagramIcon size={12} className="text-pink-400" /> Resp. Instagram
+                        </label>
+                        <input
+                          type="text"
+                          name="Responsável Instagram"
+                          value={editFormData['Responsável Instagram'] || ''}
+                          onChange={handleEditChange}
+                          placeholder="@usuario"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-pink-500/50"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                          <FacebookIcon size={12} className="text-blue-400" /> Resp. Facebook
+                        </label>
+                        <input
+                          type="text"
+                          name="Responsável Facebook"
+                          value={editFormData['Responsável Facebook'] || ''}
+                          onChange={handleEditChange}
+                          placeholder="Nome ou link"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500/50"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                          <TikTokIcon size={12} className="text-rose-400" /> Resp. TikTok
+                        </label>
+                        <input
+                          type="text"
+                          name="Responsável TikTok"
+                          value={editFormData['Responsável TikTok'] || ''}
+                          onChange={handleEditChange}
+                          placeholder="@usuario"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-rose-400/50"
                         />
                       </div>
 
@@ -1354,6 +1431,23 @@ const ClientProfileModal = ({
                     </div>
                   </div>
 
+                  {/* Redes Sociais & Contato Direto do Cliente */}
+                  <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mb-6">
+                    <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
+                      <h4 className="text-xs font-black uppercase tracking-widest text-pink-400 flex items-center gap-2">
+                        <InstagramIcon size={14} className="text-pink-400" /> Redes Sociais &amp; Contato Direto
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditing(true)}
+                        className="text-[11px] font-bold text-slate-400 hover:text-white flex items-center gap-1 transition-colors"
+                      >
+                        <Edit2 size={12} /> Editar Redes
+                      </button>
+                    </div>
+                    <SocialMediaButtons client={currentClient} variant="cards" onEditSocial={() => setIsEditing(true)} />
+                  </div>
+
                   {/* Informações Complementares: Endereço & Responsável */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                     {/* Endereço do Cliente */}
@@ -1470,6 +1564,20 @@ const ClientProfileModal = ({
                                   </div>
                                 )}
                               </div>
+                            </div>
+                          )}
+                          {(currentClient['Responsável Instagram'] || currentClient['Responsável Facebook'] || currentClient['Responsável TikTok']) && (
+                            <div className="pt-3 border-t border-white/10 mt-3 space-y-1.5">
+                              <span className="text-[10px] font-bold text-slate-400 block uppercase">Redes do Responsável:</span>
+                              <SocialMediaButtons
+                                client={{
+                                  'Instagram': currentClient['Responsável Instagram'],
+                                  'Facebook': currentClient['Responsável Facebook'],
+                                  'TikTok': currentClient['Responsável TikTok'],
+                                  'WhatsApp': currentClient['Responsável WhatsApp']
+                                }}
+                                variant="pills"
+                              />
                             </div>
                           )}
                           {currentClient['Responsável Rua'] && (

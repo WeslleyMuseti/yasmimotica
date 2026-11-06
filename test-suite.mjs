@@ -7475,6 +7475,59 @@ async function runTests() {
     console.log('  ✅ Test 74 Passed: Lançamento de Armação sem Estoque validado com 100% de sucesso!\n');
   }
 
+  // ----------------------------------------------------
+  // TEST 75: BOTÕES DE ACESSO DIRETO A REDES SOCIAIS NO PERFIL DO CLIENTE
+  // ----------------------------------------------------
+  {
+    console.log('▶ Test 75: Botões de Acesso Direto a Redes Sociais no Perfil do Cliente (Instagram, Facebook, TikTok)');
+
+    const {
+      buildInstagramUrl,
+      buildFacebookUrl,
+      buildTikTokUrl,
+      buildWhatsAppUrl,
+      formatSocialHandle
+    } = await import('./src/socialUtils.js');
+
+    // 1. Validar gerador de links Instagram
+    console.assert(buildInstagramUrl('@maria_otica') === 'https://www.instagram.com/maria_otica/', 'Instagram com @ deve gerar URL completa');
+    console.assert(buildInstagramUrl('maria_otica') === 'https://www.instagram.com/maria_otica/', 'Instagram sem @ deve gerar URL completa');
+    console.assert(buildInstagramUrl('https://instagram.com/maria_otica') === 'https://instagram.com/maria_otica', 'Instagram com https deve manter URL');
+    console.assert(buildInstagramUrl('') === '', 'Instagram vazio deve retornar string vazia');
+
+    // 2. Validar gerador de links Facebook
+    console.assert(buildFacebookUrl('maria.silva') === 'https://www.facebook.com/maria.silva', 'Facebook com username deve gerar URL completa');
+    console.assert(buildFacebookUrl('https://facebook.com/maria.silva') === 'https://facebook.com/maria.silva', 'Facebook com https deve manter URL');
+
+    // 3. Validar gerador de links TikTok
+    console.assert(buildTikTokUrl('@maria_otica') === 'https://www.tiktok.com/@maria_otica', 'TikTok com @ deve gerar URL completa');
+    console.assert(buildTikTokUrl('maria_otica') === 'https://www.tiktok.com/@maria_otica', 'TikTok sem @ deve prefixar com @ na URL');
+
+    // 4. Validar WhatsApp
+    console.assert(buildWhatsAppUrl('(13) 99753-9325') === 'https://wa.me/5513997539325', 'WhatsApp com pontuação deve sanitizar e prefixar DDI 55');
+    console.assert(buildWhatsAppUrl('13997539325') === 'https://wa.me/5513997539325', 'WhatsApp numérico 11 dígitos deve prefixar DDI 55');
+
+    // 5. Validar formatação visual de handles
+    console.assert(formatSocialHandle('maria_otica', '@') === '@maria_otica', 'Handle sem @ deve receber @');
+    console.assert(formatSocialHandle('@maria_otica', '@') === '@maria_otica', 'Handle com @ não deve duplicar @');
+
+    // 6. Validar existência e integração de SocialMediaButtons e ClientProfileModal
+    const profileSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ClientProfileModal.jsx'), 'utf-8');
+    console.assert(profileSrc.includes('SocialMediaButtons'), 'ClientProfileModal deve importar SocialMediaButtons');
+    console.assert(profileSrc.includes('variant="pills"'), 'ClientProfileModal deve usar botões pills no cabeçalho');
+    console.assert(profileSrc.includes('variant="cards"'), 'ClientProfileModal deve usar botões cards na seção de redes');
+    console.assert(profileSrc.includes('name="Facebook"'), 'ClientProfileModal deve ter input para Facebook no modo edição');
+    console.assert(profileSrc.includes('name="TikTok"'), 'ClientProfileModal deve ter input para TikTok no modo edição');
+
+    const buttonsSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'SocialMediaButtons.jsx'), 'utf-8');
+    console.assert(buttonsSrc.includes('target="_blank"'), 'SocialMediaButtons deve abrir redes em nova aba');
+    console.assert(buttonsSrc.includes('InstagramIcon'), 'SocialMediaButtons deve renderizar ícone do Instagram');
+    console.assert(buttonsSrc.includes('FacebookIcon'), 'SocialMediaButtons deve renderizar ícone do Facebook');
+    console.assert(buttonsSrc.includes('TikTokIcon'), 'SocialMediaButtons deve renderizar ícone do TikTok');
+
+    console.log('  ✅ Test 75 Passed: Botões de Acesso Direto a Redes Sociais no Perfil validados com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
