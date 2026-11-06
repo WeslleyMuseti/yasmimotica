@@ -7369,12 +7369,39 @@ async function runTests() {
 
     // 5. Validar POSRegister.jsx
     const posSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf-8');
-    console.assert(posSrc.includes('!isLente && isVendor && stockAvailable <= 0'), 'POSRegister addToCart deve isentar lentes de bloqueio de estoque');
-    console.assert(posSrc.includes('!isLenteMatched && isVendor && stockAvailable <= 0'), 'POSRegister scanner deve isentar lentes de bloqueio de estoque');
+    console.assert(posSrc.includes('!canSellWithoutStock && isVendor && stockAvailable <= 0'), 'POSRegister addToCart deve isentar lentes e armações de bloqueio de estoque');
+    console.assert(posSrc.includes('!canSellWithoutStock && isVendor && stockAvailable <= 0'), 'POSRegister scanner deve isentar lentes e armações de bloqueio de estoque');
     console.assert(posSrc.includes("item.type !== 'lentes'"), 'POSRegister loop de baixa deve pular lentes');
     console.assert(posSrc.includes('♾️</span> Estoque Infinito'), 'POSRegister catálogo deve exibir badge de estoque infinito para lentes');
 
     console.log('  ✅ Test 73 Passed: Estoque Infinito para Lentes Oftálmicas validado com 100% de sucesso!\n');
+  }
+
+  // ----------------------------------------------------
+  // TEST 74: PERMISSÃO DE LANÇAMENTO DE ARMAÇÃO SEM ESTOQUE (ADMIN E VENDEDOR)
+  // ----------------------------------------------------
+  {
+    console.log('▶ Test 74: Lançamento de Armação sem Estoque (Independente se for Admin ou Vendedor)');
+
+    const posSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf-8');
+    
+    // 1. Validar addToCart
+    console.assert(posSrc.includes('const canSellWithoutStock = isLente || isArmacao;'), 'addToCart deve definir canSellWithoutStock para lente e armacao');
+    console.assert(posSrc.includes('if (!canSellWithoutStock && isVendor && stockAvailable <= 0)'), 'addToCart não deve bloquear armação mesmo se for vendedor e sem estoque');
+
+    // 2. Validar Barcode Scanner
+    console.assert(posSrc.includes('const canSellWithoutStock = isLenteMatched || isArmacaoMatched;'), 'Scanner deve definir canSellWithoutStock para lente e armacao');
+
+    // 3. Validar Catálogo do PDV
+    console.assert(posSrc.includes('!canSellWithoutStock && isVendor && stock <= 0'), 'Catálogo do PDV não deve desabilitar botão de armação esgotada para vendedores');
+    console.assert(posSrc.includes('isArmacao ? \'⚠️ 0 un (Venda Permitida)\''), 'Catálogo deve indicar venda permitida para armação com 0 estoque');
+
+    // 4. Validar firebaseSync.js (decrementStockAtomically)
+    const syncSrc = fs.readFileSync(path.join(__dirname, 'src', 'firebaseSync.js'), 'utf-8');
+    console.assert(syncSrc.includes("if (collectionName === 'CAD_ARMACOES')"), 'firebaseSync deve tratar CAD_ARMACOES quando estoque for menor que solicitado');
+    console.assert(syncSrc.includes('allowedZeroStock: true'), 'firebaseSync deve retornar allowedZeroStock: true para CAD_ARMACOES com estoque zero');
+
+    console.log('  ✅ Test 74 Passed: Lançamento de Armação sem Estoque validado com 100% de sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');

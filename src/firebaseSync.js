@@ -703,6 +703,19 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
       ) || 0;
 
       if (currentStock < qtyToSubtract) {
+        // 👓 Armações podem ser lançadas/vendidas mesmo sem estoque (encomenda / reposição), independente de admin ou vendedor
+        if (collectionName === 'CAD_ARMACOES') {
+          const newStock = 0;
+          const updateData = {
+            ESTOQUE: newStock,
+            updatedAt: new Date().toISOString()
+          };
+          if (data['EM ESTOQUE'] !== undefined) updateData['EM ESTOQUE'] = newStock;
+          if (data['estoque'] !== undefined) updateData['estoque'] = newStock;
+          transaction.update(docRef, updateData);
+          return { success: true, allowedZeroStock: true, previousStock: currentStock, newStock: 0 };
+        }
+
         const err = new Error(`Estoque insuficiente: atual (${currentStock}) menor que o solicitado (${qtyToSubtract})`);
         err.code = 'INSUFFICIENT_STOCK';
         err.currentStock = currentStock;

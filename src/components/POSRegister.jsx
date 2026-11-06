@@ -606,10 +606,12 @@ const POSRegister = ({
     const stockAvailable = parseInt(rawStock !== undefined && rawStock !== '' ? rawStock : 999, 10);
 
     const isLente = type === 'lentes' || product._type === 'lentes' || productCategory === 'lentes' || Boolean(product['LENTE']) || Boolean(product['ESFERICO_MIN']) || Boolean(product['INDICE_REFRACAO']);
+    const isArmacao = type === 'armacoes' || product._type === 'armacoes' || productCategory === 'armacoes' || Boolean(product['COR']) || Boolean(product['TAMANHO']) || Boolean(product['REFERENCIA_SKU']) || (product['MARCA'] && !product['CATEGORIA']);
+    const canSellWithoutStock = isLente || isArmacao;
 
     // 🛡️ Regra: Vendedores (internos e externos) não podem selecionar produtos com estoque zerado ou esgotado (<= 0)
-    // ♾️ Exceção: Lentes oftálmicas possuem estoque infinito sob demanda (laboratório)
-    if (!isLente && isVendor && stockAvailable <= 0) {
+    // ♾️ Exceção: Lentes (estoque infinito) e Armações (permitido lançar mesmo sem estoque, independente de admin ou vendedor)
+    if (!canSellWithoutStock && isVendor && stockAvailable <= 0) {
       const prodName = `${product['MARCA'] || ''} ${product['MODELO'] || product['PRODUTO'] || product['NOME'] || 'Produto'}`.trim();
       alert(`⚠️ Item com Estoque Zerado!\n\nO produto "${prodName}" está esgotado (Estoque: 0 un).\n\nVendedores não têm permissão para adicionar produtos com estoque zerado no carrinho.`);
       return;
@@ -806,8 +808,10 @@ const POSRegister = ({
       const stockAvailable = parseInt(rawStock !== undefined && rawStock !== '' ? rawStock : 999, 10);
       const name = `${matchedItem['MARCA'] || ''} ${matchedItem['MODELO'] || matchedItem['PRODUTO'] || matchedItem['NOME'] || 'Produto'}`.trim();
       const isLenteMatched = matchedItem.type === 'lentes' || matchedItem._type === 'lentes' || Boolean(matchedItem['LENTE']) || Boolean(matchedItem['INDICE_REFRACAO']);
+      const isArmacaoMatched = matchedItem.type === 'armacoes' || matchedItem._type === 'armacoes' || Boolean(matchedItem['COR']) || Boolean(matchedItem['TAMANHO']) || Boolean(matchedItem['REFERENCIA_SKU']) || (matchedItem['MARCA'] && !matchedItem['CATEGORIA']);
+      const canSellWithoutStock = isLenteMatched || isArmacaoMatched;
 
-      if (!isLenteMatched && isVendor && stockAvailable <= 0) {
+      if (!canSellWithoutStock && isVendor && stockAvailable <= 0) {
         playScannerBeep(false);
         setBarcodeToast({
           id: Date.now(),
@@ -2800,10 +2804,11 @@ const POSRegister = ({
                   style={{ maxHeight: '520px' }}
                 >
                   {filteredProducts.slice(0, 100).map((prod, idx) => {
-                    const isArmacao = productCategory === 'armacoes' || prod._type === 'armacoes';
+                    const isArmacao = productCategory === 'armacoes' || prod._type === 'armacoes' || Boolean(prod['COR']) || Boolean(prod['TAMANHO']) || Boolean(prod['REFERENCIA_SKU']);
                     const isBrinde = productCategory === 'brindes' || prod._type === 'brindes';
                     const isAcessorio = productCategory === 'acessorios' || prod._type === 'acessorios';
                     const isLente = productCategory === 'lentes' || prod._type === 'lentes' || Boolean(prod['LENTE']) || Boolean(prod['INDICE_REFRACAO']);
+                    const canSellWithoutStock = isLente || isArmacao;
                     const brand = prod['MARCA'] || prod['marca'] || '';
                     const model = prod['NOME'] || prod['MODELO'] || prod['modelo'] || prod['PRODUTO'] || prod['DESCRICAO'] || '';
                     const sku = prod['REFERENCIA_SKU'] || prod['CODIGO'] || prod['SKU'] || '';
@@ -2879,16 +2884,17 @@ const POSRegister = ({
                                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
                                   stock > 2 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
                                   stock > 0 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' :
+                                  isArmacao ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' :
                                   'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
                                 }`}>
-                                  {stock > 2 ? `Estoque: ${stock} un` : stock > 0 ? `⚠️ Ponto de Pedido: ${stock} un` : '🔴 Esgotado (0 un)'}
+                                  {stock > 2 ? `Estoque: ${stock} un` : stock > 0 ? `⚠️ Ponto de Pedido: ${stock} un` : isArmacao ? '⚠️ 0 un (Venda Permitida)' : '🔴 Esgotado (0 un)'}
                                 </span>
                               )}
                             </div>
                           </div>
 
                           <div className="flex items-center gap-1.5">
-                            {!isLente && isVendor && stock <= 0 ? (
+                            {!canSellWithoutStock && isVendor && stock <= 0 ? (
                               <button
                                 type="button"
                                 disabled
