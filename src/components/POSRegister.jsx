@@ -11,7 +11,8 @@ import {
 import PrintableOS from './PrintableOS';
 import PrintableReceipt from './PrintableReceipt';
 import OSGeneratorModal from './OSGeneratorModal';
-import CashManagementModal, { PrintableCashVoucher, parseItemDate } from './CashManagementModal';
+import CashManagementModal, { PrintableCashVoucher } from './CashManagementModal';
+import { parseItemDate } from '../cashShiftUtils';
 import CashHistoryModal from './CashHistoryModal';
 import PrintableCashClosingReport from './PrintableCashClosingReport';
 import PrintableCashMovementSheet from './PrintableCashMovementSheet';

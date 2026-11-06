@@ -14,8 +14,6 @@ import {
   buildCombinedShiftMovements 
 } from '../cashShiftUtils';
 
-export { parseItemDate, buildCombinedShiftMovements };
-
 // ─── COMPROVANTE IMPRESSO PROFISSIONAL COM LOGO YASMIN ÓTICA (1 PÁGINA PERFEITA) ───
 export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
   if (!data) return null;
