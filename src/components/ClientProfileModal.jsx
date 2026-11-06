@@ -729,15 +729,6 @@ const ClientProfileModal = ({
                       : (currentClient['Cidade'] ? `${currentClient['Cidade']} • ` : '') + (currentClient['WhatsApp'] || 'Sem telefone')
                     }
                   </p>
-                  {!isEditing && (
-                    <div className="mt-2.5">
-                      <SocialMediaButtons 
-                        client={currentClient} 
-                        variant="pills" 
-                        onEditSocial={() => setIsEditing(true)} 
-                      />
-                    </div>
-                  )}
                 </div>
                 
                 <div className="flex items-center gap-2 shrink-0">
