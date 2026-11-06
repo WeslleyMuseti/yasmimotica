@@ -7337,6 +7337,46 @@ async function runTests() {
     console.log('  ✅ Test 72 Passed: Ficha Contábil de Movimento do Caixa (Modelo A4 Físico da Foto) validada com 100% de sucesso!\n');
   }
 
+  // ----------------------------------------------------
+  // TEST 73: ESTOQUE INFINITO PARA LENTES OFTÁLMICAS (ERP, PDV, FIRESTORE)
+  // ----------------------------------------------------
+  {
+    console.log('▶ Test 73: Estoque Infinito para Lentes Oftálmicas (ERP, PDV, Sincronização)');
+
+    // 1. Validar firebaseSync.js
+    const syncSrc = fs.readFileSync(path.join(__dirname, 'src', 'firebaseSync.js'), 'utf-8');
+    console.assert(syncSrc.includes("if (collectionName === 'CAD_LENTES')"), 'firebaseSync deve conter guarda para CAD_LENTES');
+    console.assert(syncSrc.includes('infiniteStock: true'), 'firebaseSync deve retornar infiniteStock: true para CAD_LENTES');
+
+    const { decrementStockAtomically } = await import('./src/firebaseSync.js');
+    const syncResult = await decrementStockAtomically('CAD_LENTES', 'lente_doc_99', 5);
+    console.assert(syncResult.success === true && syncResult.infiniteStock === true, 'decrementStockAtomically para CAD_LENTES deve retornar sucesso com infiniteStock: true');
+
+    // 2. Validar DataTable.jsx
+    const dataTableSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'DataTable.jsx'), 'utf-8');
+    console.assert(dataTableSrc.includes("sheetName === 'CAD_LENTES'"), 'DataTable deve verificar sheetName CAD_LENTES');
+    console.assert(dataTableSrc.includes('♾️ Infinito'), 'DataTable deve exibir badge ♾️ Infinito para lentes');
+
+    // 3. Validar RowEditModal.jsx
+    const rowEditSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'RowEditModal.jsx'), 'utf-8');
+    console.assert(rowEditSrc.includes("sheetName === 'CAD_LENTES'"), 'RowEditModal deve verificar sheetName CAD_LENTES');
+    console.assert(rowEditSrc.includes('Estoque Infinito (Sob Demanda)'), 'RowEditModal deve exibir informativo de estoque infinito');
+
+    // 4. Validar ErpOptica.jsx
+    const erpSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ErpOptica.jsx'), 'utf-8');
+    console.assert(erpSrc.includes('ESTOQUE: 999999'), 'ErpOptica deve salvar estoque como infinito/999999');
+    console.assert(erpSrc.includes('Estoque Infinito (Sob Demanda)'), 'ErpOptica deve exibir indicador de estoque infinito no form');
+
+    // 5. Validar POSRegister.jsx
+    const posSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf-8');
+    console.assert(posSrc.includes('!isLente && isVendor && stockAvailable <= 0'), 'POSRegister addToCart deve isentar lentes de bloqueio de estoque');
+    console.assert(posSrc.includes('!isLenteMatched && isVendor && stockAvailable <= 0'), 'POSRegister scanner deve isentar lentes de bloqueio de estoque');
+    console.assert(posSrc.includes("item.type !== 'lentes'"), 'POSRegister loop de baixa deve pular lentes');
+    console.assert(posSrc.includes('♾️</span> Estoque Infinito'), 'POSRegister catálogo deve exibir badge de estoque infinito para lentes');
+
+    console.log('  ✅ Test 73 Passed: Estoque Infinito para Lentes Oftálmicas validado com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

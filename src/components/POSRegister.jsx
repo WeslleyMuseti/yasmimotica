@@ -605,8 +605,11 @@ const POSRegister = ({
     const rawStock = product['ESTOQUE'] !== undefined ? product['ESTOQUE'] : (product['EM ESTOQUE'] !== undefined ? product['EM ESTOQUE'] : (product['estoque'] !== undefined ? product['estoque'] : product['QTD']));
     const stockAvailable = parseInt(rawStock !== undefined && rawStock !== '' ? rawStock : 999, 10);
 
+    const isLente = type === 'lentes' || product._type === 'lentes' || productCategory === 'lentes' || Boolean(product['LENTE']) || Boolean(product['ESFERICO_MIN']) || Boolean(product['INDICE_REFRACAO']);
+
     // 🛡️ Regra: Vendedores (internos e externos) não podem selecionar produtos com estoque zerado ou esgotado (<= 0)
-    if (isVendor && stockAvailable <= 0) {
+    // ♾️ Exceção: Lentes oftálmicas possuem estoque infinito sob demanda (laboratório)
+    if (!isLente && isVendor && stockAvailable <= 0) {
       const prodName = `${product['MARCA'] || ''} ${product['MODELO'] || product['PRODUTO'] || product['NOME'] || 'Produto'}`.trim();
       alert(`⚠️ Item com Estoque Zerado!\n\nO produto "${prodName}" está esgotado (Estoque: 0 un).\n\nVendedores não têm permissão para adicionar produtos com estoque zerado no carrinho.`);
       return;
@@ -802,8 +805,9 @@ const POSRegister = ({
       const rawStock = matchedItem['ESTOQUE'] !== undefined ? matchedItem['ESTOQUE'] : (matchedItem['EM ESTOQUE'] !== undefined ? matchedItem['EM ESTOQUE'] : (matchedItem['estoque'] !== undefined ? matchedItem['estoque'] : matchedItem['QTD']));
       const stockAvailable = parseInt(rawStock !== undefined && rawStock !== '' ? rawStock : 999, 10);
       const name = `${matchedItem['MARCA'] || ''} ${matchedItem['MODELO'] || matchedItem['PRODUTO'] || matchedItem['NOME'] || 'Produto'}`.trim();
+      const isLenteMatched = matchedItem.type === 'lentes' || matchedItem._type === 'lentes' || Boolean(matchedItem['LENTE']) || Boolean(matchedItem['INDICE_REFRACAO']);
 
-      if (isVendor && stockAvailable <= 0) {
+      if (!isLenteMatched && isVendor && stockAvailable <= 0) {
         playScannerBeep(false);
         setBarcodeToast({
           id: Date.now(),
@@ -1551,11 +1555,11 @@ const POSRegister = ({
         }
 
         // 2. Baixar Estoque dos Itens Vendidos no ERP (Transações Atômicas no Firestore)
+        // ♾️ Nota: Lentes oftálmicas (CAD_LENTES) possuem estoque infinito sob demanda e NÃO sofrem baixa física
         for (const item of cart) {
-          if (item.rawProduct && (item.type === 'armacoes' || item.type === 'lentes' || item.type === 'acessorios' || item.type === 'brindes' || item.type === 'geral')) {
+          if (item.rawProduct && item.type !== 'lentes' && (item.type === 'armacoes' || item.type === 'acessorios' || item.type === 'brindes' || item.type === 'geral')) {
             let sheetName = 'CAD_ARMACOES';
-            if (item.type === 'lentes') sheetName = 'CAD_LENTES';
-            else if (item.type === 'acessorios') sheetName = 'CAD_ACESSORIOS';
+            if (item.type === 'acessorios') sheetName = 'CAD_ACESSORIOS';
             else if (item.type === 'brindes') sheetName = 'CAD_BRINDES';
             else if (item.type === 'geral') sheetName = 'ESTOQUE';
 
@@ -2799,6 +2803,7 @@ const POSRegister = ({
                     const isArmacao = productCategory === 'armacoes' || prod._type === 'armacoes';
                     const isBrinde = productCategory === 'brindes' || prod._type === 'brindes';
                     const isAcessorio = productCategory === 'acessorios' || prod._type === 'acessorios';
+                    const isLente = productCategory === 'lentes' || prod._type === 'lentes' || Boolean(prod['LENTE']) || Boolean(prod['INDICE_REFRACAO']);
                     const brand = prod['MARCA'] || prod['marca'] || '';
                     const model = prod['NOME'] || prod['MODELO'] || prod['modelo'] || prod['PRODUTO'] || prod['DESCRICAO'] || '';
                     const sku = prod['REFERENCIA_SKU'] || prod['CODIGO'] || prod['SKU'] || '';
@@ -2866,18 +2871,24 @@ const POSRegister = ({
                               <span className="text-amber-400 font-black text-sm">{fmtMoeda(price)}</span>
                             )}
                             <div className="mt-0.5">
-                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
-                                stock > 2 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
-                                stock > 0 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' :
-                                'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
-                              }`}>
-                                {stock > 2 ? `Estoque: ${stock} un` : stock > 0 ? `⚠️ Ponto de Pedido: ${stock} un` : '🔴 Esgotado (0 un)'}
-                              </span>
+                              {isLente ? (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-sky-500/15 text-sky-300 border border-sky-500/30 flex items-center gap-1 w-fit">
+                                  <span>♾️</span> Estoque Infinito
+                                </span>
+                              ) : (
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                                  stock > 2 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                                  stock > 0 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' :
+                                  'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
+                                }`}>
+                                  {stock > 2 ? `Estoque: ${stock} un` : stock > 0 ? `⚠️ Ponto de Pedido: ${stock} un` : '🔴 Esgotado (0 un)'}
+                                </span>
+                              )}
                             </div>
                           </div>
 
                           <div className="flex items-center gap-1.5">
-                            {isVendor && stock <= 0 ? (
+                            {!isLente && isVendor && stock <= 0 ? (
                               <button
                                 type="button"
                                 disabled

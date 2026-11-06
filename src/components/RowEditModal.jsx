@@ -230,6 +230,19 @@ const RowEditModal = ({
     const label = COLUMN_LABELS[col] || col;
     const value = formData[col] || '';
 
+    // Lentes oftálmicas possuem estoque infinito sob demanda
+    if (sheetName === 'CAD_LENTES' && (k === 'estoque' || k === 'em estoque' || k === 'qtd')) {
+      return (
+        <div className="flex items-center gap-2.5 p-3.5 bg-sky-500/10 border border-sky-500/30 rounded-xl text-xs text-sky-300">
+          <span className="text-xl">♾️</span>
+          <div>
+            <p className="font-black text-white">Estoque Infinito (Sob Demanda)</p>
+            <p className="text-[10px] text-slate-400">Lentes oftálmicas são produzidas sob medida pelo laboratório e nunca esgotam no estoque.</p>
+          </div>
+        </div>
+      );
+    }
+
     // Imagem / Foto / Comprovante
     if (k.includes('imagem') || k.includes('foto') || k.includes('comprovante')) {
       const isPdf = typeof value === 'string' && value.startsWith('data:application/pdf');

@@ -673,6 +673,12 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
     return { success: false, reason: 'db_or_id_missing' };
   }
 
+  // 🛡️ LENTES TÊM ESTOQUE INFINITO NO ERP (Sob Demanda / Laboratório)
+  // Nunca esgotam, não decrementam e nunca causam erro de estoque insuficiente
+  if (collectionName === 'CAD_LENTES') {
+    return { success: true, infiniteStock: true, previousStock: 'infinito', newStock: 'infinito' };
+  }
+
   const id = String(docId);
   const docRef = doc(db, collectionName, id);
   const qtyToSubtract = Math.max(1, parseInt(quantity, 10) || 1);

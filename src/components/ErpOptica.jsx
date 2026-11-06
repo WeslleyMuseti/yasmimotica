@@ -193,7 +193,7 @@ const ErpOptica = ({
     ESFERICO: '', CILINDRICO: '', DIAMETRO: '', EIXO: '', ADICAO: '',
     ESFERICO_MIN: '-6.00', ESFERICO_MAX: '+6.00',
     CILINDRICO_MIN: '-4.00', CILINDRICO_MAX: '0.00',
-    PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '10'
+    PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '999999'
   });
 
   const [armacoesForm, setArmacoesForm] = useState({
@@ -711,7 +711,7 @@ const ErpOptica = ({
         ...lentesForm,
         PRECO_COMPRA: parseCurrency(lentesForm.PRECO_COMPRA).toFixed(2).replace('.', ','),
         PRECO_VENDA: parseCurrency(lentesForm.PRECO_VENDA).toFixed(2).replace('.', ','),
-        ESTOQUE: parseInt(lentesForm.ESTOQUE, 10) || 0,
+        ESTOQUE: 999999, // Lentes oftálmicas possuem estoque infinito sob demanda
         DATA_CADASTRO: new Date().toLocaleDateString('pt-BR')
       });
       setLentesForm({
@@ -720,7 +720,7 @@ const ErpOptica = ({
         ESFERICO: '', CILINDRICO: '', DIAMETRO: '', EIXO: '', ADICAO: '',
         ESFERICO_MIN: '-6.00', ESFERICO_MAX: '+6.00',
         CILINDRICO_MIN: '-4.00', CILINDRICO_MAX: '0.00',
-        PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '10'
+        PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '999999'
       });
       setSuccessMsg('Lente cadastrada com sucesso no estoque!');
     } else if (activeTab === 'armacoes') {
@@ -2781,8 +2781,11 @@ const ErpOptica = ({
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Estoque (Pares)</label>
-                    <input type="number" min="0" value={lentesForm.ESTOQUE} onChange={e => setLentesForm({...lentesForm, ESTOQUE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-sky-500/50" />
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Estoque</label>
+                    <div className="w-full bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 text-emerald-400 font-bold flex items-center gap-2">
+                      <span className="text-lg">♾️</span>
+                      <span className="text-sm font-semibold">Estoque Infinito (Sob Demanda)</span>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-black uppercase tracking-widest text-slate-400">Preço de Custo (R$)</label>
