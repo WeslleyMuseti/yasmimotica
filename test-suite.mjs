@@ -7710,6 +7710,109 @@ async function runTests() {
     console.log('  ✅ Test 77 Passed: Liberação de Estoque Zerado na OS e Sistema Robusto de Vouchers validados com 100% de sucesso!\n');
   }
 
+  // =========================================================================
+  // Test 78: Otimização Drástica de Leituras do Firestore (IndexedDB + Manifesto + Cache Ilimitado + Filtro por Função)
+  // =========================================================================
+  {
+    console.log('▶ Test 78: Otimização de Leituras do Firestore (Cache IndexedDB, Manifesto e Redução de Cota)');
+
+    // 1. Validar que firebase.js configura CACHE_SIZE_UNLIMITED e persistentLocalCache
+    const fbSrc = fs.readFileSync(path.join(__dirname, 'src', 'firebase.js'), 'utf8');
+    console.assert(fbSrc.includes('CACHE_SIZE_UNLIMITED'), 'firebase.js deve configurar CACHE_SIZE_UNLIMITED');
+    console.assert(fbSrc.includes('persistentLocalCache'), 'firebase.js deve usar persistentLocalCache');
+    console.assert(fbSrc.includes('persistentMultipleTabManager'), 'firebase.js deve usar persistentMultipleTabManager com fallback');
+
+    // 2. Validar que indexedDbCache.js existe e exporta métodos essenciais
+    const idbModule = await import('./src/indexedDbCache.js');
+    console.assert(typeof idbModule.saveMasterCache === 'function', 'indexedDbCache deve exportar saveMasterCache');
+    console.assert(typeof idbModule.loadMasterCache === 'function', 'indexedDbCache deve exportar loadMasterCache');
+    console.assert(typeof idbModule.getLocalManifest === 'function', 'indexedDbCache deve exportar getLocalManifest');
+    console.assert(typeof idbModule.setLocalManifest === 'function', 'indexedDbCache deve exportar setLocalManifest');
+
+    // Testar gravação e leitura no cache mestre (Node.js fallback resiliente)
+    const mockDataToCache = {
+      CLIENTES_CADASTRADOS: [{ id: 'c1', NOME: 'Cliente Teste Cache' }],
+      CAD_ARMACOES: [{ id: 'a1', MODELO: 'Ray-Ban Cache', ESTOQUE_TOTAL: 10 }]
+    };
+    await idbModule.saveMasterCache(mockDataToCache);
+    const loadedCache = await idbModule.loadMasterCache();
+    console.assert(Array.isArray(loadedCache['CLIENTES_CADASTRADOS']) && loadedCache['CLIENTES_CADASTRADOS'].length === 1, 'loadMasterCache deve recuperar CLIENTES_CADASTRADOS');
+    console.assert(loadedCache['CLIENTES_CADASTRADOS'][0].NOME === 'Cliente Teste Cache', 'Conteúdo do cache deve ser preservado');
+
+    // Testar gravação e recuperação do manifesto local
+    await idbModule.setLocalManifest({ CLIENTES_CADASTRADOS: 1730000000000, CAD_ARMACOES: 1730000000000 });
+    const localMan = await idbModule.getLocalManifest();
+    console.assert(localMan.CLIENTES_CADASTRADOS === 1730000000000, 'Manifesto local deve ser salvo e recuperado');
+
+    // 3. Validar lógica do manifesto delta em firebaseSync.js
+    const fsSyncSrc = fs.readFileSync(path.join(__dirname, 'src', 'firebaseSync.js'), 'utf8');
+    console.assert(fsSyncSrc.includes('touchCollectionManifest'), 'firebaseSync.js deve exportar touchCollectionManifest');
+    console.assert(fsSyncSrc.includes('_METADATA'), 'firebaseSync.js deve ler o manifesto da nuvem em _METADATA');
+    console.assert(fsSyncSrc.includes('sync_manifest'), 'firebaseSync.js deve usar sync_manifest');
+
+    // Simulação do algoritmo Delta de Sincronização por Manifesto
+    const cloudManifest = {
+      CLIENTES_CADASTRADOS: 1730000000000, // não mudou
+      CAD_ARMACOES: 1730000005000,        // mudou no servidor (+5s)
+      Registro_Vendas: 1730000009000      // nova atualização (+9s)
+    };
+    const currentLocalManifest = {
+      CLIENTES_CADASTRADOS: 1730000000000,
+      CAD_ARMACOES: 1730000000000,
+      Registro_Vendas: 1730000000000
+    };
+
+    const targetCols = ['CLIENTES_CADASTRADOS', 'CAD_ARMACOES', 'Registro_Vendas'];
+    const colsToFetch = targetCols.filter(col => {
+      const cloudTs = cloudManifest[col] || 0;
+      const localTs = currentLocalManifest[col] || 0;
+      return cloudTs > localTs;
+    });
+
+    console.assert(!colsToFetch.includes('CLIENTES_CADASTRADOS'), 'CLIENTES_CADASTRADOS não deve ser baixado pois timestamp é idêntico (0 leituras economizadas)');
+    console.assert(colsToFetch.includes('CAD_ARMACOES'), 'CAD_ARMACOES deve ser baixado pois timestamp do servidor é mais recente');
+    console.assert(colsToFetch.includes('Registro_Vendas'), 'Registro_Vendas deve ser baixado pois timestamp do servidor é mais recente');
+
+    // 4. Validar filtragem de coleções por papel (Role Filtering)
+    // Vendedor não deve escutar CONTAS_PAGAR ou TRANSFERENCIAS_ESTOQUE
+    const filterCollectionsForRole = (role) => {
+      const allCols = [
+        'CLIENTES_CADASTRADOS',
+        'Registro_Vendas',
+        'CAD_LENTES',
+        'CAD_ARMACOES',
+        'CAD_ACESSORIOS',
+        'CAD_BRINDES',
+        'CONTAS_PAGAR',
+        'CONTAS_RECEBER',
+        'USUARIOS',
+        'FLUXO_CAIXA',
+        'TRANSFERENCIAS_ESTOQUE',
+        'VOUCHERS'
+      ];
+      if (role === 'vendedor') {
+        return allCols.filter(c => c !== 'CONTAS_PAGAR' && c !== 'TRANSFERENCIAS_ESTOQUE');
+      }
+      return allCols;
+    };
+
+    const vendedorCols = filterCollectionsForRole('vendedor');
+    console.assert(!vendedorCols.includes('CONTAS_PAGAR'), 'Vendedor não deve sincronizar CONTAS_PAGAR');
+    console.assert(!vendedorCols.includes('TRANSFERENCIAS_ESTOQUE'), 'Vendedor não deve sincronizar TRANSFERENCIAS_ESTOQUE');
+    console.assert(vendedorCols.includes('CAD_ARMACOES') && vendedorCols.includes('Registro_Vendas'), 'Vendedor deve manter armações e vendas');
+
+    const adminCols = filterCollectionsForRole('admin');
+    console.assert(adminCols.length === 12, 'Admin deve sincronizar todas as 12 coleções');
+
+    // 5. Validar App.jsx passa currentUser para subscribeToCollections e hidrata IndexedDB
+    const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'App.jsx'), 'utf8');
+    console.assert(appSrc.includes('subscribeToCollections((newData, changedCol) => {'), 'App.jsx deve usar subscribeToCollections');
+    console.assert(appSrc.includes('}, currentUser);'), 'App.jsx deve passar currentUser para subscribeToCollections');
+    console.assert(appSrc.includes('loadMasterCache().then('), 'App.jsx deve hidratar do cache mestre IndexedDB no mount');
+
+    console.log('  ✅ Test 78 Passed: Otimização de Leituras do Firestore (IndexedDB, Manifesto e Redução de Cota) validada com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

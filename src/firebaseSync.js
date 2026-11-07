@@ -13,6 +13,23 @@ import {
 } from "firebase/firestore";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
 import { db, auth } from "./firebase.js";
+import {
+  saveCollectionToIndexedDb,
+  loadCollectionFromIndexedDb,
+  saveMasterCache,
+  loadMasterCache,
+  getLocalManifest,
+  setLocalManifest
+} from "./indexedDbCache.js";
+
+export {
+  saveCollectionToIndexedDb,
+  loadCollectionFromIndexedDb,
+  saveMasterCache,
+  loadMasterCache,
+  getLocalManifest,
+  setLocalManifest
+};
 
 // Nome das coleções sincronizadas
 const COLLECTIONS = [
@@ -30,34 +47,167 @@ const COLLECTIONS = [
   'VOUCHERS'
 ];
 
+// ──────────────────────────────────────────────────────────────────
+// SISTEMA DE CONTROLE DE VERSÃO / MANIFESTO (REDUÇÃO DE LEITURAS)
+// ──────────────────────────────────────────────────────────────────
+let manifestDebounceTimer = null;
+const pendingManifestUpdates = new Set();
+
 /**
- * Escuta todas as coleções do Firestore em tempo real
+ * Atualiza o carimbo de data/hora da coleção alterada no documento de manifesto.
+ * Isso permite que outros terminais saibam com apenas 1 leitura se alguma tabela mudou,
+ * evitando baixar 4.600 documentos repetidamente.
  */
-export const subscribeToCollections = (onDataUpdate) => {
+export const touchCollectionManifest = (collectionName) => {
+  if (!collectionName || collectionName === '_METADATA') return;
+  pendingManifestUpdates.add(collectionName);
+
+  if (manifestDebounceTimer) clearTimeout(manifestDebounceTimer);
+  manifestDebounceTimer = setTimeout(async () => {
+    if (!db || pendingManifestUpdates.size === 0) return;
+    const now = Date.now();
+    const updateObj = { _lastUpdated: now };
+    pendingManifestUpdates.forEach(col => {
+      updateObj[col] = now;
+    });
+    pendingManifestUpdates.clear();
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+
+    try {
+      const manifestRef = doc(db, '_METADATA', 'sync_manifest');
+      await setDoc(manifestRef, updateObj, { merge: true });
+    } catch (e) {
+      // Falha silenciosa para não impactar operações do usuário
+    }
+  }, 800);
+};
+
+/**
+ * Escuta todas as coleções do Firestore com otimização inteligente:
+ * 1. Hidratação instantânea em 0.05s via IndexedDB local (0 leituras do Firebase).
+ * 2. Monitoramento de manifesto central (_METADATA/sync_manifest - apenas 1 leitura).
+ * 3. Baixa apenas as coleções que realmente sofreram modificação.
+ * 4. Filtragem por perfil (vendedor não sincroniza despesas de CONTAS_PAGAR).
+ */
+export const subscribeToCollections = (onDataUpdate, currentUser = null) => {
   if (!db) return () => {};
 
   const unsubscribes = [];
   const state = {};
+  let isSubscribed = true;
 
-  COLLECTIONS.forEach(colName => {
+  // Filtragem inteligente por perfil:
+  // Vendedores no PDV não precisam assinar CONTAS_PAGAR nem TRANSFERENCIAS_ESTOQUE
+  const isVendor = currentUser?.role === 'vendedor';
+  const targetCollections = isVendor
+    ? COLLECTIONS.filter(c => c !== 'CONTAS_PAGAR' && c !== 'TRANSFERENCIAS_ESTOQUE')
+    : COLLECTIONS;
+
+  targetCollections.forEach(colName => {
     state[colName] = [];
-    const colRef = collection(db, colName);
-    
-    const unsubscribe = onSnapshot(colRef, (snapshot) => {
-      const docs = [];
-      snapshot.forEach(docSnap => {
-        docs.push({ id: docSnap.id, ...docSnap.data() });
-      });
-      state[colName] = docs;
-      onDataUpdate({ ...state }, colName);
-    }, (error) => {
-      console.warn(`Aviso ao escutar coleção ${colName}:`, error);
-    });
-    
-    unsubscribes.push(unsubscribe);
   });
 
+  // 1. Carregamento Imediato do Cache Local (IndexedDB / localStorage) - 0 LEITURAS
+  (async () => {
+    try {
+      const cachedData = await loadMasterCache();
+      if (cachedData && typeof cachedData === 'object' && Object.keys(cachedData).length > 0) {
+        let hasAnyItem = false;
+        targetCollections.forEach(colName => {
+          if (Array.isArray(cachedData[colName]) && cachedData[colName].length > 0) {
+            state[colName] = cachedData[colName];
+            hasAnyItem = true;
+          }
+        });
+        if (hasAnyItem && isSubscribed) {
+          onDataUpdate({ ...state }, null);
+        }
+      }
+    } catch (cacheErr) {
+      console.warn('[Sync] Aviso ao carregar cache local inicial:', cacheErr);
+    }
+  })();
+
+  // 2. Sincronização Inteligente por Manifesto (_METADATA/sync_manifest)
+  try {
+    const manifestRef = doc(db, '_METADATA', 'sync_manifest');
+    const manifestUnsub = onSnapshot(manifestRef, async (manifestSnap) => {
+      if (!isSubscribed) return;
+
+      if (!manifestSnap.exists()) {
+        // Primeira inicialização do manifesto no Firestore
+        const initManifest = { _lastUpdated: Date.now() };
+        for (const colName of targetCollections) {
+          try {
+            const snap = await getDocs(collection(db, colName));
+            const docs = [];
+            snap.forEach(d => docs.push({ id: d.id, ...d.data() }));
+            state[colName] = docs;
+            saveCollectionToIndexedDb(colName, docs).catch(() => {});
+            initManifest[colName] = Date.now();
+          } catch (e) {}
+        }
+        setLocalManifest(initManifest).catch(() => {});
+        setDoc(manifestRef, initManifest, { merge: true }).catch(() => {});
+        if (isSubscribed) onDataUpdate({ ...state }, null);
+        return;
+      }
+
+      const cloudManifest = manifestSnap.data() || {};
+      const localManifest = await getLocalManifest();
+      const updatedLocalManifest = { ...localManifest };
+      let anyChanged = false;
+
+      for (const colName of targetCollections) {
+        const cloudTime = cloudManifest[colName] || 0;
+        const localTime = localManifest[colName] || 0;
+        const inMemoryLength = state[colName]?.length || 0;
+
+        // Se a coleção foi modificada na nuvem ou ainda não está carregada na memória
+        if (cloudTime > localTime || inMemoryLength === 0) {
+          try {
+            const snap = await getDocs(collection(db, colName));
+            const docs = [];
+            snap.forEach(d => docs.push({ id: d.id, ...d.data() }));
+            state[colName] = docs;
+            saveCollectionToIndexedDb(colName, docs).catch(() => {});
+            updatedLocalManifest[colName] = cloudTime || Date.now();
+            anyChanged = true;
+            if (isSubscribed) onDataUpdate({ ...state }, colName);
+          } catch (fetchErr) {
+            console.warn(`[Sync] Aviso ao sincronizar coleção ${colName}:`, fetchErr);
+          }
+        }
+      }
+
+      if (anyChanged) {
+        setLocalManifest(updatedLocalManifest).catch(() => {});
+      }
+    }, (manifestErr) => {
+      console.warn('[Sync] Aviso ao escutar manifesto, ativando listeners diretos resilientes:', manifestErr);
+      // Fallback gracioso: ativa listeners diretos caso o documento de metadados não esteja acessível
+      targetCollections.forEach(colName => {
+        const colRef = collection(db, colName);
+        const unsub = onSnapshot(colRef, (snapshot) => {
+          if (!isSubscribed) return;
+          const docs = [];
+          snapshot.forEach(docSnap => docs.push({ id: docSnap.id, ...docSnap.data() }));
+          state[colName] = docs;
+          saveCollectionToIndexedDb(colName, docs).catch(() => {});
+          onDataUpdate({ ...state }, colName);
+        }, () => {});
+        unsubscribes.push(unsub);
+      });
+    });
+
+    if (manifestUnsub) unsubscribes.push(manifestUnsub);
+  } catch (err) {
+    console.warn('[Sync] Falha ao configurar sincronização inteligente:', err);
+  }
+
   return () => {
+    isSubscribed = false;
     unsubscribes.forEach(unsub => unsub());
   };
 };
@@ -298,6 +448,9 @@ export const processOfflineQueue = async (options = {}) => {
 
 export const saveOfflineSnapshot = (dataObj) => {
   if (!dataObj || typeof dataObj !== 'object') return;
+  // Salva no IndexedDB de alta capacidade de forma assíncrona (sem travar a thread e sem limite de 5MB)
+  saveMasterCache(dataObj).catch(() => {});
+
   try {
     // Cria um snapshot compacto limitando os últimos 100 registros por tabela
     // e impedindo saturação da cota de 5MB do localStorage
@@ -357,6 +510,7 @@ export const saveDocument = async (collectionName, dataObj, customId = null) => 
     try {
       const docRef = doc(db, collectionName, id);
       await withTimeout(setDoc(docRef, cleanData, { merge: true }), 3000, 'Timeout de escrita Firestore');
+      touchCollectionManifest(collectionName);
     } catch (err) {
       console.warn(`[Modo Offline] Documento ${collectionName}/${id} salvo no cache local e enfileirado:`, err);
       enqueueOfflineOp('save', collectionName, id, cleanData);
@@ -398,6 +552,8 @@ export const saveBatch = async (items = []) => {
         });
         await withTimeout(batch.commit(), 5000, 'Timeout ao executar batch no Firestore');
       }
+      const cols = new Set(preparedItems.map(p => p.collectionName));
+      cols.forEach(c => touchCollectionManifest(c));
       return preparedItems.map(p => p.id);
     } catch (err) {
       console.warn(`[Batch Firestore] Falha ao gravar em lote, enfileirando offline:`, err);
@@ -424,6 +580,7 @@ export const deleteDocument = async (collectionName, id) => {
     try {
       const docRef = doc(db, collectionName, docId);
       await withTimeout(deleteDoc(docRef), 3000, 'Timeout de exclusão Firestore');
+      touchCollectionManifest(collectionName);
     } catch (err) {
       console.warn(`[Modo Offline] Exclusão de ${collectionName}/${docId} registrada na fila offline:`, err);
       enqueueOfflineOp('delete', collectionName, docId, null);
@@ -741,6 +898,7 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
     });
 
     const transactionResult = await withTimeout(txPromise, 2500, 'Timeout de transação atômica Firestore');
+    touchCollectionManifest(collectionName);
     return transactionResult;
   } catch (err) {
     if (err.code === 'INSUFFICIENT_STOCK') {
@@ -796,6 +954,7 @@ export const incrementStockAtomically = async (collectionName, docId, quantity =
       transaction.update(docRef, updateData);
       return { success: true, previousStock: currentStock, newStock };
     });
+    touchCollectionManifest(collectionName);
     return res;
   } catch (err) {
     try {
@@ -807,6 +966,7 @@ export const incrementStockAtomically = async (collectionName, docId, quantity =
         2500,
         'Timeout no fallback de incremento de estoque Firestore'
       );
+      touchCollectionManifest(collectionName);
       return { success: true, fallback: true };
     } catch (e) {
       return { success: false, error: e };
@@ -861,6 +1021,7 @@ export const transferStockAtomically = async (collectionName, originDocId, destD
       }
     });
     await withTimeout(txPromise, 3500, 'Timeout de transferência de estoque Firestore');
+    touchCollectionManifest(collectionName);
     return { success: true };
   } catch (err) {
     console.error('Erro na transferência atômica:', err);

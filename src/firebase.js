@@ -2,7 +2,9 @@ import { initializeApp } from "firebase/app";
 import { 
   initializeFirestore, 
   persistentLocalCache, 
-  persistentMultipleTabManager, 
+  persistentMultipleTabManager,
+  persistentSingleTabManager,
+  CACHE_SIZE_UNLIMITED,
   getFirestore 
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
@@ -41,15 +43,26 @@ if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "") {
   try {
     db = initializeFirestore(app, {
       localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager()
+        tabManager: persistentMultipleTabManager(),
+        cacheSizeBytes: CACHE_SIZE_UNLIMITED
       })
     });
   } catch (err) {
-    console.warn("Aviso ao ativar cache persistente do Firestore, usando fallback padrão:", err);
+    console.warn("Aviso ao ativar cache persistente multi-aba do Firestore, tentando aba única:", err);
     try {
-      db = getFirestore(app);
-    } catch (fallbackErr) {
-      console.warn("Aviso no fallback do Firestore:", fallbackErr);
+      db = initializeFirestore(app, {
+        localCache: persistentLocalCache({
+          tabManager: persistentSingleTabManager(),
+          cacheSizeBytes: CACHE_SIZE_UNLIMITED
+        })
+      });
+    } catch (singleErr) {
+      console.warn("Aviso ao ativar cache persistente de aba única, usando fallback padrão:", singleErr);
+      try {
+        db = getFirestore(app);
+      } catch (fallbackErr) {
+        console.warn("Aviso no fallback do Firestore:", fallbackErr);
+      }
     }
   }
 

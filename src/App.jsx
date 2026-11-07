@@ -29,6 +29,7 @@ import {
   processOfflineQueue,
   saveOfflineSnapshot,
   loadOfflineSnapshot,
+  loadMasterCache,
   syncUserPasswordToFirestore,
   OFFLINE_QUEUE_KEY,
   saveBatch,
@@ -510,6 +511,31 @@ function App() {
     return () => clearTimeout(watchdogTimer);
   }, []);
 
+  // 🚀 Hidratação instantânea da interface a partir do Cache Mestre IndexedDB (0 leituras de rede)
+  useEffect(() => {
+    let isMounted = true;
+    loadMasterCache().then(cached => {
+      if (!isMounted || !cached || typeof cached !== 'object') return;
+      setData(prev => {
+        let hasAnyUpdate = false;
+        const merged = { ...prev };
+        Object.keys(cached).forEach(col => {
+          if (Array.isArray(cached[col]) && cached[col].length > 0) {
+            // Se o estado atual estiver vazio ou menor, hidrata com o cache local
+            if (!prev[col] || prev[col].length === 0) {
+              merged[col] = cached[col];
+              hasAnyUpdate = true;
+            }
+          }
+        });
+        return hasAnyUpdate ? merged : prev;
+      });
+    }).catch(err => {
+      console.warn('Aviso ao hidratar dados do IndexedDB:', err);
+    });
+    return () => { isMounted = false; };
+  }, []);
+
   // Carrega automaticamente a planilha base com os dados históricos somente após autenticação bem-sucedida
   useEffect(() => {
     if (!currentUser) {
@@ -672,10 +698,10 @@ function App() {
           });
         }
       }
-    });
+    }, currentUser);
 
     return () => unsubscribe();
-  }, [currentUser?.username]);
+  }, [currentUser?.username, currentUser?.role]);
 
   const handleUpdateUserPassword = async (username, newHash) => {
     const cleanUser = String(username).toLowerCase().trim();
