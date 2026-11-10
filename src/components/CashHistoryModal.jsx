@@ -9,6 +9,7 @@ import {
 import { PrintableCashVoucher } from './CashManagementModal';
 import PrintableCashClosingReport from './PrintableCashClosingReport';
 import PrintableCashMovementSheet from './PrintableCashMovementSheet';
+import { buildCombinedShiftMovements } from '../cashShiftUtils';
 import { buildCashHistoryXml, downloadXmlFile } from '../xmlUtils';
 import { resolveOSUnit } from '../reparcelamentoUtils';
 import * as XLSX from 'xlsx';
@@ -1300,10 +1301,11 @@ export const CashHistoryContent = ({
       observacoes: 'Folha de Movimento de Caixa'
     };
 
+    const combinedMovements = buildCombinedShiftMovements(filteredMovements, salesData, unit, currentUser?.username || 'Gerência / Supervisão');
     const sheetPayload = {
       type: 'CONTABIL_SHEET',
       closingData,
-      movements: filteredMovements,
+      movements: combinedMovements,
       storeName: unit,
       shiftNumber: 'GERAL',
       dateStr: new Date().toLocaleDateString('pt-BR')
@@ -1379,10 +1381,11 @@ export const CashHistoryContent = ({
       return raw ? raw.slice(-4) : '001';
     })();
 
+    const combinedMovements = buildCombinedShiftMovements(dayMovements, salesData, unit, closingData.operador || 'Caixa');
     const sheetPayload = {
       type: 'CONTABIL_SHEET',
       closingData,
-      movements: dayMovements.length > 0 ? dayMovements : [],
+      movements: combinedMovements.length > 0 ? combinedMovements : dayMovements,
       storeName: unit,
       shiftNumber: seqShift,
       dateStr: dateFormatted

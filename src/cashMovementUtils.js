@@ -239,14 +239,63 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     const isRecebimento = tipo === 'RECEBIMENTO';
     const isVenda = tipo === 'VENDA' || tipo.startsWith('VENDA');
 
-    const rawValor = parseMovementNum(m.valor ?? m.VALOR ?? m['VALOR TOTAL'] ?? m['VALOR DA VENDA'] ?? 0);
+    const rawValor = parseMovementNum(m.valor ?? m.VALOR ?? 0);
     const restBoleto = parseMovementNum(m.valorRestanteBoleto ?? m.RESTANTE ?? m['RESTANTE'] ?? 0);
-    const totalOS = parseMovementNum(m.valorTotalOS ?? m['VALOR TOTAL'] ?? m['VALOR_TOTAL'] ?? m['VALOR DA VENDA'] ?? 0);
-    const entradaSinal = parseMovementNum(m.valorEntrada ?? m['VALOR ENTRADA'] ?? m.ENTRADA ?? m['ENTRADA'] ?? 0);
+
+    // 🌟 1. Extração robusta do VALOR TOTAL DA VENDA (não a entrada!)
+    let totalOS = parseMovementNum(
+      m.valorTotalOS ?? m['VALOR TOTAL'] ?? m['VALOR_TOTAL'] ?? m['VALOR DA VENDA'] ??
+      m.valorTotal ?? m.totalVenda ?? m.totalOS ?? m.total ?? m['TOTAL'] ??
+      (m.matchedSale && (m.matchedSale['VALOR TOTAL'] || m.matchedSale['VALOR DA VENDA'] || m.matchedSale.valorTotal || m.matchedSale.VALOR)) ??
+      (m.rawSale && (m.rawSale['VALOR TOTAL'] || m.rawSale['VALOR DA VENDA'] || m.rawSale.valorTotal || m.rawSale.VALOR)) ??
+      0
+    );
+
+    // 2. Extração via Regex em detalhes/motivo/descricao caso venha apenas texto formatado
+    const textToScan = `${m.detalhes || ''} ${m.motivo || ''} ${m.descricao || ''}`;
+    let extractedRestante = 0;
+    if (textToScan) {
+      if (totalOS === 0) {
+        const matchTotal = textToScan.match(/Total(?:\s*da\s*OS)?\s*:\s*R\$\s*([\d\.,]+)/i) ||
+                           textToScan.match(/Valor\s*Total\s*:\s*R\$\s*([\d\.,]+)/i) ||
+                           textToScan.match(/Total\s*:\s*R\$\s*([\d\.,]+)/i);
+        if (matchTotal) {
+          totalOS = parseMovementNum(matchTotal[1]);
+        }
+      }
+      const matchRestante = textToScan.match(/(?:Restante|Parcelado(?:\s*Boleto|\s*Carn[eê])?)\s*:\s*R\$\s*([\d\.,]+)/i);
+      if (matchRestante) {
+        extractedRestante = parseMovementNum(matchRestante[1]);
+      }
+    }
+
+    const effectiveRestBoleto = restBoleto > 0 ? restBoleto : extractedRestante;
+
+    // 3. Se temos entrada e restante, o valor total é entrada + restante
+    if (totalOS === 0 && effectiveRestBoleto > 0 && rawValor > 0) {
+      totalOS = rawValor + effectiveRestBoleto;
+    }
+
+    // 4. Se a venda tem boleto no fechamento consolidado e não havia valor total explícito no movimento
+    if (totalOS === 0 && isVenda) {
+      const closingBoleto = parseMovementNum(closingData.vendasBoletoTotal ?? closingData.vendasBoleto ?? 0);
+      const closingTotalVendas = parseMovementNum(closingData.totalVendas ?? closingData.totalFaturadoGeral ?? 0);
+      if (closingTotalVendas > rawValor) {
+        totalOS = closingTotalVendas;
+      } else if (closingBoleto > 0) {
+        totalOS = rawValor + closingBoleto;
+      }
+    }
+
+    const entradaSinal = parseMovementNum(
+      m.valorEntrada ?? m.valorEntradaOS ?? m['VALOR ENTRADA'] ?? m.ENTRADA ?? m['ENTRADA'] ??
+      (m.matchedSale && (m.matchedSale['VALOR ENTRADA'] ?? m.matchedSale['ENTRADA'] ?? m.matchedSale['SINAL'])) ??
+      0
+    );
 
     const forma = String(m.formaPagamento || m.forma || m.FORMA_PAGTO || m['FORMA DE PAGAMENTO'] || '').trim();
-    const isPureBoleto = isVenda && rawValor === 0 && (restBoleto > 0 || /boleto|carn[eê]/i.test(forma));
-    const displayValor = isPureBoleto ? (restBoleto || totalOS) : rawValor;
+    const isPureBoleto = isVenda && rawValor === 0 && (effectiveRestBoleto > 0 || /boleto|carn[eê]/i.test(forma));
+    const displayValor = isPureBoleto ? (effectiveRestBoleto || totalOS) : rawValor;
 
     // Doc Nº
     const osRaw = m.osNumero || m.os || m['OS DA VENDA'] || m['Nº DA OS'] || m.OS || '';
@@ -295,11 +344,13 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     let saida = '';
 
     if (isVenda) {
-      const saleTotal = totalOS > 0 ? totalOS : (isPureBoleto ? (restBoleto || displayValor) : (entradaSinal > 0 && restBoleto > 0 ? (entradaSinal + restBoleto) : displayValor));
+      // 🌟 COLUNA VENDAS: Exibe SEMPRE o VALOR TOTAL DA VENDA (não apenas a entrada)
+      const saleTotal = totalOS > 0 ? totalOS : (isPureBoleto ? (effectiveRestBoleto || displayValor) : (entradaSinal > 0 && effectiveRestBoleto > 0 ? (entradaSinal + effectiveRestBoleto) : displayValor));
       const vNum = saleTotal > 0 ? saleTotal : displayValor;
       venda = vNum;
       totalVendasCalculadas += vNum;
 
+      // 🌟 COLUNA ENTRADAS: Exibe a ENTRADA / valor recebido no caixa
       const receivedNow = entradaSinal > 0 ? entradaSinal : (isPureBoleto ? 0 : rawValor);
       if (receivedNow > 0) {
         entrada = receivedNow;
@@ -384,7 +435,7 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     closingData.totalVendas ?? closingData.totalFaturadoGeral ??
     (vendasDinheiro + vendasPix + vendasDebito + vendasCredito + vendasBoleto)
   );
-  const totalVendasFinal = totalVendasCalculadas > 0 ? totalVendasCalculadas : fallbackTotalVendas;
+  const totalVendasFinal = Math.max(totalVendasCalculadas, fallbackTotalVendas);
 
   const fallbackTotalEntradas = vendasDinheiro + totalRecebimentosDinheiro + vendasPix + vendasDebito + vendasCredito + suprimentosEfetivos;
   const totalEntradasFinal = totalEntradasCalculadas > 0 ? totalEntradasCalculadas : fallbackTotalEntradas;

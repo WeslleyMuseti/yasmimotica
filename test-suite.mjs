@@ -7588,6 +7588,9 @@ async function runTests() {
     console.assert(combinedShift.length === 1, `Extrato do turno deve desduplicar a venda e movimento da OS CAJ25 (total: ${combinedShift.length})`);
     console.assert(combinedShift[0].osNumero === 'CAJ-25' || combinedShift[0].osNumero === 'CAJ25', 'OS no extrato deve ser CAJ25 ou CAJ-25');
     console.assert(combinedShift[0].valor === 200, 'Valor que entrou no caixa na entrada deve ser R$ 200,00');
+    console.assert(combinedShift[0].valorTotalOS === 1200, `Valor total da OS deve ser R$ 1.200,00, obteve ${combinedShift[0].valorTotalOS}`);
+    console.assert(combinedShift[0].valorEntradaOS === 200, `Entrada da OS deve ser R$ 200,00, obteve ${combinedShift[0].valorEntradaOS}`);
+    console.assert(combinedShift[0].valorRestanteBoleto === 1000, `Restante no boleto deve ser R$ 1.000,00, obteve ${combinedShift[0].valorRestanteBoleto}`);
     console.assert(combinedShift[0].cliente === 'Cliente Cajati Vinte Cinco', 'Nome do cliente deve ser preservado');
 
     // 4. Validar venda 100% no Boleto sem entrada imediata na gaveta: Deve constar no Extrato com valorTotalOS
@@ -7990,6 +7993,119 @@ async function runTests() {
     console.assert(syncSrc.includes("if (collectionName === 'CAD_LENTES')"), 'firebaseSync deve tratar CAD_LENTES para estoque zero permitido');
 
     console.log('  ✅ Test 81 Passed: Diferenciação de Lentes Físicas vs Digitais (ERP, Edição, Tabela e PDV) validado com 100% de sucesso!\n');
+  }
+
+  // =========================================================================
+  // Test 82: Ficha Contábil (Movimento do Caixa) - Coluna VENDAS com Valor Total e ENTRADAS com Sinal
+  // =========================================================================
+  {
+    console.log('▶ Test 82: Ficha Contábil (Movimento do Caixa) - Coluna VENDAS com Valor Total e ENTRADAS com Sinal');
+
+    const { prepareCashMovementRows, parseMovementNum, formatMovementMoney } = await import('./src/cashMovementUtils.js');
+    const { buildCombinedShiftMovements } = await import('./src/cashShiftUtils.js');
+
+    // 1. Cenário Real da Imagem do Usuário (OS CAJ25 - Valéria Regina):
+    // Total da Venda: R$ 1.324,00 | Entrada paga em Dinheiro: R$ 250,00 | Restante no Boleto: R$ 1.074,00
+    const mockSalesValeria = [
+      {
+        id: 'sale_caj25_valeria',
+        'OS DA VENDA': 'CAJ25',
+        'CLIENTE': 'VALERIA REGINA DI COLA PEIXOTO',
+        'VALOR TOTAL': '1.324,00',
+        'VALOR ENTRADA': '250,00',
+        'RESTANTE': '1.074,00',
+        'FORMA_PAGTO': 'Entrada (Dinheiro) + Boleto',
+        'UNIDADE': 'Cajati'
+      }
+    ];
+
+    const mockMovValeria = [
+      {
+        id: 'mov_valeria_01',
+        saleId: 'sale_caj25_valeria',
+        osNumero: '25',
+        tipo: 'VENDA',
+        valor: 250.00,
+        formaPagamento: 'DINHEIRO',
+        unidade: 'Cajati',
+        cliente: 'VALERIA REGINA DI COLA PEIXOTO',
+        detalhes: 'OS #25 • Total da OS: R$ 1.324,00 (Entrada: R$ 250,00 | Parcelado Boleto: R$ 1.074,00)'
+      }
+    ];
+
+    // Sincronização combinada
+    const combinedValeria = buildCombinedShiftMovements(mockMovValeria, mockSalesValeria, 'Cajati', 'Caixa');
+    console.assert(combinedValeria.length === 1, 'Deve unificar a movimentação da OS 25');
+    console.assert(combinedValeria[0].valorTotalOS === 1324, `valorTotalOS deve ser 1324, obteve ${combinedValeria[0].valorTotalOS}`);
+    console.assert(combinedValeria[0].valorEntradaOS === 250, `valorEntradaOS deve ser 250, obteve ${combinedValeria[0].valorEntradaOS}`);
+
+    // Geração da Folha Contábil
+    const closingValeria = {
+      unidade: 'Cajati',
+      fundoInicial: 0,
+      vendasDinheiro: 250.00,
+      vendasBoletoTotal: 1074.00,
+      totalVendas: 1324.00
+    };
+
+    const resValeria = prepareCashMovementRows(closingValeria, combinedValeria, 24);
+    const rowVenda = resValeria.rows[0];
+
+    // A coluna VENDAS deve exibir o VALOR TOTAL (1.324,00) e a coluna ENTRADAS deve exibir a ENTRADA (250,00)
+    console.assert(rowVenda.venda === '1.324,00', `Coluna VENDAS esperada '1.324,00', obteve '${rowVenda.venda}'`);
+    console.assert(rowVenda.entrada === '250,00', `Coluna ENTRADAS esperada '250,00', obteve '${rowVenda.entrada}'`);
+    console.assert(resValeria.totalVendasFinal === 1324.00, `Total Vendas Final esperado 1324, obteve ${resValeria.totalVendasFinal}`);
+    console.assert(resValeria.totalEntradasFinal === 250.00, `Total Entradas Final esperado 250, obteve ${resValeria.totalEntradasFinal}`);
+
+    // 2. Cenário sem salesData explícito (movimento legado onde o total está no texto de detalhes)
+    const mockLegacyMov = [
+      {
+        tipo: 'VENDA',
+        osNumero: 'CAJ25',
+        valor: 250.00,
+        formaPagamento: 'DINHEIRO',
+        cliente: 'VALERIA REGINA DI COLA PEIXOTO',
+        detalhes: 'OS #CAJ25 • Total da OS: R$ 1.324,00 (Entrada: R$ 250,00 | Parcelado Boleto: R$ 1.074,00)'
+      }
+    ];
+
+    const resLegacy = prepareCashMovementRows(closingValeria, mockLegacyMov, 24);
+    console.assert(resLegacy.rows[0].venda === '1.324,00', `Legado: Coluna VENDAS esperada '1.324,00', obteve '${resLegacy.rows[0].venda}'`);
+    console.assert(resLegacy.rows[0].entrada === '250,00', `Legado: Coluna ENTRADAS esperada '250,00', obteve '${resLegacy.rows[0].entrada}'`);
+
+    // 3. Cenário com Venda 100% à vista (Total = R$ 500, Entrada = R$ 500)
+    const mockFullCash = [
+      {
+        tipo: 'VENDA',
+        osNumero: '100',
+        valor: 500.00,
+        valorTotalOS: 500.00,
+        valorEntradaOS: 500.00,
+        cliente: 'Cliente À Vista',
+        formaPagamento: 'DINHEIRO'
+      }
+    ];
+    const resFullCash = prepareCashMovementRows({}, mockFullCash, 24);
+    console.assert(resFullCash.rows[0].venda === '500,00', 'Venda à vista: Coluna VENDAS deve ser 500,00');
+    console.assert(resFullCash.rows[0].entrada === '500,00', 'Venda à vista: Coluna ENTRADAS deve ser 500,00');
+
+    // 4. Cenário com Venda 100% no Boleto (Total = R$ 800, Entrada = R$ 0)
+    const mockPureBoleto = [
+      {
+        tipo: 'VENDA',
+        osNumero: '101',
+        valor: 0,
+        valorTotalOS: 800.00,
+        valorRestanteBoleto: 800.00,
+        cliente: 'Cliente Boleto Integral',
+        formaPagamento: 'BOLETO'
+      }
+    ];
+    const resPureBoleto = prepareCashMovementRows({}, mockPureBoleto, 24);
+    console.assert(resPureBoleto.rows[0].venda === '800,00', 'Boleto integral: Coluna VENDAS deve ser 800,00');
+    console.assert(resPureBoleto.rows[0].entrada === '', 'Boleto integral: Coluna ENTRADAS deve ser vazia');
+
+    console.log('  ✅ Test 82 Passed: Ficha Contábil de Movimento do Caixa com Valor Total em VENDAS e Entrada em ENTRADAS validada com 100% de sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');

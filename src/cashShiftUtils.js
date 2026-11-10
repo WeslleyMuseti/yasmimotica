@@ -80,13 +80,21 @@ export const buildCombinedShiftMovements = (movList = [], salesList = [], unitNa
   const cleanKey = (v) => String(v || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
   const salesByOs = new Map();
   const salesById = new Map();
+  const salesByDigits = new Map();
+  const salesByCpf = new Map();
 
   (salesList || []).forEach(s => {
     if (!s || typeof s !== 'object') return;
-    const osK = cleanKey(s['OS DA VENDA'] || s['OS da VENDA'] || s['Nº DA OS'] || s['Num OS'] || s.OS || s.os || s.osNumero || s.numeroOS);
+    const osRaw = s['OS DA VENDA'] || s['OS da VENDA'] || s['Nº DA OS'] || s['Num OS'] || s.OS || s.os || s.osNumero || s.numeroOS;
+    const osK = cleanKey(osRaw);
     const idK = cleanKey(s.id || s._id || s.saleId || s.sale_id);
+    const digK = String(osRaw || '').replace(/\D/g, '');
+    const cpfK = String(s['CPF / CNPJ'] || s.CPF || s.cpf || '').replace(/\D/g, '');
+
     if (osK) salesByOs.set(osK, s);
     if (idK) salesById.set(idK, s);
+    if (digK) salesByDigits.set(digK, s);
+    if (cpfK) salesByCpf.set(cpfK, s);
   });
 
   const seenSaleKeys = new Set();
@@ -95,18 +103,44 @@ export const buildCombinedShiftMovements = (movList = [], salesList = [], unitNa
     const osRaw = m.osNumero || m['OS DA VENDA'] || m.OS || m['Nº DA OS'] || '';
     const osK = cleanKey(osRaw);
     const idK = cleanKey(m.saleId || m.id);
+    const digK = String(osRaw || '').replace(/\D/g, '');
+    const cpfK = String(m.CLIENTE_CPF || m.CPF || m.cpf || '').replace(/\D/g, '');
+
     if (osK) seenSaleKeys.add(osK);
     if (idK) seenSaleKeys.add(idK);
+    if (digK) seenSaleKeys.add(digK);
 
-    const matchedSale = (osK && salesByOs.get(osK)) || (idK && salesById.get(idK)) || null;
+    const matchedSale = (osK && salesByOs.get(osK)) ||
+                        (idK && salesById.get(idK)) ||
+                        (digK && salesByDigits.get(digK)) ||
+                        (cpfK && salesByCpf.get(cpfK)) ||
+                        null;
+
     const resolvedUnit = resolveOSUnit({ numeroOS: osRaw, ...m });
     const clienteNome = m.cliente || (matchedSale && (matchedSale.CLIENTE || matchedSale.NOME || matchedSale['NOME CLIENTE'] || matchedSale.Cliente)) || m.motivo || m.descricao || m.favorecido;
+
+    const totalVal = matchedSale
+      ? parseCurrency(matchedSale['VALOR TOTAL'] || matchedSale['VALOR DA VENDA'] || matchedSale.valorTotal || matchedSale.VALOR || 0)
+      : parseCurrency(m['VALOR TOTAL'] || m['VALOR DA VENDA'] || m.valorTotalOS || m.valorTotal || 0);
+
+    const entradaVal = matchedSale
+      ? parseCurrency(matchedSale['VALOR ENTRADA'] || matchedSale['ENTRADA'] || matchedSale['SINAL'] || matchedSale['valorEntrada'] || matchedSale['sinal'] || 0)
+      : parseCurrency(m.valorEntradaOS || m.valorEntrada || m['VALOR ENTRADA'] || m['ENTRADA'] || 0);
+
+    const restanteVal = matchedSale
+      ? parseCurrency(matchedSale['RESTANTE'] || matchedSale['VALOR RESTANTE'] || matchedSale['restante'] || 0)
+      : parseCurrency(m.valorRestanteBoleto || m.RESTANTE || 0);
 
     return {
       ...m,
       unidade: m.unidade || m.CIDADE || m.LOJA || resolvedUnit || unitName,
       tipo: m.tipo || 'MOVIMENTO',
       valor: m.valor,
+      valorTotalOS: totalVal > 0 ? totalVal : (m.valorTotalOS || m.valorTotal || m['VALOR TOTAL'] || m['VALOR DA VENDA'] || m.valor),
+      valorEntradaOS: entradaVal > 0 ? entradaVal : (m.valorEntradaOS || m.valorEntrada || m.valor),
+      valorRestanteBoleto: restanteVal > 0 ? restanteVal : m.valorRestanteBoleto,
+      'VALOR TOTAL': totalVal > 0 ? totalVal : (m['VALOR TOTAL'] || m['VALOR DA VENDA'] || m.valorTotalOS || m.valorTotal || m.valor),
+      matchedSale: matchedSale || undefined,
       forma: m.formaPagamento || m.forma,
       formaPagamento: m.formaPagamento || m.forma,
       dataHora: m.dataHora || m.timestamp || m.DATA_HORA || m.DATA || m.data,
@@ -123,12 +157,14 @@ export const buildCombinedShiftMovements = (movList = [], salesList = [], unitNa
     const idRaw = s.id || s._id || s.saleId || '';
     const osK = cleanKey(osRaw);
     const idK = cleanKey(idRaw);
+    const digK = String(osRaw || '').replace(/\D/g, '');
 
-    if ((osK && seenSaleKeys.has(osK)) || (idK && seenSaleKeys.has(idK))) {
+    if ((osK && seenSaleKeys.has(osK)) || (idK && seenSaleKeys.has(idK)) || (digK && seenSaleKeys.has(digK))) {
       return;
     }
     if (osK) seenSaleKeys.add(osK);
     if (idK) seenSaleKeys.add(idK);
+    if (digK) seenSaleKeys.add(digK);
 
     const totalVal = parseCurrency(s['VALOR TOTAL'] || s['VALOR DA VENDA'] || s.valorTotal || s.VALOR || 0);
     const entradaVal = parseCurrency(s['VALOR ENTRADA'] ?? s['ENTRADA'] ?? s['SINAL'] ?? s['valorEntrada'] ?? s['sinal'] ?? 0);
@@ -147,6 +183,7 @@ export const buildCombinedShiftMovements = (movList = [], salesList = [], unitNa
       valorTotalOS: totalVal,
       valorEntradaOS: entradaVal,
       valorRestanteBoleto: saldoBoleto,
+      'VALOR TOTAL': totalVal,
       forma: fp,
       formaPagamento: fp,
       dataHora: s.dataHora || s.timestamp || s.DATA_HORA || s['DATA  DA VENDA'] || s['DATA DA VENDA'] || s['DATA_VENDA'] || s.dataVenda || s.DATA || s.data || new Date().toISOString(),
