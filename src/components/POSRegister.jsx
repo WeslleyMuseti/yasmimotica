@@ -94,6 +94,7 @@ const POSRegister = ({
   const [productCategory, setProductCategory] = useState('armacoes'); // 'mais_vendidos', 'armacoes', 'lentes', 'todos', 'avulso'
   const [productSearch, setProductSearch] = useState('');
   const [selectedCityStock, setSelectedCityStock] = useState('TODAS');
+  const [visibleProductLimit, setVisibleProductLimit] = useState(300);
 
   // Item Avulso
   const [customItem, setCustomItem] = useState({ nome: '', preco: '', qtd: 1, categoria: 'Outros' });
@@ -2881,7 +2882,7 @@ const POSRegister = ({
                   className={`grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto pr-2 erp-scroll ${cart.length > 0 ? 'pb-24 lg:pb-2' : ''}`}
                   style={{ maxHeight: '520px' }}
                 >
-                  {filteredProducts.slice(0, 100).map((prod, idx) => {
+                  {filteredProducts.slice(0, productSearch ? filteredProducts.length : visibleProductLimit).map((prod, idx) => {
                     const isArmacao = productCategory === 'armacoes' || prod._type === 'armacoes' || Boolean(prod['COR']) || Boolean(prod['TAMANHO']) || Boolean(prod['REFERENCIA_SKU']);
                     const isBrinde = productCategory === 'brindes' || prod._type === 'brindes';
                     const isAcessorio = productCategory === 'acessorios' || prod._type === 'acessorios';
@@ -3011,6 +3012,30 @@ const POSRegister = ({
                   {filteredProducts.length === 0 && (
                     <div className="col-span-2 text-center py-8 text-xs text-slate-500">
                       Nenhum produto do ERP encontrado com estes filtros.
+                    </div>
+                  )}
+
+                  {!productSearch && filteredProducts.length > visibleProductLimit && (
+                    <div className="col-span-1 sm:col-span-2 pt-3 pb-2 flex flex-col sm:flex-row items-center justify-between gap-2 border-t border-slate-900 bg-slate-950/60 p-3 rounded-2xl">
+                      <span className="text-[11px] font-bold text-slate-400">
+                        Exibindo <strong className="text-amber-400">{visibleProductLimit}</strong> de <strong className="text-white">{filteredProducts.length}</strong> produtos
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setVisibleProductLimit(prev => prev + 300)}
+                          className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/30 text-xs font-bold transition-all shadow-sm cursor-pointer"
+                        >
+                          + Carregar mais (+300)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setVisibleProductLimit(filteredProducts.length)}
+                          className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black transition-all shadow-sm cursor-pointer"
+                        >
+                          Exibir Todos ({filteredProducts.length})
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

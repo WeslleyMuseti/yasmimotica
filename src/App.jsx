@@ -178,13 +178,14 @@ function App() {
     try {
       const backup = loadOfflineSnapshot();
       if (backup && typeof backup === 'object') {
+        const isArmacaoTruncated = Array.isArray(backup['CAD_ARMACOES']) && backup['CAD_ARMACOES'].length === 100;
         initial = {
           'CLIENTES_CADASTRADOS': backup['CLIENTES_CADASTRADOS'] || [],
           'Registro_Vendas': backup['Registro_Vendas'] || [],
-          'CAD_LENTES': backup['CAD_LENTES'] || [],
-          'CAD_ARMACOES': backup['CAD_ARMACOES'] || [],
-          'CAD_ACESSORIOS': backup['CAD_ACESSORIOS'] || [],
-          'CAD_BRINDES': backup['CAD_BRINDES'] || [],
+          'CAD_LENTES': isArmacaoTruncated ? [] : (backup['CAD_LENTES'] || []),
+          'CAD_ARMACOES': isArmacaoTruncated ? [] : (backup['CAD_ARMACOES'] || []),
+          'CAD_ACESSORIOS': isArmacaoTruncated ? [] : (backup['CAD_ACESSORIOS'] || []),
+          'CAD_BRINDES': isArmacaoTruncated ? [] : (backup['CAD_BRINDES'] || []),
           'CONTAS_PAGAR': backup['CONTAS_PAGAR'] || [],
           'CONTAS_RECEBER': backup['CONTAS_RECEBER'] || [],
           'VOUCHERS': backup['VOUCHERS'] || JSON.parse(localStorage.getItem('YASMIN_VOUCHERS') || '[]'),
@@ -521,8 +522,9 @@ function App() {
         const merged = { ...prev };
         Object.keys(cached).forEach(col => {
           if (Array.isArray(cached[col]) && cached[col].length > 0) {
-            // Se o estado atual estiver vazio ou menor, hidrata com o cache local
-            if (!prev[col] || prev[col].length === 0) {
+            const prevLen = prev[col]?.length || 0;
+            // Se o estado atual estiver vazio, tiver menos dados ou estiver truncado em 100 itens (bug anterior)
+            if (prevLen === 0 || cached[col].length > prevLen || prevLen === 100) {
               merged[col] = cached[col];
               hasAnyUpdate = true;
             }

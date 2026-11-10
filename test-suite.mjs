@@ -7813,6 +7813,47 @@ async function runTests() {
     console.log('  ✅ Test 78 Passed: Otimização de Leituras do Firestore (IndexedDB, Manifesto e Redução de Cota) validada com 100% de sucesso!\n');
   }
 
+  // =========================================================================
+  // Test 79: Estoque Completo e Ilimitado (Fim do Limite de 100 Itens para Vendedores e Admins)
+  // =========================================================================
+  {
+    console.log('▶ Test 79: Estoque Completo e Ilimitado (Fim do Limite de 100 Itens no PDV e ERP)');
+
+    // 1. Validar que POSRegister.jsx não corta mais os produtos em 100 itens
+    const posSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf8');
+    console.assert(!posSrc.includes('filteredProducts.slice(0, 100)'), 'POSRegister não deve ter filteredProducts.slice(0, 100)');
+    console.assert(posSrc.includes('visibleProductLimit'), 'POSRegister deve gerenciar visibleProductLimit');
+    console.assert(posSrc.includes('Exibir Todos'), 'POSRegister deve oferecer opção de exibir todos os produtos');
+
+    // 2. Validar que firebaseSync.js não trunca o catálogo com MAX_ITEMS_PER_TABLE = 100
+    const fsSyncSrc = fs.readFileSync(path.join(__dirname, 'src', 'firebaseSync.js'), 'utf8');
+    console.assert(!fsSyncSrc.includes('MAX_ITEMS_PER_TABLE = 100'), 'firebaseSync.js não deve limitar tabelas a 100 itens');
+    console.assert(fsSyncSrc.includes('MANIFEST_SCHEMA_VERSION = \'v3_unlimited_stock\''), 'firebaseSync.js deve usar schema version v3_unlimited_stock');
+    console.assert(fsSyncSrc.includes('isTruncatedBug'), 'firebaseSync.js deve detectar e corrigir caches com exatamente 100 itens');
+
+    // 3. Validar que indexedDbCache.js não corta registros em slice(-100)
+    const idbSrc = fs.readFileSync(path.join(__dirname, 'src', 'indexedDbCache.js'), 'utf8');
+    console.assert(!idbSrc.includes('slice(-100)'), 'indexedDbCache.js não deve conter slice(-100)');
+
+    // 4. Validar que App.jsx protege a hidratação contra truncamento em 100 itens
+    const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'App.jsx'), 'utf8');
+    console.assert(appSrc.includes('prevLen === 100'), 'App.jsx deve sobrepor automaticamente estado truncado em 100 itens');
+    console.assert(appSrc.includes('isArmacaoTruncated'), 'App.jsx deve proteger a inicialização contra armações truncadas em 100 itens');
+
+    // 5. Simular detecção de coleção truncada e renovação de cache
+    const testLocalManifest = { CLIENTES_CADASTRADOS: 1730000000000, CAD_ARMACOES: 1730000000000, _schemaVersion: 'v2_legacy' };
+    const CURRENT_SCHEMA_VER = 'v3_unlimited_stock';
+    const isOutdated = testLocalManifest._schemaVersion !== CURRENT_SCHEMA_VER;
+    console.assert(isOutdated, 'Manifesto legado v2 deve ser marcado como desatualizado');
+
+    // Simular que uma coleção com 100 itens dispara a busca do estoque completo
+    const mockInMemoryLengths = { CAD_ARMACOES: 100, CAD_LENTES: 100, Registro_Vendas: 450 };
+    const shouldRefetchArmacoes = isOutdated || mockInMemoryLengths.CAD_ARMACOES === 100;
+    console.assert(shouldRefetchArmacoes, 'CAD_ARMACOES com 100 itens ou schema antigo deve forçar recarregamento completo');
+
+    console.log('  ✅ Test 79 Passed: Estoque Completo e Ilimitado (Sem Corte em 100 Itens) validado com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

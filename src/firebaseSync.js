@@ -159,13 +159,19 @@ export const subscribeToCollections = (onDataUpdate, currentUser = null) => {
       const updatedLocalManifest = { ...localManifest };
       let anyChanged = false;
 
+      // 🛡️ Versão do esquema de manifesto: invalida caches truncados por versões legadas
+      const MANIFEST_SCHEMA_VERSION = 'v3_unlimited_stock';
+      const isSchemaOutdated = localManifest._schemaVersion !== MANIFEST_SCHEMA_VERSION;
+
       for (const colName of targetCollections) {
         const cloudTime = cloudManifest[colName] || 0;
         const localTime = localManifest[colName] || 0;
         const inMemoryLength = state[colName]?.length || 0;
 
-        // Se a coleção foi modificada na nuvem ou ainda não está carregada na memória
-        if (cloudTime > localTime || inMemoryLength === 0) {
+        // Se a coleção foi modificada na nuvem, ou ainda não está na memória,
+        // ou se o schema local está desatualizado, ou se está suspeita de truncamento (100 itens)
+        const isTruncatedBug = inMemoryLength === 100;
+        if (cloudTime > localTime || inMemoryLength === 0 || isSchemaOutdated || isTruncatedBug) {
           try {
             const snap = await getDocs(collection(db, colName));
             const docs = [];
@@ -181,7 +187,8 @@ export const subscribeToCollections = (onDataUpdate, currentUser = null) => {
         }
       }
 
-      if (anyChanged) {
+      if (anyChanged || isSchemaOutdated) {
+        updatedLocalManifest._schemaVersion = MANIFEST_SCHEMA_VERSION;
         setLocalManifest(updatedLocalManifest).catch(() => {});
       }
     }, (manifestErr) => {
@@ -448,39 +455,41 @@ export const processOfflineQueue = async (options = {}) => {
 
 export const saveOfflineSnapshot = (dataObj) => {
   if (!dataObj || typeof dataObj !== 'object') return;
-  // Salva no IndexedDB de alta capacidade de forma assíncrona (sem travar a thread e sem limite de 5MB)
+  // Salva no IndexedDB de alta capacidade de forma assíncrona (100% dos dados completos, sem cortes)
   saveMasterCache(dataObj).catch(() => {});
 
   try {
-    // Cria um snapshot compacto limitando os últimos 100 registros por tabela
-    // e impedindo saturação da cota de 5MB do localStorage
-    const compactSnapshot = {};
-    const MAX_ITEMS_PER_TABLE = 100;
-
-    Object.keys(dataObj).forEach(col => {
-      if (Array.isArray(dataObj[col])) {
-        compactSnapshot[col] = dataObj[col].slice(-MAX_ITEMS_PER_TABLE);
-      }
-    });
-
-    const serialized = JSON.stringify(compactSnapshot);
-    if (serialized.length < 1500000) {
+    // Para o localStorage (backup secundário de emergência de 5MB):
+    // Tenta salvar intacto sem jamais truncar o catálogo de armações, lentes ou produtos
+    const serialized = JSON.stringify(dataObj);
+    if (serialized.length < 2000000) {
       localStorage.setItem(OFFLINE_BACKUP_KEY, serialized);
     } else {
+      // Se exceder a cota de 2MB do localStorage, remove o backup compactado para não poluir
+      // nem truncar o estado da aplicação. O IndexedDB mantém 100% dos registros.
       localStorage.removeItem(OFFLINE_BACKUP_KEY);
     }
   } catch (e) {
     try {
       localStorage.removeItem(OFFLINE_BACKUP_KEY);
     } catch {}
-    console.warn('Aviso: Armazenamento local saturado. Snapshot pesado removido para liberar espaço do Firestore.');
   }
 };
 
 export const loadOfflineSnapshot = () => {
   try {
     const raw = localStorage.getItem(OFFLINE_BACKUP_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Se o backup salvo anteriormente estiver com a armação truncada em 100 itens (bug anterior),
+    // purga a chave para obrigar o carregamento dos dados completos
+    if (parsed && typeof parsed === 'object') {
+      if (Array.isArray(parsed['CAD_ARMACOES']) && parsed['CAD_ARMACOES'].length === 100) {
+        localStorage.removeItem(OFFLINE_BACKUP_KEY);
+        return null;
+      }
+    }
+    return parsed;
   } catch (e) {
     return null;
   }

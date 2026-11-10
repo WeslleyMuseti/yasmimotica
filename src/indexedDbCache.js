@@ -120,15 +120,9 @@ export const saveMasterCache = async (dataObj = {}) => {
   const collections = Object.keys(dataObj);
 
   if (!db) {
-    // Fallback compacto em localStorage
+    // Fallback completo em localStorage para ambientes sem IndexedDB (Node.js/SSR)
     try {
-      const compact = {};
-      collections.forEach(col => {
-        if (Array.isArray(dataObj[col])) {
-          compact[col] = dataObj[col].slice(-100);
-        }
-      });
-      localStorage.setItem('YASMIN_OFFLINE_DATA_BACKUP', JSON.stringify(compact));
+      localStorage.setItem('YASMIN_OFFLINE_DATA_BACKUP', JSON.stringify(dataObj));
     } catch {}
     return;
   }
