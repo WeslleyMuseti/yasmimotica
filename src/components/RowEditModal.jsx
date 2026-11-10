@@ -54,13 +54,19 @@ const RowEditModal = ({
       });
 
       if (sheetName === 'CAD_LENTES') {
-        if (!initialData['TIPO_LENTE'] && !initialData['tipo_lente'] && !initialData['FORMATO'] && !initialData['formato']) {
-          const rawSt = initialData['ESTOQUE'] || initialData['estoque'];
+        const rawTipo = String(initialData['TIPO_LENTE'] || initialData['tipo_lente'] || initialData['FORMATO'] || initialData['formato'] || '').trim().toLowerCase();
+        let defaultTipo = '';
+        if (rawTipo.includes('físic') || rawTipo.includes('fisic')) {
+          defaultTipo = 'Física';
+        } else if (rawTipo.includes('digit')) {
+          defaultTipo = 'Digital';
+        } else {
+          const rawSt = initialData['ESTOQUE'] !== undefined ? initialData['ESTOQUE'] : initialData['estoque'];
           const isInf = rawSt === 'infinito' || rawSt === 'Infinito' || rawSt === 999999 || rawSt === '999999' || rawSt === '♾️' || String(rawSt || '').toLowerCase().includes('infinito') || rawSt === undefined || rawSt === '';
-          const defaultTipo = isInf ? 'Digital' : 'Física';
-          initialData['TIPO_LENTE'] = defaultTipo;
-          initialData['FORMATO'] = defaultTipo;
+          defaultTipo = isInf ? 'Digital' : 'Física';
         }
+        initialData['TIPO_LENTE'] = defaultTipo;
+        initialData['FORMATO'] = defaultTipo;
       }
 
       setFormData(initialData);
@@ -198,7 +204,7 @@ const RowEditModal = ({
         classified.add(col);
       }
       // 2. Identificação Principal
-      else if (k.includes('marca') || k.includes('modelo') || k.includes('descricao') || k.includes('descrição') || k.includes('nome') || k.includes('cliente') || k.includes('fornecedor') || k.includes('sku') || k.includes('referencia') || k.includes('referência') || k === 'os' || k.includes('nº da os') || k.includes('venda_os')) {
+      else if (k.includes('marca') || k.includes('modelo') || k.includes('tipo_lente') || k.includes('formato') || k.includes('descricao') || k.includes('descrição') || k.includes('nome') || k.includes('cliente') || k.includes('fornecedor') || k.includes('sku') || k.includes('referencia') || k.includes('referência') || k === 'os' || k.includes('nº da os') || k.includes('venda_os')) {
         mainCols.push(col);
         classified.add(col);
       }
@@ -246,13 +252,13 @@ const RowEditModal = ({
     if (sheetName === 'CAD_LENTES' && (k === 'tipo_lente' || k === 'formato' || k === 'tipo da lente' || k === 'tipo')) {
       const rawVal = value || formData['TIPO_LENTE'] || formData['FORMATO'] || '';
       const rawLower = String(rawVal).trim().toLowerCase();
-      const rawStock = formData['ESTOQUE'] || formData['estoque'];
+      const rawStock = formData['ESTOQUE'] !== undefined ? formData['ESTOQUE'] : formData['estoque'];
       const isInfiniteStock = rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '';
-      const isFisica = rawLower.includes('físic') || rawLower.includes('fisic') || (!rawLower && !isInfiniteStock);
+      const isFisica = rawLower.includes('físic') || rawLower.includes('fisic') ? true : (rawLower.includes('digit') ? false : !isInfiniteStock);
       return (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-black uppercase tracking-widest text-slate-400">Tipo de Lente (Física ou Digital)</label>
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Classificação</span>
             <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${isFisica ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'}`}>
               {isFisica ? '👓 Lente Física' : '🔬 Lente Digital'}
             </span>

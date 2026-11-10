@@ -2828,7 +2828,7 @@ const ErpOptica = ({
                         type="button"
                         onClick={() => {
                           setLenteEstoqueInfinito(true);
-                          setLentesForm(prev => ({ ...prev, ESTOQUE: '999999' }));
+                          setLentesForm(prev => ({ ...prev, ESTOQUE: '999999', TIPO_LENTE: 'Digital', FORMATO: 'Digital' }));
                         }}
                         className={`flex-1 py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
                           lenteEstoqueInfinito
@@ -2842,7 +2842,7 @@ const ErpOptica = ({
                         type="button"
                         onClick={() => {
                           setLenteEstoqueInfinito(false);
-                          setLentesForm(prev => ({ ...prev, ESTOQUE: prev.ESTOQUE === '999999' ? '10' : prev.ESTOQUE }));
+                          setLentesForm(prev => ({ ...prev, ESTOQUE: prev.ESTOQUE === '999999' ? '10' : prev.ESTOQUE, TIPO_LENTE: 'Física', FORMATO: 'Física' }));
                         }}
                         className={`flex-1 py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
                           !lenteEstoqueInfinito

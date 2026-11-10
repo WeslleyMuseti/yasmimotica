@@ -799,7 +799,7 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                     const rawLower = String(rawVal).trim().toLowerCase();
                     const rawStock = row['ESTOQUE'] !== undefined ? row['ESTOQUE'] : (row['EM ESTOQUE'] !== undefined ? row['EM ESTOQUE'] : row['estoque']);
                     const isInfiniteStock = rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '';
-                    const isFisica = rawLower.includes('físic') || rawLower.includes('fisic') || (!rawLower && !isInfiniteStock);
+                    const isFisica = rawLower.includes('físic') || rawLower.includes('fisic') ? true : (rawLower.includes('digit') ? false : !isInfiniteStock);
                     return (
                       <td key={col} className="px-4 py-3 whitespace-nowrap text-xs">
                         {isFisica ? (

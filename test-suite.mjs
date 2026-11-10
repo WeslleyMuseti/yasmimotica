@@ -7955,28 +7955,34 @@ async function runTests() {
     console.assert(isLenteFisicaFn({ TIPO_LENTE: 'Digital', ESTOQUE: '999999' }) === false, 'Lente com TIPO_LENTE Digital deve retornar false');
     console.assert(isLenteFisicaFn({ FORMATO: 'Digital', ESTOQUE: 5 }) === false, 'Lente com FORMATO Digital deve retornar false mesmo com estoque finito');
 
-    // Compatibilidade Retroativa (Legado sem TIPO_LENTE nem FORMATO)
+    // Compatibilidade Retroativa (Legado sem TIPO_LENTE nem FORMATO, ou com TIPO como Multifocal)
     console.assert(isLenteFisicaFn({ MARCA: 'Essilor', ESTOQUE: 12 }) === true, 'Legado com estoque finito (12) deve ser identificado como física');
     console.assert(isLenteFisicaFn({ MARCA: 'Hoya', ESTOQUE: 999999 }) === false, 'Legado com estoque 999999 deve ser identificado como digital');
     console.assert(isLenteFisicaFn({ MARCA: 'Zeiss', ESTOQUE: 'infinito' }) === false, 'Legado com estoque infinito deve ser identificado como digital');
     console.assert(isLenteFisicaFn({ MARCA: 'Genérica' }) === false, 'Legado sem estoque deve ter default digital');
+    console.assert(isLenteFisicaFn({ MARCA: 'Kodak', TIPO: 'Multifocal', ESTOQUE: 8 }) === true, 'Legado com TIPO Multifocal e estoque 8 deve ser física');
+    console.assert(isLenteFisicaFn({ MARCA: 'Kodak', TIPO: 'Multifocal', ESTOQUE: 999999 }) === false, 'Legado com TIPO Multifocal e estoque infinito deve ser digital');
 
     // 7. Simular Filtragem no PDV para Lentes Físicas
     const mockErpLentes = [
       { id: '1', MARCA: 'Essilor', MODELO: 'Crizal Easy', TIPO_LENTE: 'Física', ESTOQUE: 6, PRECO_VENDA: '250,00', UNIDADE: 'Cajati' },
       { id: '2', MARCA: 'Hoya', MODELO: 'BlueControl', TIPO_LENTE: 'Digital', ESTOQUE: 999999, PRECO_VENDA: '450,00', UNIDADE: 'Cajati' },
       { id: '3', MARCA: 'Zeiss', MODELO: 'DriveSafe', ESTOQUE: 4, PRECO_VENDA: '800,00', UNIDADE: 'Registro' },
-      { id: '4', MARCA: 'Yasmin Flex', MODELO: 'Sob Demanda', ESTOQUE: 'infinito', PRECO_VENDA: '180,00', UNIDADE: 'Cajati' }
+      { id: '4', MARCA: 'Yasmin Flex', MODELO: 'Sob Demanda', ESTOQUE: 'infinito', PRECO_VENDA: '180,00', UNIDADE: 'Cajati' },
+      { id: '5', MARCA: 'Kodak', MODELO: 'Easy Plus', TIPO: 'Multifocal', ESTOQUE: 3, PRECO_VENDA: '320,00', UNIDADE: 'Cajati' }
     ];
 
     const fisicas = mockErpLentes.filter(l => isLenteFisicaFn(l));
-    console.assert(fisicas.length === 2, 'Filtro de lentes físicas deve encontrar exatamente 2 lentes (1 explícita + 1 legada com estoque finito)');
-    console.assert(fisicas.some(l => l.id === '1') && fisicas.some(l => l.id === '3'), 'Lentes físicas devem ser id 1 e id 3');
+    console.assert(fisicas.length === 3, 'Filtro de lentes físicas deve encontrar exatamente 3 lentes (1 explícita + 2 legadas com estoque finito)');
+    console.assert(fisicas.some(l => l.id === '1') && fisicas.some(l => l.id === '3') && fisicas.some(l => l.id === '5'), 'Lentes físicas devem ser id 1, 3 e 5');
 
     // Simular busca de lentes físicas
     const busca = 'crizal';
     const buscaRes = fisicas.filter(l => Object.values(l).join(' ').toLowerCase().includes(busca));
     console.assert(buscaRes.length === 1 && buscaRes[0].id === '1', 'Busca dentro de lentes físicas deve retornar o item correto');
+
+    // Validar blindagem de estoque zero em CAD_LENTES no firebaseSync
+    console.assert(syncSrc.includes("if (collectionName === 'CAD_LENTES')"), 'firebaseSync deve tratar CAD_LENTES para estoque zero permitido');
 
     console.log('  ✅ Test 81 Passed: Diferenciação de Lentes Físicas vs Digitais (ERP, Edição, Tabela e PDV) validado com 100% de sucesso!\n');
   }
