@@ -254,7 +254,7 @@ const RowEditModal = ({
       const rawLower = String(rawVal).trim().toLowerCase();
       const rawStock = formData['ESTOQUE'] !== undefined ? formData['ESTOQUE'] : formData['estoque'];
       const isInfiniteStock = rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '';
-      const isFisica = rawLower.includes('físic') || rawLower.includes('fisic') ? true : (rawLower.includes('digit') ? false : !isInfiniteStock);
+      const isFisica = rawLower.includes('físic') || rawLower.includes('fisic');
       return (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
@@ -270,6 +270,9 @@ const RowEditModal = ({
                 handleFieldChange(col, 'Física');
                 handleFieldChange('TIPO_LENTE', 'Física');
                 handleFieldChange('FORMATO', 'Física');
+                if (isInfiniteStock) {
+                  handleFieldChange('ESTOQUE', '10');
+                }
               }}
               className={`flex-1 py-2 px-3 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 isFisica
@@ -285,6 +288,7 @@ const RowEditModal = ({
                 handleFieldChange(col, 'Digital');
                 handleFieldChange('TIPO_LENTE', 'Digital');
                 handleFieldChange('FORMATO', 'Digital');
+                handleFieldChange('ESTOQUE', '999999');
               }}
               className={`flex-1 py-2 px-3 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 !isFisica
@@ -296,7 +300,7 @@ const RowEditModal = ({
             </button>
           </div>
           <p className="text-[10px] text-slate-400">
-            {isFisica ? 'Lente física de estoque pronto na loja (controle de unidades).' : 'Lente sob medida (surfaçagem digital em laboratório).'}
+            {isFisica ? 'Lente física de estoque pronto na loja (controle de unidades).' : 'Lente sob medida (surfaçagem digital em laboratório - estoque infinito).'}
           </p>
         </div>
       );
@@ -304,13 +308,19 @@ const RowEditModal = ({
 
     // Lentes oftálmicas: suporte híbrido (Estoque Infinito OU Quantidade Física específica)
     if (sheetName === 'CAD_LENTES' && (k === 'estoque' || k === 'em estoque' || k === 'qtd')) {
-      const isValInfinite = value === 999999 || value === '999999' || String(value || '').toLowerCase().includes('infinito') || value === '' || value === undefined;
+      const rawTipo = formData['TIPO_LENTE'] || formData['FORMATO'] || formData['tipo_lente'] || formData['formato'] || '';
+      const isFisica = String(rawTipo).trim().toLowerCase().includes('físic') || String(rawTipo).trim().toLowerCase().includes('fisic');
+      const isValInfinite = !isFisica || value === 999999 || value === '999999' || String(value || '').toLowerCase().includes('infinito') || value === '' || value === undefined;
       return (
         <div className="space-y-2">
           <div className="flex items-center gap-2 mb-1.5">
             <button
               type="button"
-              onClick={() => handleFieldChange(col, '999999')}
+              onClick={() => {
+                handleFieldChange(col, '999999');
+                handleFieldChange('TIPO_LENTE', 'Digital');
+                handleFieldChange('FORMATO', 'Digital');
+              }}
               className={`flex-1 py-2 px-3 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 isValInfinite
                   ? 'bg-sky-500/20 border-sky-400 text-sky-200 shadow-sm'
@@ -321,7 +331,11 @@ const RowEditModal = ({
             </button>
             <button
               type="button"
-              onClick={() => handleFieldChange(col, isValInfinite ? '10' : (value || '0'))}
+              onClick={() => {
+                handleFieldChange(col, isValInfinite ? '10' : (value || '0'));
+                handleFieldChange('TIPO_LENTE', 'Física');
+                handleFieldChange('FORMATO', 'Física');
+              }}
               className={`flex-1 py-2 px-3 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 !isValInfinite
                   ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200 shadow-sm'

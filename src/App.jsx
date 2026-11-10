@@ -36,7 +36,8 @@ import {
   areUserListsEqual,
   reconcileUsers,
   sanitizeStephanieMusetiData,
-  isStephanieMuseti
+  isStephanieMuseti,
+  normalizeLentesAllDigital
 } from './firebaseSync';
 
 const parseSafeCurrency = (val) => {
@@ -182,7 +183,7 @@ function App() {
         initial = {
           'CLIENTES_CADASTRADOS': backup['CLIENTES_CADASTRADOS'] || [],
           'Registro_Vendas': backup['Registro_Vendas'] || [],
-          'CAD_LENTES': isArmacaoTruncated ? [] : (backup['CAD_LENTES'] || []),
+          'CAD_LENTES': isArmacaoTruncated ? [] : normalizeLentesAllDigital(backup['CAD_LENTES'] || []),
           'CAD_ARMACOES': isArmacaoTruncated ? [] : (backup['CAD_ARMACOES'] || []),
           'CAD_ACESSORIOS': isArmacaoTruncated ? [] : (backup['CAD_ACESSORIOS'] || []),
           'CAD_BRINDES': isArmacaoTruncated ? [] : (backup['CAD_BRINDES'] || []),
@@ -616,7 +617,10 @@ function App() {
         keysToUpdate.forEach(key => {
           if (key === 'DELETED_ITEMS' || key === 'USUARIOS') return;
           // Coleções sincronizadas do Firebase sobrescrevem o estado local
-          const list = (newData[key] || []).filter(r => !deletedKeys.includes(getItemKey(r)));
+          let list = (newData[key] || []).filter(r => !deletedKeys.includes(getItemKey(r)));
+          if (key === 'CAD_LENTES') {
+            list = normalizeLentesAllDigital(list);
+          }
           if (!areDataListsEqual(prev[key], list)) {
             merged[key] = list;
             hasAnyChange = true;

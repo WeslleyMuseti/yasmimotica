@@ -84,6 +84,33 @@ export const touchCollectionManifest = (collectionName) => {
 };
 
 /**
+ * Normaliza lentes cadastradas:
+ * Todas as lentes existentes no sistema são DIGITAIS por padrão (estoque infinito 999999),
+ * a não ser que tenham sido explicitamente cadastradas ou alteradas para 'Física'.
+ */
+export const normalizeLentesAllDigital = (lentes = []) => {
+  if (!Array.isArray(lentes)) return [];
+  return lentes.map(item => {
+    if (!item || typeof item !== 'object') return item;
+    const rawTipo = String(item.TIPO_LENTE || item.tipo_lente || item.FORMATO || item.formato || '').trim().toLowerCase();
+    const isExplicitFisica = rawTipo.includes('físic') || rawTipo.includes('fisic');
+    if (!isExplicitFisica) {
+      return {
+        ...item,
+        TIPO_LENTE: 'Digital',
+        FORMATO: 'Digital',
+        tipo_lente: 'Digital',
+        formato: 'Digital',
+        ESTOQUE: 999999,
+        ...(item['EM ESTOQUE'] !== undefined ? { 'EM ESTOQUE': 999999 } : {}),
+        ...(item['estoque'] !== undefined ? { estoque: 999999 } : {})
+      };
+    }
+    return item;
+  });
+};
+
+/**
  * Escuta todas as coleções do Firestore com otimização inteligente:
  * 1. Hidratação instantânea em 0.05s via IndexedDB local (0 leituras do Firebase).
  * 2. Monitoramento de manifesto central (_METADATA/sync_manifest - apenas 1 leitura).
@@ -116,7 +143,7 @@ export const subscribeToCollections = (onDataUpdate, currentUser = null) => {
         let hasAnyItem = false;
         targetCollections.forEach(colName => {
           if (Array.isArray(cachedData[colName]) && cachedData[colName].length > 0) {
-            state[colName] = cachedData[colName];
+            state[colName] = colName === 'CAD_LENTES' ? normalizeLentesAllDigital(cachedData[colName]) : cachedData[colName];
             hasAnyItem = true;
           }
         });
@@ -141,8 +168,9 @@ export const subscribeToCollections = (onDataUpdate, currentUser = null) => {
         for (const colName of targetCollections) {
           try {
             const snap = await getDocs(collection(db, colName));
-            const docs = [];
+            let docs = [];
             snap.forEach(d => docs.push({ id: d.id, ...d.data() }));
+            if (colName === 'CAD_LENTES') docs = normalizeLentesAllDigital(docs);
             state[colName] = docs;
             saveCollectionToIndexedDb(colName, docs).catch(() => {});
             initManifest[colName] = Date.now();
@@ -174,8 +202,9 @@ export const subscribeToCollections = (onDataUpdate, currentUser = null) => {
         if (cloudTime > localTime || inMemoryLength === 0 || isSchemaOutdated || isTruncatedBug) {
           try {
             const snap = await getDocs(collection(db, colName));
-            const docs = [];
+            let docs = [];
             snap.forEach(d => docs.push({ id: d.id, ...d.data() }));
+            if (colName === 'CAD_LENTES') docs = normalizeLentesAllDigital(docs);
             state[colName] = docs;
             saveCollectionToIndexedDb(colName, docs).catch(() => {});
             updatedLocalManifest[colName] = cloudTime || Date.now();
@@ -198,8 +227,9 @@ export const subscribeToCollections = (onDataUpdate, currentUser = null) => {
         const colRef = collection(db, colName);
         const unsub = onSnapshot(colRef, (snapshot) => {
           if (!isSubscribed) return;
-          const docs = [];
+          let docs = [];
           snapshot.forEach(docSnap => docs.push({ id: docSnap.id, ...docSnap.data() }));
+          if (colName === 'CAD_LENTES') docs = normalizeLentesAllDigital(docs);
           state[colName] = docs;
           saveCollectionToIndexedDb(colName, docs).catch(() => {});
           onDataUpdate({ ...state }, colName);
@@ -853,7 +883,11 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
         const st = d.ESTOQUE !== undefined ? d.ESTOQUE : (d['EM ESTOQUE'] !== undefined ? d['EM ESTOQUE'] : d.estoque);
         const tipo = String(d.TIPO_LENTE || d.tipo_lente || d.FORMATO || d.formato || '').trim().toLowerCase();
         const isFisica = tipo.includes('físic') || tipo.includes('fisic');
-        const isInf = !isFisica && (st === 'infinito' || st === 'Infinito' || st === 999999 || st === '999999' || st === '♾️' || String(st || '').toLowerCase().includes('infinito'));
+        // Todas as lentes não explicitamente físicas são digitais (estoque infinito)
+        if (!isFisica) {
+          return { success: true, infiniteStock: true, previousStock: 'infinito', newStock: 'infinito' };
+        }
+        const isInf = st === 'infinito' || st === 'Infinito' || st === 999999 || st === '999999' || st === '♾️' || String(st || '').toLowerCase().includes('infinito');
         if (isInf) {
           return { success: true, infiniteStock: true, previousStock: 'infinito', newStock: 'infinito' };
         }

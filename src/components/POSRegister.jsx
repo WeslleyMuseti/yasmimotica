@@ -45,14 +45,9 @@ const parseCurrency = cleanVal;
 
 export const isLenteFisica = (item) => {
   if (!item) return false;
-  const rawTipo = String(item['TIPO_LENTE'] || item['tipo_lente'] || item['FORMATO'] || item['formato'] || item['TIPO'] || item['tipo'] || '').trim().toLowerCase();
-  if (rawTipo.includes('físic') || rawTipo.includes('fisic')) return true;
-  if (rawTipo.includes('digit')) return false;
-
-  // Compatibilidade retroativa baseada no estoque se tipo não estiver especificado:
-  const rawStock = item['ESTOQUE'] !== undefined ? item['ESTOQUE'] : (item['EM ESTOQUE'] !== undefined ? item['EM ESTOQUE'] : item['estoque']);
-  const isInfinite = rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '';
-  return !isInfinite;
+  const rawTipo = String(item['TIPO_LENTE'] || item['tipo_lente'] || item['FORMATO'] || item['formato'] || '').trim().toLowerCase();
+  // Todas as lentes do sistema são DIGITAIS por padrão, a não ser que explicitamente cadastradas/alteradas para 'Física'
+  return rawTipo.includes('físic') || rawTipo.includes('fisic');
 };
 
 const withTimeout = (promise, ms = 2500) => {
@@ -1656,8 +1651,9 @@ const POSRegister = ({
             else if (item.type === 'geral') sheetName = 'ESTOQUE';
             else if (item.type === 'lentes') {
               const rawLenteStock = item.rawProduct['ESTOQUE'] !== undefined ? item.rawProduct['ESTOQUE'] : (item.rawProduct['EM ESTOQUE'] !== undefined ? item.rawProduct['EM ESTOQUE'] : item.rawProduct['estoque']);
-              const isLenteInfinito = !isLenteFisica(item.rawProduct) && (rawLenteStock === 'infinito' || rawLenteStock === 'Infinito' || rawLenteStock === 999999 || rawLenteStock === '999999' || rawLenteStock === '♾️' || String(rawLenteStock || '').toLowerCase().includes('infinito'));
-              if (!isLenteInfinito) {
+              const isInfiniteVal = rawLenteStock === 'infinito' || rawLenteStock === 'Infinito' || rawLenteStock === 999999 || rawLenteStock === '999999' || rawLenteStock === '♾️' || String(rawLenteStock || '').toLowerCase().includes('infinito');
+              // Lente só baixa estoque no ERP se for explicitamente física E não configurada como estoque infinito
+              if (isLenteFisica(item.rawProduct) && !isInfiniteVal) {
                 sheetName = 'CAD_LENTES';
               }
             }
@@ -3003,7 +2999,7 @@ const POSRegister = ({
                               {isLente ? (
                                 (() => {
                                   const rawStock = prod['ESTOQUE'] !== undefined ? prod['ESTOQUE'] : (prod['EM ESTOQUE'] !== undefined ? prod['EM ESTOQUE'] : prod['estoque']);
-                                  const isLenteInfinito = !isLenteFisica(prod) && (rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '');
+                                  const isLenteInfinito = !isLenteFisica(prod) || (rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '');
                                   if (isLenteInfinito) {
                                     return (
                                       <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-sky-500/15 text-sky-300 border border-sky-500/30 flex items-center gap-1 w-fit">

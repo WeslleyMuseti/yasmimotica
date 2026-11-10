@@ -7876,7 +7876,7 @@ async function runTests() {
     // 3. Validar DataTable.jsx (Visualização de Lentes)
     const dataTableSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'DataTable.jsx'), 'utf-8');
     console.assert(dataTableSrc.includes('isInfiniteStock'), 'DataTable deve verificar se a lente tem estoque infinito');
-    console.assert(dataTableSrc.includes('sheetName === \'CAD_LENTES\' && isInfiniteStock'), 'DataTable só deve exibir ♾️ Infinito se a lente for infinita');
+    console.assert(dataTableSrc.includes("sheetName === 'CAD_LENTES'") && dataTableSrc.includes('isInfiniteStock'), 'DataTable só deve exibir ♾️ Infinito se a lente for digital/infinita');
 
     // 4. Validar POSRegister.jsx (Frente de Caixa)
     const posSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf-8');
@@ -7935,16 +7935,11 @@ async function runTests() {
     const syncSrc = fs.readFileSync(path.join(__dirname, 'src', 'firebaseSync.js'), 'utf-8');
     console.assert(syncSrc.includes('isFisica'), 'firebaseSync deve diferenciar lentes físicas para decremento de estoque');
 
-    // 6. Testar Heurística e Compatibilidade Retroativa de isLenteFisica
+    // 6. Testar Regra: Todas as lentes são DIGITAIS por padrão, exceto se explicitamente marcadas como 'Física'
     const isLenteFisicaFn = (item) => {
       if (!item) return false;
-      const rawTipo = String(item['TIPO_LENTE'] || item['tipo_lente'] || item['FORMATO'] || item['formato'] || item['TIPO'] || item['tipo'] || '').trim().toLowerCase();
-      if (rawTipo.includes('físic') || rawTipo.includes('fisic')) return true;
-      if (rawTipo.includes('digit')) return false;
-
-      const rawStock = item['ESTOQUE'] !== undefined ? item['ESTOQUE'] : (item['EM ESTOQUE'] !== undefined ? item['EM ESTOQUE'] : item['estoque']);
-      const isInfinite = rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '';
-      return !isInfinite;
+      const rawTipo = String(item['TIPO_LENTE'] || item['tipo_lente'] || item['FORMATO'] || item['formato'] || '').trim().toLowerCase();
+      return rawTipo.includes('físic') || rawTipo.includes('fisic');
     };
 
     // Item explicitamente marcado como Física
@@ -7955,12 +7950,12 @@ async function runTests() {
     console.assert(isLenteFisicaFn({ TIPO_LENTE: 'Digital', ESTOQUE: '999999' }) === false, 'Lente com TIPO_LENTE Digital deve retornar false');
     console.assert(isLenteFisicaFn({ FORMATO: 'Digital', ESTOQUE: 5 }) === false, 'Lente com FORMATO Digital deve retornar false mesmo com estoque finito');
 
-    // Compatibilidade Retroativa (Legado sem TIPO_LENTE nem FORMATO, ou com TIPO como Multifocal)
-    console.assert(isLenteFisicaFn({ MARCA: 'Essilor', ESTOQUE: 12 }) === true, 'Legado com estoque finito (12) deve ser identificado como física');
+    // Compatibilidade Retroativa / Todas as Lentes Legadas como Digitais por Padrão
+    console.assert(isLenteFisicaFn({ MARCA: 'Essilor', ESTOQUE: 12 }) === false, 'Legado sem TIPO_LENTE física deve ser digital por padrão');
     console.assert(isLenteFisicaFn({ MARCA: 'Hoya', ESTOQUE: 999999 }) === false, 'Legado com estoque 999999 deve ser identificado como digital');
     console.assert(isLenteFisicaFn({ MARCA: 'Zeiss', ESTOQUE: 'infinito' }) === false, 'Legado com estoque infinito deve ser identificado como digital');
     console.assert(isLenteFisicaFn({ MARCA: 'Genérica' }) === false, 'Legado sem estoque deve ter default digital');
-    console.assert(isLenteFisicaFn({ MARCA: 'Kodak', TIPO: 'Multifocal', ESTOQUE: 8 }) === true, 'Legado com TIPO Multifocal e estoque 8 deve ser física');
+    console.assert(isLenteFisicaFn({ MARCA: 'Kodak', TIPO: 'Multifocal', ESTOQUE: 8 }) === false, 'Legado com TIPO Multifocal sem Física deve ser digital por padrão');
     console.assert(isLenteFisicaFn({ MARCA: 'Kodak', TIPO: 'Multifocal', ESTOQUE: 999999 }) === false, 'Legado com TIPO Multifocal e estoque infinito deve ser digital');
 
     // 7. Simular Filtragem no PDV para Lentes Físicas
@@ -7973,8 +7968,18 @@ async function runTests() {
     ];
 
     const fisicas = mockErpLentes.filter(l => isLenteFisicaFn(l));
-    console.assert(fisicas.length === 3, 'Filtro de lentes físicas deve encontrar exatamente 3 lentes (1 explícita + 2 legadas com estoque finito)');
-    console.assert(fisicas.some(l => l.id === '1') && fisicas.some(l => l.id === '3') && fisicas.some(l => l.id === '5'), 'Lentes físicas devem ser id 1, 3 e 5');
+    console.assert(fisicas.length === 1, 'Filtro de lentes físicas deve encontrar exatamente 1 lente com marcação explícita de física');
+    console.assert(fisicas[0].id === '1', 'Lente física deve ser id 1');
+
+    // 8. Testar Normalização normalizeLentesAllDigital
+    const { normalizeLentesAllDigital } = await import('./src/firebaseSync.js');
+    const normalized = normalizeLentesAllDigital(mockErpLentes);
+    console.assert(normalized.find(l => l.id === '1').TIPO_LENTE === 'Física', 'Lente Física explícita não deve ser alterada');
+    console.assert(normalized.find(l => l.id === '1').ESTOQUE === 6, 'Estoque de Lente Física explícita deve ser preservado');
+    console.assert(normalized.find(l => l.id === '3').TIPO_LENTE === 'Digital', 'Lente legada sem tipo deve ser normalizada para Digital');
+    console.assert(normalized.find(l => l.id === '3').ESTOQUE === 999999, 'Lente legada normalizada para Digital deve ter estoque infinito 999999');
+    console.assert(normalized.find(l => l.id === '5').TIPO_LENTE === 'Digital', 'Lente Kodak legada deve ser normalizada para Digital');
+    console.assert(normalized.find(l => l.id === '5').ESTOQUE === 999999, 'Lente Kodak legada deve ter estoque 999999');
 
     // Simular busca de lentes físicas
     const busca = 'crizal';

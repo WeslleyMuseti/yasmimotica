@@ -797,9 +797,8 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                   if (sheetName === 'CAD_LENTES' && (colLower === 'tipo_lente' || colLower === 'formato' || col === 'TIPO_LENTE' || col === 'FORMATO' || colLower === 'tipo da lente')) {
                     const rawVal = val || row['TIPO_LENTE'] || row['FORMATO'] || '';
                     const rawLower = String(rawVal).trim().toLowerCase();
-                    const rawStock = row['ESTOQUE'] !== undefined ? row['ESTOQUE'] : (row['EM ESTOQUE'] !== undefined ? row['EM ESTOQUE'] : row['estoque']);
-                    const isInfiniteStock = rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '';
-                    const isFisica = rawLower.includes('físic') || rawLower.includes('fisic') ? true : (rawLower.includes('digit') ? false : !isInfiniteStock);
+                    // Todas as lentes são DIGITAIS por padrão, a não ser que explicitamente cadastradas/alteradas para 'Física'
+                    const isFisica = rawLower.includes('físic') || rawLower.includes('fisic');
                     return (
                       <td key={col} className="px-4 py-3 whitespace-nowrap text-xs">
                         {isFisica ? (
@@ -817,12 +816,14 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
 
                   // ─── ALERTA DE ESTOQUE MÍNIMO (PONTO DE PEDIDO) ───
                   if (col === 'ESTOQUE' || col === 'estoque' || col === 'EM ESTOQUE' || col === 'Estoque' || col === 'QTD' || col === 'QTD (PAR)' || col === 'quantidade' || col === 'QUANTIDADE') {
-                    // Lentes oftálmicas: suporte híbrido (Estoque Infinito OU Quantidade física numérica)
+                    // Lentes oftálmicas: suporte híbrido (Digital / Infinito vs Quantidade física)
                     const isInfiniteStock = val === 'infinito' || val === 'Infinito' || val === 999999 || val === '999999' || val === '♾️' || String(val || '').toLowerCase().includes('infinito');
-                    if (sheetName === 'CAD_LENTES' && isInfiniteStock) {
+                    const rawTipoVal = row['TIPO_LENTE'] || row['FORMATO'] || row['tipo_lente'] || row['formato'] || '';
+                    const isFisica = String(rawTipoVal).trim().toLowerCase().includes('físic') || String(rawTipoVal).trim().toLowerCase().includes('fisic');
+                    if (sheetName === 'CAD_LENTES' && (!isFisica || isInfiniteStock)) {
                       return (
                         <td key={col} className="px-4 py-3 whitespace-nowrap text-xs">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm" title="Lentes oftálmicas com estoque infinito sob demanda (produção em laboratório)">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm" title="Lentes oftálmicas com estoque infinito sob demanda (produção digital em laboratório)">
                             ♾️ Infinito
                           </span>
                         </td>
