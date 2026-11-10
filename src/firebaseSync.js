@@ -839,15 +839,27 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
     return { success: false, reason: 'db_or_id_missing' };
   }
 
-  // 🛡️ LENTES TÊM ESTOQUE INFINITO NO ERP (Sob Demanda / Laboratório)
-  // Nunca esgotam, não decrementam e nunca causam erro de estoque insuficiente
-  if (collectionName === 'CAD_LENTES') {
-    return { success: true, infiniteStock: true, previousStock: 'infinito', newStock: 'infinito' };
-  }
-
   const id = String(docId);
   const docRef = doc(db, collectionName, id);
   const qtyToSubtract = Math.max(1, parseInt(quantity, 10) || 1);
+
+  // 🛡️ LENTES NO ERP (Suporte Híbrido: Estoque Infinito OU Quantidade Finita)
+  // Lentes configuradas como infinito não sofrem baixa e nunca bloqueiam vendas
+  if (collectionName === 'CAD_LENTES') {
+    try {
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const d = snap.data() || {};
+        const st = d.ESTOQUE !== undefined ? d.ESTOQUE : (d['EM ESTOQUE'] !== undefined ? d['EM ESTOQUE'] : d.estoque);
+        const isInf = st === 'infinito' || st === 'Infinito' || st === 999999 || st === '999999' || st === '♾️' || String(st || '').toLowerCase().includes('infinito');
+        if (isInf) {
+          return { success: true, infiniteStock: true, previousStock: 'infinito', newStock: 'infinito' };
+        }
+      }
+    } catch {
+      return { success: true, infiniteStock: true, previousStock: 'infinito', newStock: 'infinito' };
+    }
+  }
 
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     console.warn(`[Modo Offline] Navegador offline detectado, enfileirando decremento direto de ${collectionName}/${id}`);

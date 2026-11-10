@@ -230,15 +230,56 @@ const RowEditModal = ({
     const label = COLUMN_LABELS[col] || col;
     const value = formData[col] || '';
 
-    // Lentes oftálmicas possuem estoque infinito sob demanda
+    // Lentes oftálmicas: suporte híbrido (Estoque Infinito OU Quantidade Física específica)
     if (sheetName === 'CAD_LENTES' && (k === 'estoque' || k === 'em estoque' || k === 'qtd')) {
+      const isValInfinite = value === 999999 || value === '999999' || String(value || '').toLowerCase().includes('infinito') || value === '' || value === undefined;
       return (
-        <div className="flex items-center gap-2.5 p-3.5 bg-sky-500/10 border border-sky-500/30 rounded-xl text-xs text-sky-300">
-          <span className="text-xl">♾️</span>
-          <div>
-            <p className="font-black text-white">Estoque Infinito (Sob Demanda)</p>
-            <p className="text-[10px] text-slate-400">Lentes oftálmicas são produzidas sob medida pelo laboratório e nunca esgotam no estoque.</p>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 mb-1.5">
+            <button
+              type="button"
+              onClick={() => handleFieldChange(col, '999999')}
+              className={`flex-1 py-2 px-3 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                isValInfinite
+                  ? 'bg-sky-500/20 border-sky-400 text-sky-200 shadow-sm'
+                  : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>♾️</span> Estoque Infinito
+            </button>
+            <button
+              type="button"
+              onClick={() => handleFieldChange(col, isValInfinite ? '10' : (value || '0'))}
+              className={`flex-1 py-2 px-3 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                !isValInfinite
+                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200 shadow-sm'
+                  : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>🔢</span> Quantidade Física
+            </button>
           </div>
+          {isValInfinite ? (
+            <div className="flex items-center gap-2.5 p-3.5 bg-sky-500/10 border border-sky-500/30 rounded-xl text-xs text-sky-300">
+              <span className="text-xl">♾️</span>
+              <div>
+                <p className="font-black text-white">Estoque Infinito (Sob Demanda)</p>
+                <p className="text-[10px] text-slate-400">Lentes oftálmicas produzidas sob medida pelo laboratório, sem controle de saldo finito.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <input
+                type="number"
+                min="0"
+                value={value === '999999' ? '' : value}
+                onChange={(e) => handleFieldChange(col, e.target.value)}
+                placeholder="Ex: 10 (pares em estoque)"
+                className="w-full bg-slate-800 border border-emerald-500/40 rounded-xl px-4 py-2.5 text-white font-bold text-sm focus:outline-none focus:border-emerald-400"
+              />
+              <p className="text-[10px] text-slate-400">Quantidade física real de lentes em estoque nesta loja.</p>
+            </div>
+          )}
         </div>
       );
     }

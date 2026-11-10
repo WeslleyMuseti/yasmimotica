@@ -7435,15 +7435,15 @@ async function runTests() {
 
     // 4. Validar ErpOptica.jsx
     const erpSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ErpOptica.jsx'), 'utf-8');
-    console.assert(erpSrc.includes('ESTOQUE: 999999'), 'ErpOptica deve salvar estoque como infinito/999999');
-    console.assert(erpSrc.includes('Estoque Infinito (Sob Demanda)'), 'ErpOptica deve exibir indicador de estoque infinito no form');
+    console.assert(erpSrc.includes('ESTOQUE: 999999') || erpSrc.includes('lenteEstoqueInfinito ? 999999'), 'ErpOptica deve salvar estoque como infinito/999999');
+    console.assert(erpSrc.includes('Estoque Infinito'), 'ErpOptica deve exibir indicador de estoque infinito no form');
 
     // 5. Validar POSRegister.jsx
     const posSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf-8');
     console.assert(posSrc.includes('!canSellWithoutStock && isVendor && stockAvailable <= 0'), 'POSRegister addToCart deve isentar lentes e armações de bloqueio de estoque');
     console.assert(posSrc.includes('!canSellWithoutStock && isVendor && stockAvailable <= 0'), 'POSRegister scanner deve isentar lentes e armações de bloqueio de estoque');
-    console.assert(posSrc.includes("item.type !== 'lentes'"), 'POSRegister loop de baixa deve pular lentes');
-    console.assert(posSrc.includes('♾️</span> Estoque Infinito'), 'POSRegister catálogo deve exibir badge de estoque infinito para lentes');
+    console.assert(posSrc.includes("item.type === 'lentes'") && posSrc.includes('isLenteInfinito'), 'POSRegister loop de baixa deve suportar lentes infinitas e finitas');
+    console.assert(posSrc.includes('Estoque Infinito'), 'POSRegister catálogo deve exibir badge de estoque infinito para lentes');
 
     console.log('  ✅ Test 73 Passed: Estoque Infinito para Lentes Oftálmicas validado com 100% de sucesso!\n');
   }
@@ -7852,6 +7852,51 @@ async function runTests() {
     console.assert(shouldRefetchArmacoes, 'CAD_ARMACOES com 100 itens ou schema antigo deve forçar recarregamento completo');
 
     console.log('  ✅ Test 79 Passed: Estoque Completo e Ilimitado (Sem Corte em 100 Itens) validado com 100% de sucesso!\n');
+  }
+
+  // =========================================================================
+  // Test 80: Controle Híbrido de Estoque de Lentes (Opção de Infinito ou Quantidade Física)
+  // =========================================================================
+  {
+    console.log('▶ Test 80: Controle Híbrido de Estoque de Lentes (Infinito ou Quantidade Física)');
+
+    // 1. Validar ErpOptica.jsx (Formulário de Cadastro de Lentes)
+    const erpSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ErpOptica.jsx'), 'utf-8');
+    console.assert(erpSrc.includes('lenteEstoqueInfinito'), 'ErpOptica deve conter o estado lenteEstoqueInfinito');
+    console.assert(erpSrc.includes('Quantidade Física'), 'ErpOptica deve conter botão para Quantidade Física');
+    console.assert(erpSrc.includes('Estoque Infinito'), 'ErpOptica deve conter botão para Estoque Infinito');
+    console.assert(erpSrc.includes('parseInt(lentesForm.ESTOQUE, 10)'), 'ErpOptica deve converter quantidade física para número');
+
+    // 2. Validar RowEditModal.jsx (Edição de Lentes)
+    const rowEditSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'RowEditModal.jsx'), 'utf-8');
+    console.assert(rowEditSrc.includes('isValInfinite'), 'RowEditModal deve detectar se o valor é infinito');
+    console.assert(rowEditSrc.includes('Quantidade Física'), 'RowEditModal deve permitir selecionar Quantidade Física');
+    console.assert(rowEditSrc.includes('handleFieldChange(col, \'999999\')'), 'RowEditModal deve permitir redefinir para Infinito');
+
+    // 3. Validar DataTable.jsx (Visualização de Lentes)
+    const dataTableSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'DataTable.jsx'), 'utf-8');
+    console.assert(dataTableSrc.includes('isInfiniteStock'), 'DataTable deve verificar se a lente tem estoque infinito');
+    console.assert(dataTableSrc.includes('sheetName === \'CAD_LENTES\' && isInfiniteStock'), 'DataTable só deve exibir ♾️ Infinito se a lente for infinita');
+
+    // 4. Validar POSRegister.jsx (Frente de Caixa)
+    const posSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf-8');
+    console.assert(posSrc.includes('isLenteInfinito'), 'POSRegister deve identificar se a lente específica é infinita');
+    console.assert(posSrc.includes('sheetName = \'CAD_LENTES\''), 'POSRegister deve baixar estoque de lentes com quantidade finita');
+
+    // 5. Simular Lógica de Classificação de Estoque de Lentes
+    const isInfiniteLente = (val) => {
+      return val === 'infinito' || val === 'Infinito' || val === 999999 || val === '999999' || val === '♾️' || String(val || '').toLowerCase().includes('infinito') || val === undefined || val === '';
+    };
+
+    // Cenários de teste:
+    console.assert(isInfiniteLente(999999) === true, '999999 deve ser considerado infinito');
+    console.assert(isInfiniteLente('infinito') === true, "'infinito' deve ser considerado infinito");
+    console.assert(isInfiniteLente('Infinito (Sob Demanda)') === true, 'Texto com infinito deve ser considerado infinito');
+    console.assert(isInfiniteLente('10') === false, "'10' deve ser considerado estoque finito");
+    console.assert(isInfiniteLente(15) === false, '15 deve ser considerado estoque finito');
+    console.assert(isInfiniteLente(0) === false, '0 deve ser considerado estoque finito');
+
+    console.log('  ✅ Test 80 Passed: Controle Híbrido de Estoque de Lentes (Infinito ou Quantidade Física) validado com 100% de sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');

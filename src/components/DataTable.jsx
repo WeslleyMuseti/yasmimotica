@@ -787,11 +787,12 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
 
                   // ─── ALERTA DE ESTOQUE MÍNIMO (PONTO DE PEDIDO) ───
                   if (col === 'ESTOQUE' || col === 'estoque' || col === 'EM ESTOQUE' || col === 'Estoque' || col === 'QTD' || col === 'QTD (PAR)' || col === 'quantidade' || col === 'QUANTIDADE') {
-                    // Lentes possuem estoque infinito no ERP (sob demanda / laboratório)
-                    if (sheetName === 'CAD_LENTES') {
+                    // Lentes oftálmicas: suporte híbrido (Estoque Infinito OU Quantidade física numérica)
+                    const isInfiniteStock = val === 'infinito' || val === 'Infinito' || val === 999999 || val === '999999' || val === '♾️' || String(val || '').toLowerCase().includes('infinito');
+                    if (sheetName === 'CAD_LENTES' && isInfiniteStock) {
                       return (
                         <td key={col} className="px-4 py-3 whitespace-nowrap text-xs">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm" title="Lentes oftálmicas possuem estoque infinito sob demanda (produção em laboratório)">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm" title="Lentes oftálmicas com estoque infinito sob demanda (produção em laboratório)">
                             ♾️ Infinito
                           </span>
                         </td>

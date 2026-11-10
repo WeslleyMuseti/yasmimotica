@@ -1627,13 +1627,23 @@ const POSRegister = ({
         }
 
         // 2. Baixar Estoque dos Itens Vendidos no ERP (Transações Atômicas no Firestore)
-        // ♾️ Nota: Lentes oftálmicas (CAD_LENTES) possuem estoque infinito sob demanda e NÃO sofrem baixa física
+        // ♾️ Nota: Lentes oftálmicas (CAD_LENTES) suportam estoque infinito ou baixa de quantidade física finita
         for (const item of cart) {
-          if (item.rawProduct && item.type !== 'lentes' && (item.type === 'armacoes' || item.type === 'acessorios' || item.type === 'brindes' || item.type === 'geral')) {
-            let sheetName = 'CAD_ARMACOES';
-            if (item.type === 'acessorios') sheetName = 'CAD_ACESSORIOS';
+          if (item.rawProduct) {
+            let sheetName = null;
+            if (item.type === 'armacoes') sheetName = 'CAD_ARMACOES';
+            else if (item.type === 'acessorios') sheetName = 'CAD_ACESSORIOS';
             else if (item.type === 'brindes') sheetName = 'CAD_BRINDES';
             else if (item.type === 'geral') sheetName = 'ESTOQUE';
+            else if (item.type === 'lentes') {
+              const rawLenteStock = item.rawProduct['ESTOQUE'] !== undefined ? item.rawProduct['ESTOQUE'] : (item.rawProduct['EM ESTOQUE'] !== undefined ? item.rawProduct['EM ESTOQUE'] : item.rawProduct['estoque']);
+              const isLenteInfinito = rawLenteStock === 'infinito' || rawLenteStock === 'Infinito' || rawLenteStock === 999999 || rawLenteStock === '999999' || rawLenteStock === '♾️' || String(rawLenteStock || '').toLowerCase().includes('infinito');
+              if (!isLenteInfinito) {
+                sheetName = 'CAD_LENTES';
+              }
+            }
+
+            if (!sheetName) continue;
 
             const currentStock = parseInt(item.rawProduct['ESTOQUE'] || item.rawProduct['EM ESTOQUE'] || 0, 10);
             const updatedStock = Math.max(0, currentStock - item.qtd);
@@ -2956,9 +2966,26 @@ const POSRegister = ({
                             )}
                             <div className="mt-0.5">
                               {isLente ? (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-sky-500/15 text-sky-300 border border-sky-500/30 flex items-center gap-1 w-fit">
-                                  <span>♾️</span> Estoque Infinito
-                                </span>
+                                (() => {
+                                  const rawStock = prod['ESTOQUE'] !== undefined ? prod['ESTOQUE'] : (prod['EM ESTOQUE'] !== undefined ? prod['EM ESTOQUE'] : prod['estoque']);
+                                  const isLenteInfinito = rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '';
+                                  if (isLenteInfinito) {
+                                    return (
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-sky-500/15 text-sky-300 border border-sky-500/30 flex items-center gap-1 w-fit">
+                                        <span>♾️</span> Estoque Infinito
+                                      </span>
+                                    );
+                                  }
+                                  return (
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                                      stock > 2 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                                      stock > 0 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' :
+                                      'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                    }`}>
+                                      {stock > 2 ? `Estoque: ${stock} un` : stock > 0 ? `⚠️ Ponto de Pedido: ${stock} un` : '⚠️ 0 un (Venda Permitida)'}
+                                    </span>
+                                  );
+                                })()
                               ) : (
                                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
                                   stock > 2 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :

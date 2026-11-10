@@ -195,6 +195,7 @@ const ErpOptica = ({
     CILINDRICO_MIN: '-4.00', CILINDRICO_MAX: '0.00',
     PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '999999'
   });
+  const [lenteEstoqueInfinito, setLenteEstoqueInfinito] = useState(true);
 
   const [armacoesForm, setArmacoesForm] = useState({
     UNIDADE: defaultFormCity || 'Central', MARCA: '', MODELO: '', REFERENCIA_SKU: '', COR: 'Preto',
@@ -707,11 +708,12 @@ const ErpOptica = ({
   const handleCreateRecord = (e) => {
     e.preventDefault();
     if (activeTab === 'lentes') {
+      const estoqueFinal = lenteEstoqueInfinito ? 999999 : (parseInt(lentesForm.ESTOQUE, 10) || 0);
       onAddRow('CAD_LENTES', {
         ...lentesForm,
         PRECO_COMPRA: parseCurrency(lentesForm.PRECO_COMPRA).toFixed(2).replace('.', ','),
         PRECO_VENDA: parseCurrency(lentesForm.PRECO_VENDA).toFixed(2).replace('.', ','),
-        ESTOQUE: 999999, // Lentes oftálmicas possuem estoque infinito sob demanda
+        ESTOQUE: estoqueFinal,
         DATA_CADASTRO: new Date().toLocaleDateString('pt-BR')
       });
       setLentesForm({
@@ -720,7 +722,7 @@ const ErpOptica = ({
         ESFERICO: '', CILINDRICO: '', DIAMETRO: '', EIXO: '', ADICAO: '',
         ESFERICO_MIN: '-6.00', ESFERICO_MAX: '+6.00',
         CILINDRICO_MIN: '-4.00', CILINDRICO_MAX: '0.00',
-        PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '999999'
+        PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: lenteEstoqueInfinito ? '999999' : '10'
       });
       setSuccessMsg('Lente cadastrada com sucesso no estoque!');
     } else if (activeTab === 'armacoes') {
@@ -2781,11 +2783,56 @@ const ErpOptica = ({
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Estoque</label>
-                    <div className="w-full bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 text-emerald-400 font-bold flex items-center gap-2">
-                      <span className="text-lg">♾️</span>
-                      <span className="text-sm font-semibold">Estoque Infinito (Sob Demanda)</span>
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Tipo de Estoque da Lente</label>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLenteEstoqueInfinito(true);
+                          setLentesForm(prev => ({ ...prev, ESTOQUE: '999999' }));
+                        }}
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                          lenteEstoqueInfinito
+                            ? 'bg-sky-500/20 border-sky-400 text-sky-200 shadow-sm'
+                            : 'bg-black/40 border-white/10 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <span>♾️</span> Estoque Infinito
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLenteEstoqueInfinito(false);
+                          setLentesForm(prev => ({ ...prev, ESTOQUE: prev.ESTOQUE === '999999' ? '10' : prev.ESTOQUE }));
+                        }}
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                          !lenteEstoqueInfinito
+                            ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200 shadow-sm'
+                            : 'bg-black/40 border-white/10 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <span>🔢</span> Quantidade Física
+                      </button>
                     </div>
+                    {lenteEstoqueInfinito ? (
+                      <div className="w-full bg-sky-500/10 border border-sky-500/30 rounded-xl px-4 py-2.5 text-sky-300 font-bold flex items-center gap-2">
+                        <span className="text-lg">♾️</span>
+                        <span className="text-xs font-semibold">Lente sob demanda (não esgota no estoque)</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="Ex: 10 (pares em estoque)"
+                          value={lentesForm.ESTOQUE === '999999' ? '' : lentesForm.ESTOQUE}
+                          onChange={e => setLentesForm({ ...lentesForm, ESTOQUE: e.target.value })}
+                          className="w-full bg-black/40 border border-emerald-500/40 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500/50 text-sm font-bold"
+                          required={!lenteEstoqueInfinito}
+                        />
+                        <p className="text-[10px] text-slate-400">Informe a quantidade física de pares disponíveis.</p>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-black uppercase tracking-widest text-slate-400">Preço de Custo (R$)</label>
