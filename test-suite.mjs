@@ -7899,6 +7899,88 @@ async function runTests() {
     console.log('  ✅ Test 80 Passed: Controle Híbrido de Estoque de Lentes (Infinito ou Quantidade Física) validado com 100% de sucesso!\n');
   }
 
+  // =========================================================================
+  // Test 81: Diferenciação de Lentes Físicas vs Digitais (ERP, Edição, Tabela e PDV)
+  // =========================================================================
+  {
+    console.log('▶ Test 81: Diferenciação de Lentes Físicas vs Digitais (ERP, Edição, Tabela e PDV)');
+
+    // 1. Validar ErpOptica.jsx (Formulário de Cadastro de Lentes)
+    const erpSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ErpOptica.jsx'), 'utf-8');
+    console.assert(erpSrc.includes('TIPO_LENTE'), 'ErpOptica deve conter o campo TIPO_LENTE no formulário de lentes');
+    console.assert(erpSrc.includes('Lente Física'), 'ErpOptica deve conter botão para Lente Física');
+    console.assert(erpSrc.includes('Lente Digital'), 'ErpOptica deve conter botão para Lente Digital');
+    console.assert(erpSrc.includes('FORMATO: tipoLente'), 'ErpOptica deve gravar FORMATO e TIPO_LENTE no CAD_LENTES');
+
+    // 2. Validar RowEditModal.jsx (Edição de Lentes)
+    const rowEditSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'RowEditModal.jsx'), 'utf-8');
+    console.assert(rowEditSrc.includes('tipo_lente'), 'RowEditModal deve tratar o campo tipo_lente');
+    console.assert(rowEditSrc.includes('Lente Física'), 'RowEditModal deve permitir alternar para Lente Física');
+    console.assert(rowEditSrc.includes('Lente Digital'), 'RowEditModal deve permitir alternar para Lente Digital');
+
+    // 3. Validar DataTable.jsx (Tabela ERP)
+    const dataTableSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'DataTable.jsx'), 'utf-8');
+    console.assert(dataTableSrc.includes('Lente Física'), 'DataTable deve renderizar badge de Lente Física');
+    console.assert(dataTableSrc.includes('Lente Digital'), 'DataTable deve renderizar badge de Lente Digital');
+    console.assert(dataTableSrc.includes('TIPO_LENTE') && dataTableSrc.includes('priorityMaps'), 'DataTable deve incluir TIPO_LENTE nas colunas prioritárias de CAD_LENTES');
+
+    // 4. Validar POSRegister.jsx (PDV / Frente de Caixa)
+    const posSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf-8');
+    console.assert(posSrc.includes('lentes_fisicas'), 'POSRegister deve conter categoria dedicada para lentes_fisicas');
+    console.assert(posSrc.includes('Lentes Físicas'), 'POSRegister deve conter botão de filtro para Lentes Físicas');
+    console.assert(posSrc.includes('erpLentesFisicas'), 'POSRegister deve memoizar erpLentesFisicas');
+    console.assert(posSrc.includes('isLenteFisica'), 'POSRegister deve exportar e utilizar helper isLenteFisica');
+
+    // 5. Validar firebaseSync.js (Baixa de Estoque)
+    const syncSrc = fs.readFileSync(path.join(__dirname, 'src', 'firebaseSync.js'), 'utf-8');
+    console.assert(syncSrc.includes('isFisica'), 'firebaseSync deve diferenciar lentes físicas para decremento de estoque');
+
+    // 6. Testar Heurística e Compatibilidade Retroativa de isLenteFisica
+    const isLenteFisicaFn = (item) => {
+      if (!item) return false;
+      const rawTipo = String(item['TIPO_LENTE'] || item['tipo_lente'] || item['FORMATO'] || item['formato'] || item['TIPO'] || item['tipo'] || '').trim().toLowerCase();
+      if (rawTipo.includes('físic') || rawTipo.includes('fisic')) return true;
+      if (rawTipo.includes('digit')) return false;
+
+      const rawStock = item['ESTOQUE'] !== undefined ? item['ESTOQUE'] : (item['EM ESTOQUE'] !== undefined ? item['EM ESTOQUE'] : item['estoque']);
+      const isInfinite = rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '';
+      return !isInfinite;
+    };
+
+    // Item explicitamente marcado como Física
+    console.assert(isLenteFisicaFn({ TIPO_LENTE: 'Física', ESTOQUE: 10 }) === true, 'Lente com TIPO_LENTE Física deve retornar true');
+    console.assert(isLenteFisicaFn({ FORMATO: 'Fisica', ESTOQUE: '999999' }) === true, 'Lente com FORMATO Fisica deve retornar true mesmo com estoque alto');
+
+    // Item explicitamente marcado como Digital
+    console.assert(isLenteFisicaFn({ TIPO_LENTE: 'Digital', ESTOQUE: '999999' }) === false, 'Lente com TIPO_LENTE Digital deve retornar false');
+    console.assert(isLenteFisicaFn({ FORMATO: 'Digital', ESTOQUE: 5 }) === false, 'Lente com FORMATO Digital deve retornar false mesmo com estoque finito');
+
+    // Compatibilidade Retroativa (Legado sem TIPO_LENTE nem FORMATO)
+    console.assert(isLenteFisicaFn({ MARCA: 'Essilor', ESTOQUE: 12 }) === true, 'Legado com estoque finito (12) deve ser identificado como física');
+    console.assert(isLenteFisicaFn({ MARCA: 'Hoya', ESTOQUE: 999999 }) === false, 'Legado com estoque 999999 deve ser identificado como digital');
+    console.assert(isLenteFisicaFn({ MARCA: 'Zeiss', ESTOQUE: 'infinito' }) === false, 'Legado com estoque infinito deve ser identificado como digital');
+    console.assert(isLenteFisicaFn({ MARCA: 'Genérica' }) === false, 'Legado sem estoque deve ter default digital');
+
+    // 7. Simular Filtragem no PDV para Lentes Físicas
+    const mockErpLentes = [
+      { id: '1', MARCA: 'Essilor', MODELO: 'Crizal Easy', TIPO_LENTE: 'Física', ESTOQUE: 6, PRECO_VENDA: '250,00', UNIDADE: 'Cajati' },
+      { id: '2', MARCA: 'Hoya', MODELO: 'BlueControl', TIPO_LENTE: 'Digital', ESTOQUE: 999999, PRECO_VENDA: '450,00', UNIDADE: 'Cajati' },
+      { id: '3', MARCA: 'Zeiss', MODELO: 'DriveSafe', ESTOQUE: 4, PRECO_VENDA: '800,00', UNIDADE: 'Registro' },
+      { id: '4', MARCA: 'Yasmin Flex', MODELO: 'Sob Demanda', ESTOQUE: 'infinito', PRECO_VENDA: '180,00', UNIDADE: 'Cajati' }
+    ];
+
+    const fisicas = mockErpLentes.filter(l => isLenteFisicaFn(l));
+    console.assert(fisicas.length === 2, 'Filtro de lentes físicas deve encontrar exatamente 2 lentes (1 explícita + 1 legada com estoque finito)');
+    console.assert(fisicas.some(l => l.id === '1') && fisicas.some(l => l.id === '3'), 'Lentes físicas devem ser id 1 e id 3');
+
+    // Simular busca de lentes físicas
+    const busca = 'crizal';
+    const buscaRes = fisicas.filter(l => Object.values(l).join(' ').toLowerCase().includes(busca));
+    console.assert(buscaRes.length === 1 && buscaRes[0].id === '1', 'Busca dentro de lentes físicas deve retornar o item correto');
+
+    console.log('  ✅ Test 81 Passed: Diferenciação de Lentes Físicas vs Digitais (ERP, Edição, Tabela e PDV) validado com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

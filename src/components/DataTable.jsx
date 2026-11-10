@@ -40,6 +40,7 @@ export const COLUMN_LABELS = {
   'cilindrico_min': 'Cil. Mín.', 'cilindrico_max': 'Cil. Máx.',
   'preco_compra': 'Pr. Compra (R$)', 'PRECO_COMPRA': 'Pr. Compra (R$)',
   'preco_venda': 'Pr. Venda (R$)', 'PRECO_VENDA': 'Pr. Venda (R$)',
+  'tipo_lente': 'Tipo Lente', 'TIPO_LENTE': 'Tipo Lente', 'formato': 'Formato', 'FORMATO': 'Formato',
   'estoque': 'Estoque', 'ESTOQUE': 'Estoque',
   'referencia_sku': 'SKU / Ref.', 'REFERENCIA_SKU': 'SKU / Ref.',
   'cor': 'Cor', 'COR': 'Cor',
@@ -232,6 +233,12 @@ export const CANONICAL_ALIASES = [
     canonical: 'PRECO_COMPRA',
     label: 'Preço Compra (R$)',
     keys: ['PRECO_COMPRA', 'preco_compra', 'VALOR_COMPRA', 'CUSTO']
+  },
+  {
+    id: 'tipo_lente',
+    canonical: 'TIPO_LENTE',
+    label: 'Tipo de Lente',
+    keys: ['TIPO_LENTE', 'tipo_lente', 'FORMATO', 'formato', 'TIPO_DA_LENTE']
   }
 ];
 
@@ -393,7 +400,7 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
       ['IMAGEM', 'MARCA', 'MODELO', 'REFERENCIA_SKU', 'COR', 'TAMANHO', 'MATERIAL', 'ESTOQUE', 'PRECO_VENDA', 'PRECO_COMPRA', 'UNIDADE', 'OBSERVACOES'].forEach(col => keys.add(col));
     }
     if (sheetName === 'CAD_LENTES') {
-      ['MARCA', 'MODELO', 'ESFERICO', 'CILINDRICO', 'DIAMETRO', 'EIXO', 'ADICAO', 'MATERIAL', 'INDICE_REFRACAO', 'TRATAMENTO', 'ESFERICO_MIN', 'ESFERICO_MAX', 'CILINDRICO_MIN', 'CILINDRICO_MAX', 'ESTOQUE', 'PRECO_COMPRA', 'PRECO_VENDA', 'UNIDADE', 'OBSERVACOES'].forEach(col => keys.add(col));
+      ['MARCA', 'MODELO', 'TIPO_LENTE', 'ESFERICO', 'CILINDRICO', 'DIAMETRO', 'EIXO', 'ADICAO', 'MATERIAL', 'INDICE_REFRACAO', 'TRATAMENTO', 'ESFERICO_MIN', 'ESFERICO_MAX', 'CILINDRICO_MIN', 'CILINDRICO_MAX', 'ESTOQUE', 'PRECO_COMPRA', 'PRECO_VENDA', 'UNIDADE', 'OBSERVACOES'].forEach(col => keys.add(col));
     }
     if (sheetName === 'CAD_BRINDES') {
       ['IMAGEM', 'NOME', 'CATEGORIA', 'REFERENCIA_SKU', 'COR', 'ESTOQUE', 'PRECO_VENDA', 'PRECO_COMPRA', 'UNIDADE', 'OBSERVACOES'].forEach(col => keys.add(col));
@@ -431,7 +438,8 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
       ],
       CAD_LENTES: [
         'MARCA', 'marca',
-        'MODELO', 'modelo', 'TIPO',
+        'MODELO', 'modelo',
+        'TIPO_LENTE', 'tipo_lente', 'FORMATO', 'formato', 'TIPO',
         'ESFERICO', 'esferico',
         'CILINDRICO', 'cilindrico',
         'DIAMETRO', 'diametro',
@@ -784,6 +792,28 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                 {allCols.map(col => {
                   const val = getRowValue(row, col);
                   const colLower = col.toLowerCase();
+
+                  // ─── TIPO / FORMATO DE LENTE NO ERP (FÍSICA OU DIGITAL) ───
+                  if (sheetName === 'CAD_LENTES' && (colLower === 'tipo_lente' || colLower === 'formato' || col === 'TIPO_LENTE' || col === 'FORMATO' || colLower === 'tipo da lente')) {
+                    const rawVal = val || row['TIPO_LENTE'] || row['FORMATO'] || '';
+                    const rawLower = String(rawVal).trim().toLowerCase();
+                    const rawStock = row['ESTOQUE'] !== undefined ? row['ESTOQUE'] : (row['EM ESTOQUE'] !== undefined ? row['EM ESTOQUE'] : row['estoque']);
+                    const isInfiniteStock = rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '';
+                    const isFisica = rawLower.includes('físic') || rawLower.includes('fisic') || (!rawLower && !isInfiniteStock);
+                    return (
+                      <td key={col} className="px-4 py-3 whitespace-nowrap text-xs">
+                        {isFisica ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm" title="Lente Física (Pronta entrega em estoque)">
+                            <span>👓</span> Lente Física
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm" title="Lente Digital (Surfaçagem em laboratório sob demanda)">
+                            <span>🔬</span> Lente Digital
+                          </span>
+                        )}
+                      </td>
+                    );
+                  }
 
                   // ─── ALERTA DE ESTOQUE MÍNIMO (PONTO DE PEDIDO) ───
                   if (col === 'ESTOQUE' || col === 'estoque' || col === 'EM ESTOQUE' || col === 'Estoque' || col === 'QTD' || col === 'QTD (PAR)' || col === 'quantidade' || col === 'QUANTIDADE') {

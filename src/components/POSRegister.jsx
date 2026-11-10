@@ -43,6 +43,18 @@ const fmtMoeda = (v) => `R$ ${Number(cleanVal(v) || 0).toLocaleString('pt-BR', {
 
 const parseCurrency = cleanVal;
 
+export const isLenteFisica = (item) => {
+  if (!item) return false;
+  const rawTipo = String(item['TIPO_LENTE'] || item['tipo_lente'] || item['FORMATO'] || item['formato'] || item['TIPO'] || item['tipo'] || '').trim().toLowerCase();
+  if (rawTipo.includes('físic') || rawTipo.includes('fisic')) return true;
+  if (rawTipo.includes('digit')) return false;
+
+  // Compatibilidade retroativa baseada no estoque se tipo não estiver especificado:
+  const rawStock = item['ESTOQUE'] !== undefined ? item['ESTOQUE'] : (item['EM ESTOQUE'] !== undefined ? item['EM ESTOQUE'] : item['estoque']);
+  const isInfinite = rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '';
+  return !isInfinite;
+};
+
 const withTimeout = (promise, ms = 2500) => {
   if (!promise || typeof promise.then !== 'function') return Promise.resolve(promise);
   return Promise.race([
@@ -446,6 +458,10 @@ const POSRegister = ({
     return data?.['CAD_LENTES'] || lentesData || [];
   }, [data, lentesData]);
 
+  const erpLentesFisicas = useMemo(() => {
+    return erpLentes.filter(item => isLenteFisica(item));
+  }, [erpLentes]);
+
   const erpGeral = useMemo(() => {
     return data?.['ESTOQUE'] || data?.['ESTOQUE ENTRADA SAÍDAS'] || [];
   }, [data]);
@@ -598,6 +614,8 @@ const POSRegister = ({
     let source = [];
     if (productCategory === 'armacoes') {
       source = erpArmacoes.map(i => ({ ...i, _type: 'armacoes' }));
+    } else if (productCategory === 'lentes_fisicas') {
+      source = erpLentesFisicas.map(i => ({ ...i, _type: 'lentes', _subType: 'lentes_fisicas' }));
     } else if (productCategory === 'lentes') {
       source = erpLentes.map(i => ({ ...i, _type: 'lentes' }));
     } else if (productCategory === 'brindes') {
@@ -643,14 +661,14 @@ const POSRegister = ({
       const text = Object.values(item).join(' ').toLowerCase();
       return text.includes(q);
     });
-  }, [productCategory, erpArmacoes, erpLentes, erpAcessorios, erpBrindes, erpGeral, salesCountMap, productSearch, selectedCityStock]);
+  }, [productCategory, erpArmacoes, erpLentes, erpLentesFisicas, erpAcessorios, erpBrindes, erpGeral, salesCountMap, productSearch, selectedCityStock]);
 
   // ─── OPERAÇÕES DO CARRINHO ───────────────────────────────────────
   const addToCart = (product, type) => {
     const rawStock = product['ESTOQUE'] !== undefined ? product['ESTOQUE'] : (product['EM ESTOQUE'] !== undefined ? product['EM ESTOQUE'] : (product['estoque'] !== undefined ? product['estoque'] : product['QTD']));
     const stockAvailable = parseInt(rawStock !== undefined && rawStock !== '' ? rawStock : 999, 10);
 
-    const isLente = type === 'lentes' || product._type === 'lentes' || productCategory === 'lentes' || Boolean(product['LENTE']) || Boolean(product['ESFERICO_MIN']) || Boolean(product['INDICE_REFRACAO']);
+    const isLente = type === 'lentes' || product._type === 'lentes' || productCategory === 'lentes' || productCategory === 'lentes_fisicas' || Boolean(product['LENTE']) || Boolean(product['ESFERICO_MIN']) || Boolean(product['INDICE_REFRACAO']);
     const isArmacao = type === 'armacoes' || product._type === 'armacoes' || productCategory === 'armacoes' || Boolean(product['COR']) || Boolean(product['TAMANHO']) || Boolean(product['REFERENCIA_SKU']) || (product['MARCA'] && !product['CATEGORIA']);
     const canSellWithoutStock = isLente || isArmacao;
 
@@ -687,6 +705,7 @@ const POSRegister = ({
       if (product['MATERIAL']) extra.push(product['MATERIAL']);
       if (product['INDICE_REFRACAO']) extra.push(`Índice: ${product['INDICE_REFRACAO']}`);
       if (product['TRATAMENTO']) extra.push(product['TRATAMENTO']);
+      extra.push(isLenteFisica(product) ? 'Lente Física' : 'Lente Digital');
       details = extra.join(' | ');
     } else if (effectiveType === 'acessorios') {
       name = `${product['MARCA'] ? product['MARCA'] + ' ' : ''}${product['NOME'] || product['MODELO'] || product['PRODUTO'] || 'Acessório'}`.trim();
@@ -1637,7 +1656,7 @@ const POSRegister = ({
             else if (item.type === 'geral') sheetName = 'ESTOQUE';
             else if (item.type === 'lentes') {
               const rawLenteStock = item.rawProduct['ESTOQUE'] !== undefined ? item.rawProduct['ESTOQUE'] : (item.rawProduct['EM ESTOQUE'] !== undefined ? item.rawProduct['EM ESTOQUE'] : item.rawProduct['estoque']);
-              const isLenteInfinito = rawLenteStock === 'infinito' || rawLenteStock === 'Infinito' || rawLenteStock === 999999 || rawLenteStock === '999999' || rawLenteStock === '♾️' || String(rawLenteStock || '').toLowerCase().includes('infinito');
+              const isLenteInfinito = !isLenteFisica(item.rawProduct) && (rawLenteStock === 'infinito' || rawLenteStock === 'Infinito' || rawLenteStock === 999999 || rawLenteStock === '999999' || rawLenteStock === '♾️' || String(rawLenteStock || '').toLowerCase().includes('infinito'));
               if (!isLenteInfinito) {
                 sheetName = 'CAD_LENTES';
               }
@@ -2783,6 +2802,13 @@ const POSRegister = ({
                 </button>
                 <button
                   type="button"
+                  onClick={() => setProductCategory('lentes_fisicas')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${productCategory === 'lentes_fisicas' ? 'bg-teal-500 text-slate-950 font-black shadow-lg shadow-teal-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                >
+                  👓 Lentes Físicas ({erpLentesFisicas.length})
+                </button>
+                <button
+                  type="button"
                   onClick={() => setProductCategory('lentes')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${productCategory === 'lentes' ? 'bg-indigo-500 text-white font-black shadow-lg shadow-indigo-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                 >
@@ -2896,7 +2922,7 @@ const POSRegister = ({
                     const isArmacao = productCategory === 'armacoes' || prod._type === 'armacoes' || Boolean(prod['COR']) || Boolean(prod['TAMANHO']) || Boolean(prod['REFERENCIA_SKU']);
                     const isBrinde = productCategory === 'brindes' || prod._type === 'brindes';
                     const isAcessorio = productCategory === 'acessorios' || prod._type === 'acessorios';
-                    const isLente = productCategory === 'lentes' || prod._type === 'lentes' || Boolean(prod['LENTE']) || Boolean(prod['INDICE_REFRACAO']);
+                    const isLente = productCategory === 'lentes' || productCategory === 'lentes_fisicas' || prod._type === 'lentes' || Boolean(prod['LENTE']) || Boolean(prod['INDICE_REFRACAO']);
                     const canSellWithoutStock = isLente || isArmacao;
                     const brand = prod['MARCA'] || prod['marca'] || '';
                     const model = prod['NOME'] || prod['MODELO'] || prod['modelo'] || prod['PRODUTO'] || prod['DESCRICAO'] || '';
@@ -2928,6 +2954,15 @@ const POSRegister = ({
                               {title}
                             </p>
                             <div className="flex flex-wrap items-center gap-1 mt-1">
+                              {isLente && (
+                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border ${
+                                  isLenteFisica(prod)
+                                    ? 'text-teal-300 bg-teal-500/15 border-teal-500/30'
+                                    : 'text-indigo-300 bg-indigo-500/15 border-indigo-500/30'
+                                }`}>
+                                  {isLenteFisica(prod) ? '👓 Lente Física' : '🔬 Lente Digital'}
+                                </span>
+                              )}
                               {categoria && (
                                 <span className="text-[9px] font-bold text-pink-400 bg-pink-500/10 px-1.5 py-0.5 rounded">
                                   {categoria}
@@ -2968,7 +3003,7 @@ const POSRegister = ({
                               {isLente ? (
                                 (() => {
                                   const rawStock = prod['ESTOQUE'] !== undefined ? prod['ESTOQUE'] : (prod['EM ESTOQUE'] !== undefined ? prod['EM ESTOQUE'] : prod['estoque']);
-                                  const isLenteInfinito = rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '';
+                                  const isLenteInfinito = !isLenteFisica(prod) && (rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '');
                                   if (isLenteInfinito) {
                                     return (
                                       <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-sky-500/15 text-sky-300 border border-sky-500/30 flex items-center gap-1 w-fit">
@@ -3025,7 +3060,7 @@ const POSRegister = ({
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => addToCart(prod, prod._type || productCategory)}
+                                onClick={() => addToCart(prod, prod._type || (productCategory === 'lentes_fisicas' ? 'lentes' : productCategory))}
                                 className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-xl text-xs font-black transition-all shadow-md shadow-amber-500/10 active:scale-95"
                               >
                                 + Adicionar

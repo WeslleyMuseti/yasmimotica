@@ -53,9 +53,19 @@ const RowEditModal = ({
         }
       });
 
+      if (sheetName === 'CAD_LENTES') {
+        if (!initialData['TIPO_LENTE'] && !initialData['tipo_lente'] && !initialData['FORMATO'] && !initialData['formato']) {
+          const rawSt = initialData['ESTOQUE'] || initialData['estoque'];
+          const isInf = rawSt === 'infinito' || rawSt === 'Infinito' || rawSt === 999999 || rawSt === '999999' || rawSt === '♾️' || String(rawSt || '').toLowerCase().includes('infinito') || rawSt === undefined || rawSt === '';
+          const defaultTipo = isInf ? 'Digital' : 'Física';
+          initialData['TIPO_LENTE'] = defaultTipo;
+          initialData['FORMATO'] = defaultTipo;
+        }
+      }
+
       setFormData(initialData);
     }
-  }, [rowData]);
+  }, [rowData, sheetName]);
 
   const handleChange = (col, value) => {
     setFormData(prev => {
@@ -74,6 +84,8 @@ const RowEditModal = ({
       return updated;
     });
   };
+
+  const handleFieldChange = handleChange;
 
   const handleSave = () => {
     const cleanData = {};
@@ -229,6 +241,60 @@ const RowEditModal = ({
     const k = col.toLowerCase().trim();
     const label = COLUMN_LABELS[col] || col;
     const value = formData[col] || '';
+
+    // Lentes oftálmicas: suporte a Tipo de Lente (Física vs Digital)
+    if (sheetName === 'CAD_LENTES' && (k === 'tipo_lente' || k === 'formato' || k === 'tipo da lente' || k === 'tipo')) {
+      const rawVal = value || formData['TIPO_LENTE'] || formData['FORMATO'] || '';
+      const rawLower = String(rawVal).trim().toLowerCase();
+      const rawStock = formData['ESTOQUE'] || formData['estoque'];
+      const isInfiniteStock = rawStock === 'infinito' || rawStock === 'Infinito' || rawStock === 999999 || rawStock === '999999' || rawStock === '♾️' || String(rawStock || '').toLowerCase().includes('infinito') || rawStock === undefined || rawStock === '';
+      const isFisica = rawLower.includes('físic') || rawLower.includes('fisic') || (!rawLower && !isInfiniteStock);
+      return (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-black uppercase tracking-widest text-slate-400">Tipo de Lente (Física ou Digital)</label>
+            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${isFisica ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'}`}>
+              {isFisica ? '👓 Lente Física' : '🔬 Lente Digital'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 mb-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                handleFieldChange(col, 'Física');
+                handleFieldChange('TIPO_LENTE', 'Física');
+                handleFieldChange('FORMATO', 'Física');
+              }}
+              className={`flex-1 py-2 px-3 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                isFisica
+                  ? 'bg-amber-500/20 border-amber-400 text-amber-200 shadow-sm'
+                  : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>👓</span> Lente Física
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                handleFieldChange(col, 'Digital');
+                handleFieldChange('TIPO_LENTE', 'Digital');
+                handleFieldChange('FORMATO', 'Digital');
+              }}
+              className={`flex-1 py-2 px-3 rounded-xl text-xs font-black border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                !isFisica
+                  ? 'bg-sky-500/20 border-sky-400 text-sky-200 shadow-sm'
+                  : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>🔬</span> Lente Digital
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-400">
+            {isFisica ? 'Lente física de estoque pronto na loja (controle de unidades).' : 'Lente sob medida (surfaçagem digital em laboratório).'}
+          </p>
+        </div>
+      );
+    }
 
     // Lentes oftálmicas: suporte híbrido (Estoque Infinito OU Quantidade Física específica)
     if (sheetName === 'CAD_LENTES' && (k === 'estoque' || k === 'em estoque' || k === 'qtd')) {

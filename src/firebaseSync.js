@@ -851,7 +851,9 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
       if (snap.exists()) {
         const d = snap.data() || {};
         const st = d.ESTOQUE !== undefined ? d.ESTOQUE : (d['EM ESTOQUE'] !== undefined ? d['EM ESTOQUE'] : d.estoque);
-        const isInf = st === 'infinito' || st === 'Infinito' || st === 999999 || st === '999999' || st === '♾️' || String(st || '').toLowerCase().includes('infinito');
+        const tipo = String(d.TIPO_LENTE || d.tipo_lente || d.FORMATO || d.formato || '').trim().toLowerCase();
+        const isFisica = tipo.includes('físic') || tipo.includes('fisic');
+        const isInf = !isFisica && (st === 'infinito' || st === 'Infinito' || st === 999999 || st === '999999' || st === '♾️' || String(st || '').toLowerCase().includes('infinito'));
         if (isInf) {
           return { success: true, infiniteStock: true, previousStock: 'infinito', newStock: 'infinito' };
         }

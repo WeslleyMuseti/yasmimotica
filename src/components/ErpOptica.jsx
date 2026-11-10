@@ -190,6 +190,7 @@ const ErpOptica = ({
   const [lentesForm, setLentesForm] = useState({
     UNIDADE: defaultFormCity || 'Central', MARCA: '', MODELO: '', MATERIAL: 'Resina', INDICE_REFRACAO: '1.56',
     TRATAMENTO: 'Anti-reflexo Premium',
+    TIPO_LENTE: 'Digital',
     ESFERICO: '', CILINDRICO: '', DIAMETRO: '', EIXO: '', ADICAO: '',
     ESFERICO_MIN: '-6.00', ESFERICO_MAX: '+6.00',
     CILINDRICO_MIN: '-4.00', CILINDRICO_MAX: '0.00',
@@ -708,9 +709,12 @@ const ErpOptica = ({
   const handleCreateRecord = (e) => {
     e.preventDefault();
     if (activeTab === 'lentes') {
+      const tipoLente = lentesForm.TIPO_LENTE || (lenteEstoqueInfinito ? 'Digital' : 'Física');
       const estoqueFinal = lenteEstoqueInfinito ? 999999 : (parseInt(lentesForm.ESTOQUE, 10) || 0);
       onAddRow('CAD_LENTES', {
         ...lentesForm,
+        TIPO_LENTE: tipoLente,
+        FORMATO: tipoLente,
         PRECO_COMPRA: parseCurrency(lentesForm.PRECO_COMPRA).toFixed(2).replace('.', ','),
         PRECO_VENDA: parseCurrency(lentesForm.PRECO_VENDA).toFixed(2).replace('.', ','),
         ESTOQUE: estoqueFinal,
@@ -719,6 +723,7 @@ const ErpOptica = ({
       setLentesForm({
         UNIDADE: defaultFormCity || 'Central', MARCA: '', MODELO: '', MATERIAL: 'Resina', INDICE_REFRACAO: '1.56',
         TRATAMENTO: 'Anti-reflexo Premium',
+        TIPO_LENTE: tipoLente,
         ESFERICO: '', CILINDRICO: '', DIAMETRO: '', EIXO: '', ADICAO: '',
         ESFERICO_MIN: '-6.00', ESFERICO_MAX: '+6.00',
         CILINDRICO_MIN: '-4.00', CILINDRICO_MAX: '0.00',
@@ -2780,6 +2785,40 @@ const ErpOptica = ({
                       onChange={e => setLentesForm({ ...lentesForm, ADICAO: e.target.value })}
                       className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-sky-500/50"
                     />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Tipo de Lente (Física ou Digital) *</label>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLentesForm(prev => ({ ...prev, TIPO_LENTE: 'Física', FORMATO: 'Física', ESTOQUE: prev.ESTOQUE === '999999' ? '10' : prev.ESTOQUE }));
+                          setLenteEstoqueInfinito(false);
+                        }}
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                          (lentesForm.TIPO_LENTE || '').toLowerCase().includes('físic') || (lentesForm.TIPO_LENTE || '').toLowerCase().includes('fisic')
+                            ? 'bg-amber-500/20 border-amber-400 text-amber-200 shadow-sm'
+                            : 'bg-black/40 border-white/10 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <span>👓</span> Lente Física
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLentesForm(prev => ({ ...prev, TIPO_LENTE: 'Digital', FORMATO: 'Digital' }));
+                          setLenteEstoqueInfinito(true);
+                        }}
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                          !(lentesForm.TIPO_LENTE || '').toLowerCase().includes('físic') && !(lentesForm.TIPO_LENTE || '').toLowerCase().includes('fisic')
+                            ? 'bg-sky-500/20 border-sky-400 text-sky-200 shadow-sm'
+                            : 'bg-black/40 border-white/10 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <span>🔬</span> Lente Digital
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-2">
