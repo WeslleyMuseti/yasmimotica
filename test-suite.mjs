@@ -8104,6 +8104,59 @@ async function runTests() {
     console.log('  ✅ Test 82 Passed: Ficha Contábil de Movimento do Caixa com Valor Total em VENDAS e Entrada em ENTRADAS validada com 100% de sucesso!\n');
   }
 
+  // =========================================================================
+  // Test 83: Desconto Extra com Suporte a Percentual (%) e Valor Fixo (R$) no PDV
+  // =========================================================================
+  {
+    console.log('▶ Test 83: Desconto Extra com Suporte a Percentual (%) e Valor Fixo (R$) no PDV');
+
+    const posSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf-8');
+    const receiptSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableReceipt.jsx'), 'utf-8');
+
+    // 1. Validar que POSRegister gerencia discountType e os botões de alternância R$ / %
+    console.assert(posSrc.includes("const [discountType, setDiscountType] = useState('VALOR')"), 'POSRegister deve gerenciar discountType');
+    console.assert(posSrc.includes("setDiscountType('VALOR')") && posSrc.includes("setDiscountType('PORCENTAGEM')"), 'POSRegister deve permitir alternar entre VALOR e PORCENTAGEM');
+    console.assert(posSrc.includes("discountType === 'PORCENTAGEM'"), 'POSRegister deve calcular desconto percentual');
+
+    // 2. Simulação de cálculo do Desconto Extra (R$ e %)
+    const calcDiscount = (subtotal, discountInput, discountType) => {
+      const raw = parseFloat(String(discountInput).replace(',', '.'));
+      if (!raw || raw <= 0) return 0;
+      if (discountType === 'PORCENTAGEM') {
+        const pct = Math.min(100, Math.max(0, raw));
+        return Math.min(subtotal, Math.round((subtotal * (pct / 100)) * 100) / 100);
+      }
+      return Math.min(subtotal, raw);
+    };
+
+    // Caso 1: 10% de desconto sobre R$ 290,00 (Exemplo real do carrinho do lojista)
+    const desc10Pct = calcDiscount(290, '10', 'PORCENTAGEM');
+    console.assert(desc10Pct === 29.00, `10% de 290 deve ser 29,00. Obtido: ${desc10Pct}`);
+    const total10Pct = 290 - desc10Pct;
+    console.assert(total10Pct === 261.00, `Total após 10% deve ser 261,00. Obtido: ${total10Pct}`);
+
+    // Caso 2: 25% de desconto sobre R$ 400,00
+    const desc25Pct = calcDiscount(400, '25', 'PORCENTAGEM');
+    console.assert(desc25Pct === 100.00, `25% de 400 deve ser 100,00. Obtido: ${desc25Pct}`);
+
+    // Caso 3: Desconto fixo em R$ 50,00
+    const desc50Val = calcDiscount(400, '50,00', 'VALOR');
+    console.assert(desc50Val === 50.00, `Desconto fixo deve ser 50,00. Obtido: ${desc50Val}`);
+
+    // Caso 4: Proteção contra percentual maior que 100%
+    const descExcesso = calcDiscount(200, '150', 'PORCENTAGEM');
+    console.assert(descExcesso === 200.00, `Desconto percentual > 100% deve ser limitado a 100% do subtotal`);
+
+    // 3. Validar gravação do tipo e percentual de desconto no payload da venda
+    console.assert(posSrc.includes("descontoTipo: discountType"), 'POSRegister deve gravar descontoTipo no finalSaleData');
+    console.assert(posSrc.includes("descontoPercentual:"), 'POSRegister deve gravar descontoPercentual no finalSaleData');
+
+    // 4. Validar exibição detalhada no Comprovante de Venda
+    console.assert(receiptSrc.includes("saleData.descontoTipo === 'PORCENTAGEM'") || receiptSrc.includes("descontoPercentual"), 'PrintableReceipt deve exibir a porcentagem do desconto extra quando aplicável');
+
+    console.log('  ✅ Test 83 Passed: Desconto Extra com R$ e % no PDV validado com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

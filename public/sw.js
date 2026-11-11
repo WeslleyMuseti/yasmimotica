@@ -3,7 +3,7 @@
 // Permite que o sistema abra, opere e finalize vendas mesmo sem internet!
 // ══════════════════════════════════════════════════════════════════
 
-const CACHE_NAME = 'yasmin-otica-offline-v9';
+const CACHE_NAME = 'yasmin-otica-offline-v10';
 
 // Recursos visuais estáticos para a casca do app (ícones e logotipos)
 const STATIC_ASSETS = [

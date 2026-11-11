@@ -108,7 +108,7 @@ const POSRegister = ({
 
   // Desconto Global & Vouchers
   const [discountInput, setDiscountInput] = useState('');
-  const discount = useMemo(() => cleanVal(discountInput), [discountInput]);
+  const [discountType, setDiscountType] = useState('VALOR'); // 'VALOR' (R$) | 'PORCENTAGEM' (%)
   const [voucherCodeInput, setVoucherCodeInput] = useState('');
   const [appliedVouchers, setAppliedVouchers] = useState([]);
   const [voucherError, setVoucherError] = useState('');
@@ -981,6 +981,17 @@ const POSRegister = ({
     return cart.reduce((acc, item) => acc + (item.preco * item.qtd), 0);
   }, [cart]);
 
+  // 🏷️ Desconto Extra em Valor Fixo (R$) ou Percentual (%)
+  const discount = useMemo(() => {
+    const raw = cleanVal(discountInput);
+    if (!raw || raw <= 0) return 0;
+    if (discountType === 'PORCENTAGEM') {
+      const pct = Math.min(100, Math.max(0, raw));
+      return Math.min(subtotal, Math.round((subtotal * (pct / 100)) * 100) / 100);
+    }
+    return Math.min(subtotal, raw);
+  }, [discountInput, discountType, subtotal]);
+
   const voucherDiscount = useMemo(() => {
     if (!appliedVouchers || appliedVouchers.length === 0) return 0;
     let totalDesc = 0;
@@ -1453,7 +1464,13 @@ const POSRegister = ({
       'VOUCHER': appliedVouchers.map(v => v.sequentialCode || v.CODIGO || v.codigo).join(', '),
       'voucher': appliedVouchers.map(v => v.sequentialCode || v.CODIGO || v.codigo).join(', '),
       'DESCONTO_VOUCHER': voucherDiscount,
-      'descontoVoucher': voucherDiscount
+      'descontoVoucher': voucherDiscount,
+      'DESCONTO': discount,
+      'desconto': discount,
+      'TIPO_DESCONTO': discountType,
+      'tipo_desconto': discountType,
+      'DESCONTO_PERCENTUAL': discountType === 'PORCENTAGEM' ? cleanVal(discountInput) : 0,
+      'descontoPercentual': discountType === 'PORCENTAGEM' ? cleanVal(discountInput) : 0
     };
 
     // Identificar itens de armação e lente vendidos para pré-carregar na OS
@@ -1467,6 +1484,12 @@ const POSRegister = ({
       'voucher': appliedVouchers.map(v => v.sequentialCode || v.CODIGO || v.codigo).join(', '),
       'DESCONTO_VOUCHER': voucherDiscount,
       'descontoVoucher': voucherDiscount,
+      'DESCONTO': discount,
+      'desconto': discount,
+      'TIPO_DESCONTO': discountType,
+      'tipo_desconto': discountType,
+      'DESCONTO_PERCENTUAL': discountType === 'PORCENTAGEM' ? cleanVal(discountInput) : 0,
+      'descontoPercentual': discountType === 'PORCENTAGEM' ? cleanVal(discountInput) : 0,
       'Modelo de Armação': armacaoItem ? armacaoItem.nome : (selectedClient['Modelo de Armação'] || ''),
       'Marca de Lente': lenteItem ? lenteItem.nome : (selectedClient['Marca de Lente'] || ''),
       'Armação': armacaoItem ? armacaoItem.nome : (selectedClient['Modelo de Armação'] || ''),
@@ -1506,6 +1529,8 @@ const POSRegister = ({
       itens: [...cart],
       subtotal,
       desconto: discount,
+      descontoTipo: discountType,
+      descontoPercentual: discountType === 'PORCENTAGEM' ? cleanVal(discountInput) : 0,
       descontoVoucher: voucherDiscount,
       voucher: appliedVouchers.map(v => v.sequentialCode || v.CODIGO || v.codigo).join(', '),
       vouchers: appliedVouchers,
@@ -1535,6 +1560,7 @@ const POSRegister = ({
     setPayments([]);
     setCurrentStage('entrada');
     setDiscountInput('');
+    setDiscountType('VALOR');
     setCashTendered('');
     setPaymentInputVal('');
     setAppliedVouchers([]);
@@ -2361,6 +2387,7 @@ const POSRegister = ({
     setClientSearch('');
     setCashTendered('');
     setDiscountInput('');
+    setDiscountType('VALOR');
     setPaymentInputVal('');
   };
 
@@ -3336,21 +3363,84 @@ const POSRegister = ({
                 </div>
               </div>
 
-              {/* DESCONTO MANUAL */}
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-400 font-bold">Desconto Extra (R$):</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={discountInput}
-                  onChange={(e) => setDiscountInput(e.target.value)}
-                  onBlur={(e) => {
-                    const v = cleanVal(e.target.value);
-                    setDiscountInput(v > 0 ? v.toFixed(2).replace('.', ',') : '');
-                  }}
-                  placeholder="0,00"
-                  className="w-24 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-right text-xs font-bold text-white focus:outline-none focus:border-emerald-500/50"
-                />
+              {/* DESCONTO EXTRA (R$ OU %) */}
+              <div className="pt-1 pb-1 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 font-bold text-xs">Desconto Extra:</span>
+                    {/* Seletor Tipo: R$ ou % */}
+                    <div className="inline-flex p-0.5 bg-slate-950 border border-slate-800 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => setDiscountType('VALOR')}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-black transition-all flex items-center gap-0.5 ${
+                          discountType === 'VALOR'
+                            ? 'bg-emerald-500 text-slate-950 shadow-xs'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Desconto em Reais (R$)"
+                      >
+                        <DollarSign size={10} /> R$
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDiscountType('PORCENTAGEM')}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-black transition-all flex items-center gap-0.5 ${
+                          discountType === 'PORCENTAGEM'
+                            ? 'bg-fuchsia-500 text-white shadow-xs'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Desconto em Porcentagem (%)"
+                      >
+                        <Percent size={10} /> %
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="relative flex items-center">
+                    <span className="absolute left-2.5 text-[11px] font-bold text-slate-500 pointer-events-none">
+                      {discountType === 'PORCENTAGEM' ? '%' : 'R$'}
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={discountInput}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.includes('%')) {
+                          setDiscountType('PORCENTAGEM');
+                          setDiscountInput(val.replace('%', '').trim());
+                        } else {
+                          setDiscountInput(val);
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const v = cleanVal(e.target.value);
+                        if (v > 0) {
+                          if (discountType === 'PORCENTAGEM') {
+                            setDiscountInput(String(Math.min(100, v)));
+                          } else {
+                            setDiscountInput(v.toFixed(2).replace('.', ','));
+                          }
+                        } else {
+                          setDiscountInput('');
+                        }
+                      }}
+                      placeholder={discountType === 'PORCENTAGEM' ? '0' : '0,00'}
+                      className="w-28 bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-2.5 py-1 text-right text-xs font-bold text-white focus:outline-none focus:border-emerald-500/50"
+                    />
+                  </div>
+                </div>
+
+                {/* Feedback do valor calculado em R$ quando porcentagem estiver selecionada */}
+                {discountType === 'PORCENTAGEM' && discount > 0 && subtotal > 0 && (
+                  <div className="flex justify-between items-center text-[11px] font-bold text-fuchsia-400 px-2 py-1 bg-fuchsia-950/20 rounded-lg border border-fuchsia-500/20">
+                    <span className="flex items-center gap-1">
+                      <Percent size={10} /> Desconto de {cleanVal(discountInput)}%:
+                    </span>
+                    <span className="font-black">-{fmtMoeda(discount)}</span>
+                  </div>
+                )}
               </div>
 
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex justify-between items-center">

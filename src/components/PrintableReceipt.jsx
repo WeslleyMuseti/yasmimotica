@@ -128,7 +128,9 @@ const PrintableReceipt = ({ saleData, clientData }) => {
         )}
         {saleData.desconto > 0 && (
           <div className="flex justify-between text-gray-700">
-            <span>Desconto Extra:</span>
+            <span>
+              Desconto Extra{saleData.descontoTipo === 'PORCENTAGEM' || saleData.TIPO_DESCONTO === 'PORCENTAGEM' ? ` (${saleData.descontoPercentual || saleData.DESCONTO_PERCENTUAL}%)` : ''}:
+            </span>
             <span>- {fmtMoeda(saleData.desconto)}</span>
           </div>
         )}
