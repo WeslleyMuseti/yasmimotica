@@ -67,11 +67,21 @@
 
       window.addEventListener('error', function(e) {
         var msg = (e && e.message) ? e.message.toLowerCase() : '';
-        if (msg.includes('module') || msg.includes('syntaxerror') || msg.includes('unexpected token') || msg.includes('failed to resolve')) {
+        var isRawSourceCode = !!document.querySelector('script[src*="/src/main.jsx"]');
+        var isProductionDomain = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+
+        // Alerta SOMENTE se arquivos brutos não-compilados (.jsx) estiverem sendo servidos em produção
+        if (isRawSourceCode && isProductionDomain && (msg.includes('module') || msg.includes('syntaxerror') || msg.includes('unexpected token') || msg.includes('failed to resolve'))) {
           var box = document.getElementById('splash-timeout-box');
           if (box) {
             box.style.display = 'block';
             box.innerHTML = '<div style="background: rgba(239,68,68,0.25); border: 1px solid rgba(239,68,68,0.6); border-radius: 16px; padding: 14px; margin-top: 14px; color: #fca5a5; font-size: 11px; text-align: center;"><p style="font-weight: 800; font-size: 13px; margin: 0 0 6px 0; color: #fee2e2;">⚠️ ATENÇÃO: ARQUIVOS DE DESENVOLVIMENTO DETECTADOS</p><p style="margin: 0 0 8px 0; line-height: 1.4;">Você extraiu o ZIP de código-fonte ao invés do ZIP do site compilado.<br>O navegador não executa arquivos .jsx brutos sem compilação.</p><p style="margin: 0; font-weight: bold; color: #ffffff; background: rgba(0,0,0,0.4); padding: 8px; border-radius: 8px;">Por favor, extraia o arquivo <u>site-hostinger-public_html.zip</u> na pasta public_html.</p></div>';
+          }
+        } else if (msg.includes('module') || msg.includes('syntaxerror') || msg.includes('unexpected token') || msg.includes('failed to fetch') || msg.includes('load')) {
+          var pBox = document.getElementById('splash-timeout-box');
+          if (pBox) {
+            pBox.style.display = 'block';
+            pBox.innerHTML = '<div style="background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.5); border-radius: 16px; padding: 14px; margin-top: 14px; color: #fca5a5; font-size: 11px; text-align: center;"><p style="font-weight: 800; font-size: 13px; margin: 0 0 6px 0; color: #fee2e2;">⚠️ Inconsistência no Carregamento</p><p style="margin: 0 0 10px 0; line-height: 1.4; color: #fecaca;">Pode haver dados em cache desatualizados no navegador.</p><button onclick="clearAndHardReload();" style="padding: 8px 18px; font-size: 12px; font-weight: bold; background: linear-gradient(135deg, #ec4899, #db2777); border: none; color: #ffffff; border-radius: 9999px; cursor: pointer; box-shadow: 0 4px 12px rgba(236,72,153,0.3);">Limpar Cache e Recarregar Agora</button></div>';
           }
         }
       });

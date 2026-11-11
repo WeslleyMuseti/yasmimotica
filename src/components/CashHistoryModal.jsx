@@ -22,11 +22,11 @@ const formatCurrency = (val) => {
 const cleanBoletoDisplay = (val) => {
   if (!val) return '';
   return String(val)
-    .replace(/(?<!\p{L})Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, 'Boleto')
-    .replace(/(?<!\p{L})Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, 'Boleto')
-    .replace(/(?<!\p{L})Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, 'Boleto')
-    .replace(/(?<!\p{L})Boleto\s+da\s+Loja(?!\p{L})/gui, 'Boleto')
-    .replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto');
+    .replace(/(^|[^\p{L}])Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, '$1Boleto')
+    .replace(/(^|[^\p{L}])Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, '$1Boleto')
+    .replace(/(^|[^\p{L}])Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, '$1Boleto')
+    .replace(/(^|[^\p{L}])Boleto\s+da\s+Loja(?!\p{L})/gui, '$1Boleto')
+    .replace(/(^|[^\p{L}])Carn[eê]s?(?!\p{L})/gui, '$1Boleto');
 };
 
 const parseCurrency = (val) => {

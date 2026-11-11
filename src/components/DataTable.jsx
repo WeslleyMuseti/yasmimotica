@@ -331,11 +331,11 @@ const fmt = (val) => {
 export const cleanBoletoDisplay = (val) => {
   if (typeof val !== 'string') return val;
   return val
-    .replace(/(?<!\p{L})Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, 'Boleto')
-    .replace(/(?<!\p{L})Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, 'Boleto')
-    .replace(/(?<!\p{L})Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, 'Boleto')
-    .replace(/(?<!\p{L})Boleto\s+da\s+Loja(?!\p{L})/gui, 'Boleto')
-    .replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto');
+    .replace(/(^|[^\p{L}])Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, '$1Boleto')
+    .replace(/(^|[^\p{L}])Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, '$1Boleto')
+    .replace(/(^|[^\p{L}])Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, '$1Boleto')
+    .replace(/(^|[^\p{L}])Boleto\s+da\s+Loja(?!\p{L})/gui, '$1Boleto')
+    .replace(/(^|[^\p{L}])Carn[eê]s?(?!\p{L})/gui, '$1Boleto');
 };
 
 export const isMeaningfulRow = (row) => {

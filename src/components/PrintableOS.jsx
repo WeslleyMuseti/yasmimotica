@@ -243,11 +243,11 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
     // Limpeza de prefixos redundantes e normalização para 'Boleto'
     let text = String(rawFP)
       .replace(/(?:FORMA DE PAGAMENTO|FORMA_PAGTO|FORMA_PAGAMENTO|MEIO_PAGAMENTO)\s*:\s*/gi, '')
-      .replace(/(?<!\p{L})Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, 'Boleto')
-      .replace(/(?<!\p{L})Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, 'Boleto')
-      .replace(/(?<!\p{L})Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, 'Boleto')
-      .replace(/(?<!\p{L})Boleto\s+da\s+Loja(?!\p{L})/gui, 'Boleto')
-      .replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto')
+      .replace(/(^|[^\p{L}])Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, '$1Boleto')
+      .replace(/(^|[^\p{L}])Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, '$1Boleto')
+      .replace(/(^|[^\p{L}])Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, '$1Boleto')
+      .replace(/(^|[^\p{L}])Boleto\s+da\s+Loja(?!\p{L})/gui, '$1Boleto')
+      .replace(/(^|[^\p{L}])Carn[eê]s?(?!\p{L})/gui, '$1Boleto')
       .trim();
 
     // Divide por quebras de linha ou ' + '

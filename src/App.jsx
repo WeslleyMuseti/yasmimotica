@@ -343,9 +343,9 @@ function App() {
       }
       if (copy.DOCUMENTO && /carnê|carne/i.test(copy.DOCUMENTO)) {
         copy.DOCUMENTO = copy.DOCUMENTO
-          .replace(/(?<!\p{L})BOLETO\s*(?:DA\s*LOJA\s*)?(?:\/|\s+)?\s*CARN[EÊ]s?(?!\p{L})/gui, 'BOLETO')
-          .replace(/(?<!\p{L})CARN[EÊ]s?\s*(?:\/|\s+)?\s*BOLETO(?!\p{L})/gui, 'BOLETO')
-          .replace(/(?<!\p{L})CARN[EÊ]s?(?!\p{L})/gui, 'BOLETO');
+          .replace(/(^|[^\p{L}])BOLETO\s*(?:DA\s*LOJA\s*)?(?:\/|\s+)?\s*CARN[EÊ]s?(?!\p{L})/gui, '$1BOLETO')
+          .replace(/(^|[^\p{L}])CARN[EÊ]s?\s*(?:\/|\s+)?\s*BOLETO(?!\p{L})/gui, '$1BOLETO')
+          .replace(/(^|[^\p{L}])CARN[EÊ]s?(?!\p{L})/gui, '$1BOLETO');
       }
       return copy;
     };

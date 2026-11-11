@@ -4325,11 +4325,11 @@ async function runTests() {
   const testCleanBoleto = (val) => {
     if (!val) return '';
     return String(val)
-      .replace(/(?<!\p{L})Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, 'Boleto')
-      .replace(/(?<!\p{L})Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, 'Boleto')
-      .replace(/(?<!\p{L})Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, 'Boleto')
-      .replace(/(?<!\p{L})Boleto\s+da\s+Loja(?!\p{L})/gui, 'Boleto')
-      .replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto');
+      .replace(/(^|[^\p{L}])Boleto\s*(?:da\s*Loja\s*)?(?:\/|\s+)?\s*Carn[eê]s?(?!\p{L})/gui, '$1Boleto')
+      .replace(/(^|[^\p{L}])Carn[eê]s?\s*(?:\/|\s+)?\s*Boleto(?!\p{L})/gui, '$1Boleto')
+      .replace(/(^|[^\p{L}])Boleto\s+Banc[aá]rio\s*(?:\/\s*Carn[eê]s?)?(?!\p{L})/gui, '$1Boleto')
+      .replace(/(^|[^\p{L}])Boleto\s+da\s+Loja(?!\p{L})/gui, '$1Boleto')
+      .replace(/(^|[^\p{L}])Carn[eê]s?(?!\p{L})/gui, '$1Boleto');
   };
 
   console.assert(testCleanBoleto('Boleto / Carnê') === 'Boleto', 'Deve normalizar "Boleto / Carnê" para "Boleto"');
@@ -4817,7 +4817,7 @@ async function runTests() {
     // 3. Teste funcional de cleanPaymentMethodForOS
     const testCleanPaymentMethodForOS = (val) => {
       if (!val) return '';
-      const standardized = String(val).replace(/(?<!\p{L})Carn[eê]s?(?!\p{L})/gui, 'Boleto');
+      const standardized = String(val).replace(/(^|[^\p{L}])Carn[eê]s?(?!\p{L})/gui, '$1Boleto');
       let cleaned = String(standardized)
         .replace(/\s*\([^)]*(?:parcela|\d+ª|\d+x|\d{2}\/\d{2}|venc|vencimento)[^)]*\)/gi, '')
         .replace(/\|\s*Venc:[^:\n)]*/gi, '')
