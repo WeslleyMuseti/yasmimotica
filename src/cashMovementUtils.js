@@ -1,3 +1,5 @@
+import { parseItemDate } from './cashShiftUtils.js';
+
 /**
  * Utilitários de parsing, formatação e agregação para a Ficha Contábil de Movimento do Caixa
  */
@@ -226,6 +228,13 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
       });
     }
   }
+
+  // 🕒 Ordenação cronológica estrita por data e horário (do primeiro lançamento do dia até o mais recente)
+  effectiveMovements.sort((a, b) => {
+    const da = parseItemDate(a)?.getTime() || (typeof a.timestamp === 'number' ? a.timestamp : 0);
+    const db = parseItemDate(b)?.getTime() || (typeof b.timestamp === 'number' ? b.timestamp : 0);
+    return da - db;
+  });
 
   let totalVendasCalculadas = 0;
   let totalEntradasCalculadas = 0;

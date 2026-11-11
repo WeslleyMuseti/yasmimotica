@@ -193,5 +193,12 @@ export const buildCombinedShiftMovements = (movList = [], salesList = [], unitNa
     });
   });
 
+  // 🕒 Ordenação cronológica rigorosa das movimentações (do início do turno até o lançamento mais recente)
+  mappedMovs.sort((a, b) => {
+    const da = parseItemDate(a)?.getTime() || (typeof a.timestamp === 'number' ? a.timestamp : 0);
+    const db = parseItemDate(b)?.getTime() || (typeof b.timestamp === 'number' ? b.timestamp : 0);
+    return da - db;
+  });
+
   return mappedMovs;
 };
