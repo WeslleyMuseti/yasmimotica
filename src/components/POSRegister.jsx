@@ -1078,24 +1078,9 @@ const POSRegister = ({
       }
     }
 
-    const store = String(found.UNIDADE || found.unidade || found.LOJA || found.loja || found.CIDADE || found.cidade || 'Todas').trim().toLowerCase();
-    const currentCity = String(userFixedCity || selectedPOSCity || currentUser?.city || 'Todas').trim().toLowerCase();
-    const isStoreValid = 
-      store === 'todas' || 
-      store === 'todas as lojas' || 
-      store === 'todas lojas' || 
-      store === 'geral' || 
-      store === '' ||
-      store === 'central' ||
-      currentCity === 'todas' ||
-      currentCity === 'central' ||
-      store === currentCity ||
-      resolveOSUnit({ unidade: store }) === resolveOSUnit({ unidade: currentCity });
-
-    if (!isStoreValid) {
-      setVoucherError(`Voucher válido apenas para a loja ${found.UNIDADE || found.unidade || store}.`);
-      return;
-    }
+    // 🎟️ Todos os vouchers e cupons ativos da rede Yasmin Ótica são válidos e aceitos em qualquer loja/unidade (Cajati, Registro, Jacupiranga, Venda Externa),
+    // garantindo que cupons de ações externas, campanhas ou de outras filiais sejam sempre aceitos no balcão sem travar o cliente.
+    const store = String(found.UNIDADE || found.unidade || found.LOJA || found.loja || found.CIDADE || found.cidade || 'Todas').trim();
 
     // 🎟️ Geração do Contador Sequencial do Cupom na OS (ex: CUPOM10%-01, CUPOM10%-02) e Indicador para o Lojista (ex: 01 de 100)
     const nextNum = effectiveUsed + 1;

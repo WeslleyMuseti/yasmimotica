@@ -7687,11 +7687,7 @@ async function runTests() {
       });
       if (!found) return { ok: false, error: 'Não encontrado' };
 
-      const store = String(found.UNIDADE || 'Todas').trim().toLowerCase();
-      const currentCity = String(userCity || 'Todas').trim().toLowerCase();
-      const isStoreValid = store === 'todas' || store === 'geral' || store === 'central' || store === currentCity || currentCity === 'todas';
-      if (!isStoreValid) return { ok: false, error: 'Loja inválida' };
-
+      // Todos os vouchers ativos da rede são aceitos em qualquer unidade
       return { ok: true, voucher: found };
     };
 
