@@ -5,6 +5,7 @@ import RowEditModal from './RowEditModal';
 import PrintableOS from './PrintableOS';
 import { PrintableLabelModal } from './PrintableLabel';
 import ReceiptModal from './ReceiptModal';
+import { normalizeSearchText } from '../firebaseSync';
 
 const PAGE_SIZE = 25;
 
@@ -599,9 +600,9 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
     // Vendedores agora podem visualizar o estoque de todas as lojas e filiais igual ao administrador
 
     if (search) {
-      const q = search.toLowerCase().trim();
+      const q = normalizeSearchText(search);
       validRows = validRows.filter(r =>
-        Object.values(r).some(v => v !== null && v !== undefined && String(v).toLowerCase().includes(q))
+        Object.values(r).some(v => v !== null && v !== undefined && normalizeSearchText(String(v)).includes(q))
       );
     }
     return validRows;

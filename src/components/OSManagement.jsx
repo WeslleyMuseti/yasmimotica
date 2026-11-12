@@ -11,7 +11,7 @@ import PrintableOS from "./PrintableOS";
 import PrintableLabOS from "./PrintableLabOS";
 import { PrintableLabelModal } from "./PrintableLabel";
 import EditOSModal from "./EditOSModal";
-import { isSameClient } from "../firebaseSync";
+import { isSameClient, normalizeSearchText } from "../firebaseSync";
 import { findOSRelatedEntities, executeOSCascadeDeletion } from "../osDeletionUtils";
 
 // Cores dos status no Semáforo: Azul (Aguardando Confirmação Financeira), Vermelha, Amarela e Verde
@@ -508,7 +508,7 @@ const OSManagement = ({
       }
       seenOSNumbers.add(saleUniqueKey);
 
-      const clientName = (sale["NOME CLIENTE"] || sale["NOME"] || sale["Cliente"] || sale["Nome Completo"] || "Cliente").trim();
+      const clientName = (sale["CLIENTE"] || sale["NOME CLIENTE"] || sale["NOME"] || sale["Cliente"] || sale["Nome Completo"] || "Cliente").trim();
       
       // Localiza cliente no cadastro por ID/CPF único ou nome
       const matchedClient = clientsData.find(c => isSameClient(c, sale));
@@ -740,24 +740,24 @@ const OSManagement = ({
         return false;
       }
 
-      // Busca por Texto Aprimorada
+      // Busca por Texto Aprimorada (Resiliente a Acentos e Variações Fonéticas como Mirela vs Mirella)
       if (search.trim()) {
-        const q = search.toLowerCase().trim();
-        const cleanQ = q.replace(/\D/g, '');
-        const matchesOS = order.osNumber.toLowerCase().includes(q);
-        const matchesClient = order.clientName.toLowerCase().includes(q);
-        const matchesPaciente = (order.pacienteNome || '').toLowerCase().includes(q);
-        const matchesProduct = order.product.toLowerCase().includes(q);
-        const matchesUnit = order.unit.toLowerCase().includes(q);
-        const matchesArmacao = (order.armacao || '').toLowerCase().includes(q);
-        const matchesLente = (order.lente || '').toLowerCase().includes(q);
-        const matchesMedico = (order.medico || '').toLowerCase().includes(q);
-        const matchesStatus = (order.status || '').toLowerCase().includes(q);
-        const matchesLab = (order.laboratorio || '').toLowerCase().includes(q);
-        const matchesVoucher = (order.voucher || '').toLowerCase().includes(q);
+        const q = normalizeSearchText(search);
+        const cleanQ = search.replace(/\D/g, '');
+        const matchesOS = normalizeSearchText(order.osNumber).includes(q);
+        const matchesClient = normalizeSearchText(order.clientName).includes(q);
+        const matchesPaciente = normalizeSearchText(order.pacienteNome || '').includes(q);
+        const matchesProduct = normalizeSearchText(order.product).includes(q);
+        const matchesUnit = normalizeSearchText(order.unit).includes(q);
+        const matchesArmacao = normalizeSearchText(order.armacao || '').includes(q);
+        const matchesLente = normalizeSearchText(order.lente || '').includes(q);
+        const matchesMedico = normalizeSearchText(order.medico || '').includes(q);
+        const matchesStatus = normalizeSearchText(order.status || '').includes(q);
+        const matchesLab = normalizeSearchText(order.laboratorio || '').includes(q);
+        const matchesVoucher = normalizeSearchText(order.voucher || '').includes(q);
 
-        const matchesSaleId = (order.saleId || '').toLowerCase().includes(q) || (order.parentSaleId || '').toLowerCase().includes(q);
-        const matchesLinked = Array.isArray(order.allLinkedOS) && order.allLinkedOS.some(num => String(num).toLowerCase().includes(q));
+        const matchesSaleId = normalizeSearchText(order.saleId || '').includes(q) || normalizeSearchText(order.parentSaleId || '').includes(q);
+        const matchesLinked = Array.isArray(order.allLinkedOS) && order.allLinkedOS.some(num => normalizeSearchText(num).includes(q));
 
         let matchesDoc = false;
         if (cleanQ.length >= 3) {
@@ -768,7 +768,7 @@ const OSManagement = ({
           }
         }
 
-        if (!matchesOS && !matchesClient && !matchesProduct && !matchesUnit && !matchesArmacao && !matchesLente && !matchesMedico && !matchesStatus && !matchesLab && !matchesDoc && !matchesSaleId && !matchesLinked && !matchesVoucher) {
+        if (!matchesOS && !matchesClient && !matchesPaciente && !matchesProduct && !matchesUnit && !matchesArmacao && !matchesLente && !matchesMedico && !matchesStatus && !matchesLab && !matchesDoc && !matchesSaleId && !matchesLinked && !matchesVoucher) {
           return false;
         }
       }

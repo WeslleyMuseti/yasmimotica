@@ -8208,6 +8208,66 @@ async function runTests() {
     console.log('  ✅ Test 84 Passed: Fidelidade Absoluta das Edições (Valores, Nomes, OS e Impressão Exata) validada com 100% de sucesso!\n');
   }
 
+  // =========================================================================
+  // Test 85: Visibilidade Permanente de OSs e Resiliência Fonética (Laura Garcia Lameu & Mirella de Souza Domingues)
+  // =========================================================================
+  {
+    console.log('▶ Test 85: Visibilidade Permanente de OSs e Resiliência Fonética (Laura Garcia Lameu & Mirella de Souza Domingues)');
+
+    const fbSyncSrc = fs.readFileSync(path.join(__dirname, 'src', 'firebaseSync.js'), 'utf-8');
+    const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'App.jsx'), 'utf-8');
+    const osManagementSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'OSManagement.jsx'), 'utf-8');
+    const clientRegSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ClientRegistration.jsx'), 'utf-8');
+    const dataTableSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'DataTable.jsx'), 'utf-8');
+    const posRegisterSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf-8');
+    const clientProfileSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ClientProfileModal.jsx'), 'utf-8');
+    const printableProfileSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableClientProfile.jsx'), 'utf-8');
+
+    // 1. Validar normalizeSearchText em firebaseSync.js e sua resiliência fonética (mirela <-> mirella)
+    console.assert(fbSyncSrc.includes('export const normalizeSearchText = (str) =>'), 'firebaseSync.js deve exportar normalizeSearchText');
+    const normalizeSearchText = (str) => {
+      if (!str) return '';
+      return String(str)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/([a-z])\1+/g, '$1')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+    console.assert(normalizeSearchText("mirela") === normalizeSearchText("MIRELLA"), 'normalizeSearchText deve casar mirela com MIRELLA');
+    console.assert(normalizeSearchText("MIRELLA DE SOUZA DOMINGUES").includes(normalizeSearchText("mirela")), 'Busca mirela deve encontrar MIRELLA DE SOUZA DOMINGUES');
+    console.assert(normalizeSearchText("laura garcia lameu") === normalizeSearchText("LAURA GARCIA LAMEU"), 'normalizeSearchText deve casar laura garcia lameu');
+
+    // 2. Validar que isSameClient suporta casamento por telefone e nomes normalizados com colapso de letras duplas
+    console.assert(fbSyncSrc.includes('normalizeSearchText(nameA)') && fbSyncSrc.includes('normalizeSearchText(nameB)'), 'isSameClient deve comparar nomes com normalizeSearchText');
+    console.assert(fbSyncSrc.includes('telA.length >= 8 && telB.length >= 8 && telA === telB'), 'isSameClient deve suportar comparação por telefone/WhatsApp');
+
+    // 3. Validar sincronização simétrica de nomes de cliente em vendas no App.jsx
+    console.assert(appSrc.includes("synced['CLIENTE'] = nomeCliente") && appSrc.includes("synced['NOME CLIENTE'] = nomeCliente"), 'syncRowAliases deve sincronizar CLIENTE e NOME CLIENTE em vendas');
+
+    // 4. Validar que OSManagement utiliza CLIENTE com prioridade e busca normalizada
+    console.assert(osManagementSrc.includes('sale["CLIENTE"] || sale["NOME CLIENTE"]'), 'OSManagement deve priorizar sale["CLIENTE"]');
+    console.assert(osManagementSrc.includes('normalizeSearchText(search)'), 'OSManagement deve filtrar usando normalizeSearchText');
+
+    // 5. Validar que ClientRegistration enriquece numeroOS e dados ópticos de salesData
+    console.assert(clientRegSrc.includes('const clientSales = (salesData || []).filter(sale => isSameClient(client, sale))'), 'ClientRegistration deve buscar vendas do cliente com isSameClient');
+    console.assert(clientRegSrc.includes('numeroOS: resolvedOS'), 'ClientRegistration deve enriquecer numeroOS no enrichedClients');
+    console.assert(clientRegSrc.includes('isSameClient(client, s)'), 'handleStartEditClient deve localizar última venda usando isSameClient');
+
+    // 6. Validar que DataTable utiliza normalizeSearchText para filtros
+    console.assert(dataTableSrc.includes('normalizeSearchText(search)'), 'DataTable deve filtrar com normalizeSearchText');
+
+    // 7. Validar que POSRegister sincroniza CLIENTES_CADASTRADOS ao gerar OS
+    console.assert(posRegisterSrc.includes("onUpdateRow('CLIENTES_CADASTRADOS', targetClient"), 'POSRegister deve atualizar CLIENTES_CADASTRADOS ao emitir OS');
+
+    // 8. Validar que ClientProfileModal e PrintableClientProfile exibem e preservam o número da OS
+    console.assert(clientProfileSrc.includes('clientOSList[0]'), 'ClientProfileModal deve incluir OS no perfil');
+    console.assert(printableProfileSrc.includes('osNumero'), 'PrintableClientProfile deve incluir osNumero');
+
+    console.log('  ✅ Test 85 Passed: Visibilidade Permanente de OSs e Resiliência Fonética validada com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

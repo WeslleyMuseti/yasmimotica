@@ -1272,8 +1272,27 @@ export const extractClientName = (obj) => {
 };
 
 /**
+ * 🔤 Normalizador universal de texto para buscas e comparação de nomes:
+ * - Remove acentuação e diacríticos
+ * - Converte para minúsculas
+ * - Colapsa letras duplas consecutivas (ex: "mirella" -> "mirela", "isabella" -> "isabela", "rafaella" -> "rafaela")
+ * - Remove espaços excedentes
+ */
+export const normalizeSearchText = (str) => {
+  if (!str) return '';
+  return String(str)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/([a-z])\1+/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+/**
  * Utilitário de comparação estrita entre cliente e registros financeiros / OS / Boletos
- * Impede que homônimos com o mesmo nome tenham parcelas misturadas.
+ * Impede que homônimos com o mesmo nome tenham parcelas misturadas, mas é resiliente
+ * a variações fonéticas e ortográficas (ex: Mirela vs Mirella).
  */
 export const isSameClient = (clientA, clientB) => {
   if (!clientA || !clientB) return false;
@@ -1282,22 +1301,40 @@ export const isSameClient = (clientA, clientB) => {
   const idA = extractClientId(clientA);
   const idB = extractClientId(clientB);
 
-  // 1. Se AMBOS possuem ID de cliente identificado:
-  if (idA && idB) {
-    return idA.toLowerCase() === idB.toLowerCase();
+  // 1. Se AMBOS possuem ID de cliente identificado e idêntico:
+  if (idA && idB && idA.toLowerCase() === idB.toLowerCase()) {
+    return true;
   }
 
-  // 2. Se ao menos um não possui ID de cliente, compara por CPF/CNPJ único (mínimo 7 dígitos)
+  // 2. Compara por CPF/CNPJ único (mínimo 7 dígitos)
   const cpfA = extractCpf(clientA);
   const cpfB = extractCpf(clientB);
   if (cpfA.length >= 7 && cpfB.length >= 7) {
     return cpfA === cpfB;
   }
 
-  // 3. Fallback: Casamento por Nome apenas se nenhum dos dois possuir CPF/ID cadastrado
+  // 3. Compara por Telefone / WhatsApp limpo (mínimo 8 dígitos) quando disponível
+  const telA = String(clientA['WhatsApp'] ?? clientA['TELEFONE'] ?? clientA['TELEFONE CLIENTE'] ?? clientA['Celular'] ?? '').replace(/\D/g, '');
+  const telB = String(clientB['WhatsApp'] ?? clientB['TELEFONE'] ?? clientB['TELEFONE CLIENTE'] ?? clientB['Celular'] ?? '').replace(/\D/g, '');
+  if (telA.length >= 8 && telB.length >= 8 && telA === telB) {
+    return true;
+  }
+
+  // 4. Casamento por Nome Normalizado (com colapso de consoantes/vogais duplas e sem acentos)
   const nameA = extractClientName(clientA);
   const nameB = extractClientName(clientB);
-  if (nameA && nameB && nameA === nameB) {
+  if (nameA && nameB) {
+    const normA = normalizeSearchText(nameA);
+    const normB = normalizeSearchText(nameB);
+    if (normA && normB && (normA === normB || normA.includes(normB) || normB.includes(normA))) {
+      return true;
+    }
+  }
+
+  // 5. Casamento por Ordem de Serviço única compartilhada
+  const osA = String(clientA['OS DA VENDA'] ?? clientA['OS'] ?? clientA['numeroOS'] ?? clientA['VENDA_OS'] ?? '').trim().toUpperCase();
+  const osB = String(clientB['OS DA VENDA'] ?? clientB['OS'] ?? clientB['numeroOS'] ?? clientB['VENDA_OS'] ?? '').trim().toUpperCase();
+  if (osA && osB && osA !== '—' && osB !== '—' && osA === osB) {
     return true;
   }
 

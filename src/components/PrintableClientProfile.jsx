@@ -142,6 +142,7 @@ export const PrintableClientProfile = ({ clientData = {}, storeName = 'YASMIN Ó
   const dtVenc = clientData['Data de Vencimento'] || clientData['DATA VENCIMENTO'] || '—';
   const armacaoPref = clientData['Modelo de Armação'] || clientData['ARMAÇÃO'] || '—';
   const lentePref = clientData['Marca de Lente'] || clientData['LENTE'] || '—';
+  const osNumero = clientData['numeroOS'] || clientData['OS DA VENDA'] || clientData['OS'] || clientData['VENDA_OS'] || '—';
 
   // ─── 4. AUDITORIA DE ANEXOS ───────────────────────────────────
   const hasDocCliente = Boolean(clientData['Foto Documento Cliente'] || clientData['fotoDocumentoCliente']);
@@ -387,7 +388,11 @@ export const PrintableClientProfile = ({ clientData = {}, storeName = 'YASMIN Ó
             </span>
           </div>
 
-          <div className="grid grid-cols-4 gap-2 text-[8.5px]">
+          <div className="grid grid-cols-5 gap-2 text-[8.5px]">
+            <div>
+              <span className="text-gray-600 block text-[7.5px] uppercase font-bold">Nº da OS:</span>
+              <span className="font-mono font-black text-black">{osNumero}</span>
+            </div>
             <div>
               <span className="text-gray-600 block text-[7.5px] uppercase font-bold">Status de Pagamento:</span>
               <span className="font-black text-black">{statusPag}</span>

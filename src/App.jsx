@@ -580,6 +580,34 @@ function App() {
         synced['beneficiario'] = pac;
         synced['pacienteNome'] = pac;
       }
+      const nomeCliente = synced['CLIENTE'] || synced['NOME CLIENTE'] || synced['NOME'] || synced['Nome Completo'] || synced['Cliente'] || synced['cliente'];
+      if (nomeCliente) {
+        synced['CLIENTE'] = nomeCliente;
+        synced['NOME CLIENTE'] = nomeCliente;
+        synced['NOME'] = nomeCliente;
+        synced['Cliente'] = nomeCliente;
+      }
+      const lojaUnidade = synced['LOJA'] || synced['CIDADE'] || synced['UNIDADE'] || synced['cidade'] || synced['loja'] || synced['unidade'];
+      if (lojaUnidade) {
+        synced['LOJA'] = lojaUnidade;
+        synced['CIDADE'] = lojaUnidade;
+        synced['UNIDADE'] = lojaUnidade;
+        synced['cidade'] = lojaUnidade;
+        synced['loja'] = lojaUnidade;
+        synced['unidade'] = lojaUnidade;
+      }
+      const cpfVal = synced['CLIENTE_CPF'] || synced['CPF'] || synced['CPF / CNPJ'] || synced['cpf'];
+      if (cpfVal) {
+        synced['CLIENTE_CPF'] = cpfVal;
+        synced['CPF'] = cpfVal;
+        synced['CPF / CNPJ'] = cpfVal;
+      }
+      const telVal = synced['TELEFONE'] || synced['TELEFONE CLIENTE'] || synced['WhatsApp'] || synced['Celular'];
+      if (telVal) {
+        synced['TELEFONE'] = telVal;
+        synced['TELEFONE CLIENTE'] = telVal;
+        synced['WhatsApp'] = telVal;
+      }
     }
 
     return synced;

@@ -1938,6 +1938,27 @@ const POSRegister = ({
         setCompletedSale(mergedSaleData);
       }
 
+      // 🛡️ Sincronizar o número da OS, armação e lente diretamente no cadastro do cliente (CLIENTES_CADASTRADOS)
+      if (onUpdateRow && savedClientForOS && Array.isArray(clientsData) && clientsData.length > 0) {
+        const targetClient = clientsData.find(c => isSameClient(c, savedClientForOS));
+        if (targetClient) {
+          const updatedClient = {
+            ...targetClient,
+            numeroOS: singleData.numeroOS,
+            'OS DA VENDA': singleData.numeroOS,
+            'OS': singleData.numeroOS,
+            'VENDA_OS': singleData.numeroOS,
+            'Marca de Lente': singleData.lente || targetClient['Marca de Lente'] || '',
+            'Modelo de Armação': singleData.armacao || targetClient['Modelo de Armação'] || '',
+            'valorTotal': singleData.valorTotal || targetClient['valorTotal'] || '',
+            'valorEntrada': singleData.valorEntrada || targetClient['valorEntrada'] || '',
+            'restante': singleData.restante || targetClient['restante'] || '',
+            'formasPagamento': mergedSaleData.FORMAS_PAGAMENTO || targetClient['formasPagamento'] || ''
+          };
+          onUpdateRow('CLIENTES_CADASTRADOS', targetClient, updatedClient).catch(() => {});
+        }
+      }
+
       // 🛡️ Sincronizar data e OS no FLUXO_CAIXA (incluindo data e horário) para que não fique preso na data de hoje
       if (completedSale?.id && onUpdateRow && Array.isArray(cashMovements)) {
         try {
@@ -2248,6 +2269,23 @@ const POSRegister = ({
       await onUpdateRow(salesSheetName, completedSale, mergedPrimarySaleData);
     } else if (onAddSale) {
       await onAddSale(mergedPrimarySaleData);
+    }
+
+    // 🛡️ Sincronizar o número da OS, armação e lente diretamente no cadastro do cliente (CLIENTES_CADASTRADOS)
+    if (onUpdateRow && savedClientForOS && Array.isArray(clientsData) && clientsData.length > 0) {
+      const targetClient = clientsData.find(c => isSameClient(c, savedClientForOS));
+      if (targetClient) {
+        const updatedClient = {
+          ...targetClient,
+          numeroOS: primaryOS.numeroOS,
+          'OS DA VENDA': primaryOS.numeroOS,
+          'OS': primaryOS.numeroOS,
+          'VENDA_OS': primaryOS.numeroOS,
+          'Marca de Lente': primaryOS.lente || targetClient['Marca de Lente'] || '',
+          'Modelo de Armação': primaryOS.armacao || targetClient['Modelo de Armação'] || ''
+        };
+        onUpdateRow('CLIENTES_CADASTRADOS', targetClient, updatedClient).catch(() => {});
+      }
     }
 
     // 🛡️ Sincronizar data, horário e OS no FLUXO_CAIXA para o fluxo Multi-OS

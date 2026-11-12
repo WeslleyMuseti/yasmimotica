@@ -584,9 +584,13 @@ const ClientProfileModal = ({
 
   const clientOSList = useMemo(() => {
     const list = new Set();
+    const directOS = currentClient?.['numeroOS'] || currentClient?.['OS DA VENDA'] || currentClient?.['OS'] || currentClient?.['VENDA_OS'];
+    if (directOS && String(directOS).trim() && String(directOS).trim() !== '—' && String(directOS).trim() !== '-' && String(directOS).trim() !== 'N/A') {
+      list.add(String(directOS).trim());
+    }
     if (clientHistory && Array.isArray(clientHistory)) {
       clientHistory.forEach(c => {
-        const os = c['OS DA VENDA'] || c['OS'] || c['VENDA_OS'] || c['OS_VENDA'];
+        const os = c['OS DA VENDA'] || c['OS'] || c['VENDA_OS'] || c['OS_VENDA'] || c['numeroOS'] || c['osNumber'] || c['Nº DA OS'];
         if (os && String(os).trim() && String(os).trim() !== '—' && String(os).trim() !== '-' && String(os).trim() !== 'N/A') {
           list.add(String(os).trim());
         }
@@ -601,7 +605,7 @@ const ClientProfileModal = ({
       });
     }
     return Array.from(list);
-  }, [clientHistory, clientErpInvoices]);
+  }, [clientHistory, clientErpInvoices, currentClient]);
 
   const handleStatusToggle = () => {
     const currentStatus = realFinancials.statusReal || currentClient['Status de Pagamento'] || 'Em dia';
@@ -738,15 +742,26 @@ const ClientProfileModal = ({
                   {isEditing ? <Edit2 className="text-sky-400" size={22} /> : <User className="text-sky-400" size={24} />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="text-lg sm:text-2xl md:text-3xl font-black text-white tracking-tight truncate">
                       {isEditing ? 'Editar Cadastro' : (currentClient['Nome Completo'] || currentClient['NOME'] || 'Cliente Sem Nome')}
                     </h2>
-                    {isEditing && (
+                    {isEditing ? (
                       <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-black border border-sky-500/30 shrink-0">
                         MODO EDIÇÃO
                       </span>
-                    )}
+                    ) : (() => {
+                      const osNum = currentClient?.['numeroOS'] || currentClient?.['OS DA VENDA'] || currentClient?.['OS'] || clientOSList[0];
+                      if (osNum && osNum !== '—' && osNum !== '-') {
+                        return (
+                          <span className="font-mono font-black text-xs text-pink-400 bg-pink-500/15 border border-pink-500/30 px-2.5 py-0.5 rounded-full shadow-inner shrink-0 flex items-center gap-1">
+                            <ClipboardList size={11} className="text-pink-400" />
+                            {String(osNum).startsWith('#') ? osNum : `#${osNum}`}
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                   <p className="text-xs text-slate-400 truncate mt-0.5">
                     {isEditing 
@@ -1415,6 +1430,15 @@ const ClientProfileModal = ({
                       </p>
                     </div>
 
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col justify-center hover:border-fuchsia-500/30 transition-all">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 flex items-center gap-1.5">
+                        <ClipboardList size={13} className="text-fuchsia-400"/> Nº da OS
+                      </p>
+                      <p className="text-sm font-black text-fuchsia-300 font-mono tracking-tight truncate">
+                        {currentClient['numeroOS'] || currentClient['OS DA VENDA'] || currentClient['OS'] || clientOSList[0] || '—'}
+                      </p>
+                    </div>
+
                     <div className="col-span-1 sm:col-span-2 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5 flex items-center gap-1.5">
@@ -1702,7 +1726,8 @@ const ClientProfileModal = ({
                         const dt = compra['DATA  DA VENDA'] || compra['DATA'] || compra['DATA ENTREGA ÓCULOS'] || 'Data Desconhecida';
                         const formatDt = dt instanceof Date ? dt.toLocaleDateString('pt-BR') : typeof dt === 'number' && dt > 30000 ? new Date((dt - 25569) * 86400 * 1000).toLocaleDateString('pt-BR') : dt;
                         const statusOS = compra['STATUS_OS'] || compra['SITUAÇÃO'] || '';
-                        const hasOS = !!(compra['OS DA VENDA'] || compra['OS'] || compra['VENDA_OS']);
+                        const compraOSNum = compra['OS DA VENDA'] || compra['OS'] || compra['VENDA_OS'] || compra['numeroOS'] || compra['osNumber'] || compra['Nº DA OS'] || '';
+                        const hasOS = Boolean(compraOSNum && String(compraOSNum).trim() && String(compraOSNum).trim() !== '—' && String(compraOSNum).trim() !== '-');
 
                         return (
                           <div key={index} className="p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-all">
@@ -1737,7 +1762,7 @@ const ClientProfileModal = ({
                                 )}
                               </div>
                               <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-slate-400">OS: {compra['OS DA VENDA'] || compra['OS'] || '—'}</span>
+                                <span className="text-xs font-bold text-slate-400">OS: {compraOSNum || '—'}</span>
                                 {onDeleteSale && (
                                   <button
                                     type="button"

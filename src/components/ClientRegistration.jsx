@@ -263,12 +263,8 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     if (!client) return;
     setEditingClientData(client);
 
-    const clientName = (client['Nome Completo'] || client['NOME'] || client['Nome'] || '').toLowerCase().trim();
     const lastSale = salesData && salesData.length > 0
-      ? salesData.slice().reverse().find(s => {
-          const sName = (s['NOME CLIENTE'] || s['NOME'] || s['Cliente'] || '').toLowerCase().trim();
-          return clientName && (sName === clientName || sName.includes(clientName) || clientName.includes(sName));
-        })
+      ? salesData.slice().reverse().find(s => isSameClient(client, s))
       : null;
 
     setFormData({
@@ -573,13 +569,24 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     }, 2000);
   };
 
-  // Sincronização em Tempo Real com o ERP Financeiro (CONTAS_RECEBER)
+  // Sincronização em Tempo Real com o ERP Financeiro (CONTAS_RECEBER) e Vendas / OSs (salesData)
   const enrichedClients = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
 
     return (clientsData || []).map(client => {
       // Obter todas as duplicatas/boletos associadas a este cliente no ERP
       const clientInvoices = (receberData || []).filter(conta => isSameClient(client, conta));
+
+      // Vincula e enriquece a OS mais recente da cliente a partir de salesData
+      const clientSales = (salesData || []).filter(sale => isSameClient(client, sale));
+      const latestSaleWithOS = clientSales.slice().reverse().find(s => s['OS DA VENDA'] || s['OS'] || s['VENDA_OS'] || s['numeroOS'] || s['osNumber']);
+      const resolvedOS = client['numeroOS'] || client['OS DA VENDA'] || client['OS'] || client['VENDA_OS'] || latestSaleWithOS?.['OS DA VENDA'] || latestSaleWithOS?.['OS'] || latestSaleWithOS?.['VENDA_OS'] || latestSaleWithOS?.['numeroOS'] || '';
+      const resolvedLente = client['Marca de Lente'] || client['LENTE'] || latestSaleWithOS?.['LENTE'] || latestSaleWithOS?.['PRODUTO'] || '';
+      const resolvedArmacao = client['Modelo de Armação'] || client['ARMAÇÃO'] || latestSaleWithOS?.['ARMAÇÃO'] || '';
+      const resolvedValorTotal = client['valorTotal'] || client['VALOR TOTAL'] || latestSaleWithOS?.['VALOR TOTAL'] || latestSaleWithOS?.['VALOR DA VENDA'] || '';
+      const resolvedValorEntrada = client['valorEntrada'] || client['VALOR ENTRADA'] || client['SINAL'] || latestSaleWithOS?.['VALOR ENTRADA'] || latestSaleWithOS?.['SINAL'] || '';
+      const resolvedRestante = client['restante'] || client['RESTANTE'] || latestSaleWithOS?.['RESTANTE'] || '';
+      const resolvedFormasPagamento = client['formasPagamento'] || client['FORMAS_PAGAMENTO'] || latestSaleWithOS?.['FORMAS_PAGAMENTO'] || latestSaleWithOS?.['FORMA_PAGTO'] || '';
 
       if (clientInvoices.length > 0) {
         let totalPendente = 0;
@@ -618,6 +625,15 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           'Valor Devido': totalPendente > 0 ? totalPendente.toFixed(2).replace('.', ',') : '0,00',
           'Status de Pagamento': statusReal,
           'Data de Vencimento': proximoVencimento || client['Data de Vencimento'] || '',
+          numeroOS: resolvedOS,
+          'OS DA VENDA': resolvedOS,
+          'OS': resolvedOS,
+          'Marca de Lente': resolvedLente,
+          'Modelo de Armação': resolvedArmacao,
+          valorTotal: resolvedValorTotal,
+          valorEntrada: resolvedValorEntrada,
+          restante: resolvedRestante,
+          formasPagamento: resolvedFormasPagamento,
           _totalRecebidoERP: totalRecebido,
           _totalPendenteERP: totalPendente,
           _totalVencidoERP: totalVencido,
@@ -633,13 +649,22 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         ...client,
         'Valor Devido': saldoCadastro > 0 ? saldoCadastro.toFixed(2).replace('.', ',') : '0,00',
         'Status de Pagamento': statusCadastro,
+        numeroOS: resolvedOS,
+        'OS DA VENDA': resolvedOS,
+        'OS': resolvedOS,
+        'Marca de Lente': resolvedLente,
+        'Modelo de Armação': resolvedArmacao,
+        valorTotal: resolvedValorTotal,
+        valorEntrada: resolvedValorEntrada,
+        restante: resolvedRestante,
+        formasPagamento: resolvedFormasPagamento,
         _totalRecebidoERP: 0,
         _totalPendenteERP: saldoCadastro,
         _totalVencidoERP: statusCadastro === 'Inadimplente' ? saldoCadastro : 0,
         _qtdBoletos: 0
       };
     });
-  }, [clientsData, receberData]);
+  }, [clientsData, receberData, salesData]);
 
   // Indicadores Consolidados do ERP para a Gestão de Clientes
   const financialSummary = useMemo(() => {
