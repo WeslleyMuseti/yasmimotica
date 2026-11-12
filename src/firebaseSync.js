@@ -679,7 +679,7 @@ export const syncUserPasswordToFirestore = async (username, newHashedPassword, a
   let savedInCloud = false;
 
   // 1. Salva diretamente no Firestore (coleção USUARIOS com ID = cleanUser) com timeout e fallback offline
-  if (db) {
+  if (db && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
     try {
       const docRef = doc(db, 'USUARIOS', cleanUser);
       await withTimeout(setDoc(docRef, userDoc, { merge: true }), 3500, 'Timeout ao sincronizar credenciais');

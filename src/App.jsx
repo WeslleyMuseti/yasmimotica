@@ -6,7 +6,7 @@ import Dashboard from './components/Dashboard';
 import GlobalSearch from './components/GlobalSearch';
 import RowDetailsModal from './components/RowDetailsModal';
 import RowEditModal from './components/RowEditModal';
-import { COLUMN_LABELS } from './components/DataTable';
+import { COLUMN_LABELS, CANONICAL_ALIASES } from './components/DataTable';
 import ClientRegistration from './components/ClientRegistration';
 import ErpOptica from './components/ErpOptica';
 import OSManagement from './components/OSManagement';
@@ -30,6 +30,8 @@ import {
   saveOfflineSnapshot,
   loadOfflineSnapshot,
   loadMasterCache,
+  saveMasterCache,
+  saveCollectionToIndexedDb,
   syncUserPasswordToFirestore,
   OFFLINE_QUEUE_KEY,
   saveBatch,
@@ -470,15 +472,15 @@ function App() {
     if (row.id) return `id:${row.id}`;
     if (row._id) return `id:${row._id}`;
     if (row.DOCUMENTO) return `doc:${row.DOCUMENTO}_${row.VALOR || ''}_${row.DATA_VENCIMENTO || row['DATA VENCIMENTO'] || ''}`;
-    const name = String(row['Nome Completo'] || row['NOME'] || row['NOME DO CLIENTE'] || row['CLIENTE'] || '').trim().toLowerCase();
-    const cpf = String(row['CPF / CNPJ'] || row['CPF'] || '').replace(/\D/g, '');
-    const os = String(row['OS'] || row['OS DA VENDA'] || row['OS da COMPRA'] || row['VENDA_OS'] || '').trim();
-    const tel = String(row['WhatsApp'] || row['TELEFONE'] || row['TELEFONE CLIENTE'] || '').replace(/\D/g, '');
+    // Ordem de Serviço possui prioridade absoluta como identificador único de venda
+    const os = String(row['OS'] || row['OS DA VENDA'] || row['OS da COMPRA'] || row['VENDA_OS'] || row['numeroOS'] || row['osNumber'] || '').trim();
+    if (os && os !== '—') return `os:${os}`;
     const sku = String(row['REFERENCIA_SKU'] || row['referencia_sku'] || '').trim();
-
-    if (cpf && cpf.length >= 7) return `cpf:${cpf}`;
-    if (os) return `os:${os}`;
     if (sku) return `sku:${sku}`;
+    const cpf = String(row['CPF / CNPJ'] || row['CPF'] || '').replace(/\D/g, '');
+    if (cpf && cpf.length >= 7) return `cpf:${cpf}`;
+    const name = String(row['Nome Completo'] || row['NOME'] || row['NOME DO CLIENTE'] || row['CLIENTE'] || '').trim().toLowerCase();
+    const tel = String(row['WhatsApp'] || row['TELEFONE'] || row['TELEFONE CLIENTE'] || '').replace(/\D/g, '');
     if (name && tel) return `name_tel:${name}_${tel}`;
     if (name) return `name:${name}`;
     try {
@@ -486,6 +488,101 @@ function App() {
     } catch {
       return '';
     }
+  };
+
+  // 🛡️ Sincronização Simétrica Obrigatória de Aliases (AGENTS.md)
+  const syncRowAliases = (row, sheetName) => {
+    if (!row || typeof row !== 'object') return row;
+    const synced = { ...row };
+
+    // 1. Sincronização Canônica Universal
+    if (Array.isArray(CANONICAL_ALIASES)) {
+      CANONICAL_ALIASES.forEach(group => {
+        let val = undefined;
+        for (const key of group.keys) {
+          if (row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== '') {
+            val = row[key];
+            break;
+          }
+        }
+        if (val !== undefined) {
+          group.keys.forEach(k => {
+            if (row[k] !== undefined || synced[k] !== undefined) {
+              synced[k] = val;
+            }
+          });
+        }
+      });
+    }
+
+    // 2. Clientes (CLIENTES_CADASTRADOS)
+    if (sheetName === 'CLIENTES_CADASTRADOS' || row['Nome Completo'] || row['CPF / CNPJ']) {
+      const nome = synced['Nome Completo'] || synced['NOME'] || synced['CLIENTE'] || synced['Nome'];
+      if (nome) {
+        synced['Nome Completo'] = nome;
+        synced['NOME'] = nome;
+        synced['Nome'] = nome;
+        synced['CLIENTE'] = nome;
+      }
+      const cpf = synced['CPF / CNPJ'] || synced['CPF'] || synced['CNPJ'];
+      if (cpf) {
+        synced['CPF / CNPJ'] = cpf;
+        synced['CPF'] = cpf;
+      }
+      const tel = synced['WhatsApp'] || synced['TELEFONE'] || synced['TELEFONE CLIENTE'] || synced['Celular'];
+      if (tel) {
+        synced['WhatsApp'] = tel;
+        synced['TELEFONE'] = tel;
+        synced['TELEFONE CLIENTE'] = tel;
+        synced['Celular'] = tel;
+      }
+      const end = synced['Rua'] || synced['RUA'] || synced['ENDEREÇO'] || synced['Endereço'];
+      if (end) {
+        synced['Rua'] = end;
+        synced['RUA'] = end;
+        synced['ENDEREÇO'] = end;
+      }
+      const cid = synced['Cidade'] || synced['CIDADE'] || synced['UNIDADE'];
+      if (cid) {
+        synced['Cidade'] = cid;
+        synced['CIDADE'] = cid;
+      }
+      const est = synced['Estado'] || synced['ESTADO'] || synced['UF'];
+      if (est) {
+        synced['Estado'] = est;
+        synced['ESTADO'] = est;
+        synced['UF'] = est;
+      }
+    }
+
+    // 3. Vendas e OSs (Registro_Vendas, BD MARKETING, etc.)
+    if (['Registro_Vendas', 'BD MARKETING', 'VENDAS'].includes(sheetName) || row['OS DA VENDA'] || row['OS'] || row['numeroOS']) {
+      const osNum = synced['OS DA VENDA'] || synced['OS'] || synced['VENDA_OS'] || synced['OS da COMPRA'] || synced['numeroOS'] || synced['osNumber'];
+      if (osNum) {
+        synced['OS DA VENDA'] = osNum;
+        synced['OS'] = osNum;
+        synced['VENDA_OS'] = osNum;
+        synced['OS da COMPRA'] = osNum;
+        synced['OS da VENDA'] = osNum;
+        synced['Nº DA OS'] = osNum;
+        synced['Num OS'] = osNum;
+        synced['numeroOS'] = osNum;
+        synced['osNumber'] = osNum;
+        synced['osNumero'] = osNum;
+        synced['os'] = osNum;
+      }
+      const pac = synced['PACIENTE'] || synced['NOME_BENEFICIARIO'] || synced['CLIENTE_BENEFICIARIO'] || synced['nomePessoa'] || synced['beneficiario'] || synced['pacienteNome'];
+      if (pac) {
+        synced['PACIENTE'] = pac;
+        synced['NOME_BENEFICIARIO'] = pac;
+        synced['CLIENTE_BENEFICIARIO'] = pac;
+        synced['nomePessoa'] = pac;
+        synced['beneficiario'] = pac;
+        synced['pacienteNome'] = pac;
+      }
+    }
+
+    return synced;
   };
 
   const getDeletedKeys = () => {
@@ -524,8 +621,8 @@ function App() {
         Object.keys(cached).forEach(col => {
           if (Array.isArray(cached[col]) && cached[col].length > 0) {
             const prevLen = prev[col]?.length || 0;
-            // Se o estado atual estiver vazio, tiver menos dados ou estiver truncado em 100 itens (bug anterior)
-            if (prevLen === 0 || cached[col].length > prevLen || prevLen === 100) {
+            // Se o estado atual estiver vazio, tiver menos dados ou tamanho igual (com dados editados persistidos)
+            if (prevLen === 0 || cached[col].length >= prevLen || prevLen === 100) {
               merged[col] = cached[col];
               hasAnyUpdate = true;
             }
@@ -788,12 +885,13 @@ function App() {
   };
 
   const handleRowUpdate = async (sheetName, oldRow, newRow) => {
-    const rowId = oldRow?.id || newRow?.id || oldRow?.['id'] || newRow?.['id'];
-    const mergedNewRow = {
-      ...newRow,
-      id: rowId || `row_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
-    };
+    const syncedNewRow = syncRowAliases(newRow, sheetName);
     const oldKey = getItemKey(oldRow);
+    const rowId = oldRow?.id || syncedNewRow?.id || oldRow?.['id'] || syncedNewRow?.['id'] || (oldKey ? `row_${oldKey.replace(/[^a-zA-Z0-9_-]/g, '_')}` : `row_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`);
+    const mergedNewRow = {
+      ...syncedNewRow,
+      id: rowId
+    };
     const isSalesSheet = ['Registro_Vendas', 'BD MARKETING', 'VENDAS'].includes(sheetName);
 
     setData(prev => {
@@ -812,15 +910,20 @@ function App() {
             (oldKey && getItemKey(r) === oldKey);
           return isMatch ? mergedNewRow : r;
         });
+        saveCollectionToIndexedDb(s, nextData[s]).catch(() => {});
       });
+      saveMasterCache(nextData).catch(() => {});
       return nextData;
     });
 
     if (isConfigured) {
       try {
-        await saveDocument(sheetName, mergedNewRow, rowId);
-        if (isSalesSheet && sheetName !== 'Registro_Vendas') {
-          await saveDocument('Registro_Vendas', mergedNewRow, rowId).catch(() => {});
+        await saveDocument(sheetName, mergedNewRow, mergedNewRow.id);
+        if (isSalesSheet) {
+          const otherSales = ['Registro_Vendas', 'BD MARKETING'].filter(s => s !== sheetName && data?.[s]);
+          for (const s of otherSales) {
+            await saveDocument(s, mergedNewRow, mergedNewRow.id).catch(() => {});
+          }
         }
       } catch (err) {
         console.error("Erro ao salvar no banco de dados (Firebase):", err);
@@ -829,16 +932,22 @@ function App() {
   };
 
   const handleAddRow = async (sheetName, newRow) => {
+    const syncedRow = syncRowAliases(newRow, sheetName);
     const rowWithId = {
-      ...newRow,
-      id: newRow.id || `row_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
+      ...syncedRow,
+      id: syncedRow.id || `row_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
     };
 
-    // 1. Atualização Imediata em Memória Local (Zero Delay / Reativo)
-    setData(prev => ({
-      ...prev,
-      [sheetName]: [...(prev[sheetName] || []), rowWithId]
-    }));
+    // 1. Atualização Imediata em Memória Local e Cache Mestre IndexedDB (Zero Delay / Persistência Real)
+    setData(prev => {
+      const nextData = {
+        ...prev,
+        [sheetName]: [...(prev[sheetName] || []), rowWithId]
+      };
+      saveCollectionToIndexedDb(sheetName, nextData[sheetName]).catch(() => {});
+      saveMasterCache(nextData).catch(() => {});
+      return nextData;
+    });
 
     // 2. Persistência na Nuvem (Firebase)
     if (isConfigured) {
@@ -852,16 +961,24 @@ function App() {
 
   const handleAddBatch = async (sheetName, newRows = []) => {
     if (!Array.isArray(newRows) || newRows.length === 0) return;
-    const rowsWithId = newRows.map((r, idx) => ({
-      ...r,
-      id: r.id || `row_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 6)}`
-    }));
+    const rowsWithId = newRows.map((r, idx) => {
+      const synced = syncRowAliases(r, sheetName);
+      return {
+        ...synced,
+        id: synced.id || `row_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 6)}`
+      };
+    });
 
-    // 1. Atualização Imediata em Memória Local (Zero Delay / Reativo)
-    setData(prev => ({
-      ...prev,
-      [sheetName]: [...(prev[sheetName] || []), ...rowsWithId]
-    }));
+    // 1. Atualização Imediata em Memória Local e Cache Mestre IndexedDB
+    setData(prev => {
+      const nextData = {
+        ...prev,
+        [sheetName]: [...(prev[sheetName] || []), ...rowsWithId]
+      };
+      saveCollectionToIndexedDb(sheetName, nextData[sheetName]).catch(() => {});
+      saveMasterCache(nextData).catch(() => {});
+      return nextData;
+    });
 
     // 2. Persistência em Lote na Nuvem (Firebase)
     if (isConfigured) {
@@ -882,10 +999,10 @@ function App() {
     const delKey = getItemKey(rowToDelete);
     addDeletedKey(delKey);
 
-    // 1. Atualiza imediatamente o estado local em memória
+    // 1. Atualiza imediatamente o estado local em memória e IndexedDB
     setData(prev => {
       if (!prev || !prev[sheetName]) return prev;
-      return {
+      const nextData = {
         ...prev,
         [sheetName]: prev[sheetName].filter(r => {
           if (r === rowToDelete) return false;
@@ -894,6 +1011,9 @@ function App() {
           return rKey !== delKey;
         })
       };
+      saveCollectionToIndexedDb(sheetName, nextData[sheetName]).catch(() => {});
+      saveMasterCache(nextData).catch(() => {});
+      return nextData;
     });
 
     // 2. Se o Firebase estiver configurado, remove o documento do Firestore

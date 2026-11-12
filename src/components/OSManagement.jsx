@@ -400,6 +400,25 @@ const OSManagement = ({
     if (!editingOrder) return;
     const rawSale = editingOrder.raw || editingOrder;
     const sheetName = data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING';
+
+    // 1. Limpeza de duplicatas pendentes em CONTAS_RECEBER vinculadas a esta OS para reconfirmação limpa
+    const oldOSNum = String(editingOrder.osNumber || rawSale['OS DA VENDA'] || rawSale['OS'] || rawSale['VENDA_OS'] || '').trim();
+    const receberList = data?.['CONTAS_RECEBER'] || [];
+    if (oldOSNum && oldOSNum !== '—' && Array.isArray(receberList) && receberList.length > 0 && onDeleteRow) {
+      const targetOS = oldOSNum.toLowerCase();
+      const pendingInvoices = receberList.filter(inv => {
+        return isMatchingOS(inv, targetOS) && inv.STATUS !== 'Recebido' && inv.STATUS !== 'Pago';
+      });
+      for (const inv of pendingInvoices) {
+        try {
+          await onDeleteRow('CONTAS_RECEBER', inv);
+        } catch (delErr) {
+          console.warn('Aviso ao remover duplicata pendente da OS antiga:', delErr);
+        }
+      }
+    }
+
+    // 2. Salva a linha da OS atualizada
     if (onUpdateRow) {
       await onUpdateRow(sheetName, rawSale, finalizedRow);
     }
@@ -1161,6 +1180,7 @@ const OSManagement = ({
     setOsDataForLabPrint(null);
     setPrintLabClient(null);
     const cleanedFP = cleanPaymentMethodForOS(order.raw["FORMAS_PAGAMENTO"] || order.raw["MEIO_PAGAMENTO"] || order.formasPagamento || "");
+    const pacienteNomeVal = order.pacienteNome || order.raw?.["PACIENTE"] || order.raw?.["NOME_BENEFICIARIO"] || order.raw?.["CLIENTE_BENEFICIARIO"] || order.raw?.["nomePessoa"] || order.raw?.["beneficiario"] || "";
     const cData = {
       ...order.raw,
       ...(order.clientData || {}),
@@ -1173,14 +1193,24 @@ const OSManagement = ({
       "formaPagamentoEntrada": order.formaEntrada || order.raw?.["formaPagamentoEntrada"] || "",
       "FORMA_RESTANTE": order.formaRestante || order.raw?.["FORMA_RESTANTE"] || "",
       "formaPagamentoRestante": order.formaRestante || order.raw?.["formaPagamentoRestante"] || "",
+      "PACIENTE": pacienteNomeVal,
+      "pacienteNome": pacienteNomeVal,
+      "nomePessoa": pacienteNomeVal,
+      "NOME_BENEFICIARIO": pacienteNomeVal,
       parcelas: [],
       PARCELAS_JSON: "[]"
     };
     setPrintClient(cData);
     setOsDataForPrint({
+      raw: order.raw,
       numeroOS: order.osNumber,
       selectedCity: order.unit,
       unidade: order.unit,
+      pacienteNome: pacienteNomeVal,
+      PACIENTE: pacienteNomeVal,
+      nomePessoa: pacienteNomeVal,
+      NOME_BENEFICIARIO: pacienteNomeVal,
+      beneficiario: pacienteNomeVal,
       medico: order.raw["MEDICO"] || "",
       lente: order.lente || order.raw["LENTE"] || order.product,
       armacao: order.armacao || order.raw["ARMAÇÃO"] || "",
@@ -1256,12 +1286,15 @@ const OSManagement = ({
     // Preparar impressão usando updatedRaw
     setOsDataForPrint(null);
     setPrintClient(null);
+    const labPacienteNome = order.pacienteNome || updatedRaw?.['PACIENTE'] || updatedRaw?.['NOME_BENEFICIARIO'] || updatedRaw?.['nomePessoa'] || '';
     const cData = {
       ...updatedRaw,
       ...(order.clientData || {}),
       "Nome Completo": order.clientName || updatedRaw?.['CLIENTE'] || updatedRaw?.['NOME'],
       "WhatsApp": order.clientPhone || updatedRaw?.['TELEFONE'],
-      "Cidade": order.clientCity || order.unit
+      "Cidade": order.clientCity || order.unit,
+      "PACIENTE": labPacienteNome,
+      "pacienteNome": labPacienteNome
     };
     setPrintLabClient(cData);
     setOsDataForLabPrint({
@@ -1269,6 +1302,9 @@ const OSManagement = ({
       numeroOS: order.osNumber,
       selectedCity: order.unit,
       unidade: order.unit,
+      clientName: order.clientName || updatedRaw?.['CLIENTE'] || updatedRaw?.['NOME'],
+      pacienteNome: labPacienteNome,
+      PACIENTE: labPacienteNome,
       laboratorio: updatedRaw["LABORATORIO"] || "",
       medico: updatedRaw["MEDICO"] || "",
       lente: order.lente || updatedRaw["LENTE"] || order.product,
@@ -1355,12 +1391,18 @@ const OSManagement = ({
     };
     setPrintClient(cData);
 
-    const mappedMulti = ordersToPrint.map((o, idx) => ({
-      ...o.raw,
-      numeroOS: o.osNumber,
-      selectedCity: o.unit,
-      unidade: o.unit,
-      medico: o.medico || o.raw?.["MEDICO"] || "",
+    const mappedMulti = ordersToPrint.map((o, idx) => {
+      const pacName = o.pacienteNome || o.raw?.["PACIENTE"] || o.raw?.["NOME_BENEFICIARIO"] || o.raw?.["nomePessoa"] || "";
+      return {
+        ...o.raw,
+        numeroOS: o.osNumber,
+        selectedCity: o.unit,
+        unidade: o.unit,
+        pacienteNome: pacName,
+        PACIENTE: pacName,
+        nomePessoa: pacName,
+        NOME_BENEFICIARIO: pacName,
+        medico: o.medico || o.raw?.["MEDICO"] || "",
       lente: o.lente || o.raw?.["LENTE"] || o.product,
       armacao: o.armacao || o.raw?.["ARMAÇÃO"] || "",
       valorTotal: o.valorTotal,
@@ -1391,7 +1433,8 @@ const OSManagement = ({
       totalOS: ordersToPrint.length,
       isMultiOS: true,
       clientData: cData
-    }));
+    };
+  });
 
     setOsDataForPrint({
       ...mappedMulti[0],

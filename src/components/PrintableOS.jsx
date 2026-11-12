@@ -81,12 +81,23 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
   // Beneficiário / Paciente (quando for OS extra ou nominalmente diferente do titular)
   const beneficiaryName = String(
     osData.nomePessoa || 
+    osData.pacienteNome ||
     osData.PACIENTE || 
     osData.NOME_BENEFICIARIO || 
     osData.CLIENTE_BENEFICIARIO || 
     osData.beneficiario || 
+    safeClient.pacienteNome ||
+    safeClient.PACIENTE ||
+    safeClient.NOME_BENEFICIARIO ||
+    safeClient.nomePessoa ||
     ''
   ).trim();
+
+  // Valores canônicos com suporte total a todos os aliases e fallbacks
+  const displayTotal = osData.valorTotal ?? osData['VALOR TOTAL'] ?? osData['VALOR DA VENDA'] ?? osData['VALOR'] ?? safeClient['VALOR TOTAL'] ?? safeClient['Valor Total'] ?? '0,00';
+  const displayEntrada = osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? safeClient['VALOR ENTRADA'] ?? safeClient['Valor Entrada'] ?? '0,00';
+  const displayRestante = osData.restante ?? osData['RESTANTE'] ?? safeClient['RESTANTE'] ?? safeClient['Restante'] ?? '0,00';
+  const displayOSNumber = String(osData.numeroOS || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || safeClient['OS DA VENDA'] || safeClient['OS'] || '---').replace(/^#+/, '');
 
   // ─── PADRÃO DE ITENS DO PEDIDO (PRODUTOS & SERVIÇOS) ─────────────
   const orderItems = useMemo(() => {
@@ -298,7 +309,7 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
 
         <div className="text-right">
           <div className="inline-block bg-slate-950 text-white px-2.5 py-0.5 rounded font-black text-xs uppercase tracking-wide">
-            OS Nº {osData.numeroOS || '---'}{isMulti ? ` (${index}/${total})` : ''}
+            OS Nº {displayOSNumber}{isMulti ? ` (${index}/${total})` : ''}
           </div>
             <p className="text-[8.5px] font-bold mt-0.5 text-slate-700">
               {saleDate && <span>Data da Venda: <strong className="text-slate-900">{formatDatePrint(saleDate)}{saleTime ? ` às ${saleTime}` : ''}</strong> | </span>}
@@ -362,9 +373,9 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
               2. Prescrição Oftalmológica (Dioptria)
             </h3>
             <div className="flex items-center gap-3 text-[8.5px]">
-              <p><strong>Médico / Prescritor:</strong> <span className="font-bold text-slate-900">{osData.medico || 'Não informado'}</span></p>
+              <p><strong>Médico / Prescritor:</strong> <span className="font-bold text-slate-900">{osData.medico || osData['MEDICO'] || safeClient['Médico'] || safeClient['MEDICO'] || 'Não informado'}</span></p>
               <p>
-                <strong>Adição (Perto):</strong> <span className="font-black text-slate-950 bg-slate-100 px-1 py-0.5 rounded border border-slate-300">{osData.adicao || '---'}</span>
+                <strong>Adição (Perto):</strong> <span className="font-black text-slate-950 bg-slate-100 px-1 py-0.5 rounded border border-slate-300">{osData.adicao || osData['ADICAO'] || osData['Adição'] || safeClient['Adição'] || '---'}</span>
               </p>
             </div>
           </div>
@@ -386,46 +397,46 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
               {/* Longe */}
               <tr className="bg-white">
                 <td className="border border-slate-400 py-0.5 px-1 font-black text-left text-slate-900">OD (Longe)</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odEsf || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odCil || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odEixo || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odDnp || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odAlt || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odDp || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odOpa || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odEsf || osData['OD_ESF'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odCil || osData['OD_CIL'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odEixo || osData['OD_EIXO'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odDnp || osData['OD_DNP'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odAlt || osData['OD_ALT'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odDp || osData['OD_DP'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odOpa || osData['OD_OPA'] || '---'}</td>
               </tr>
               <tr className="bg-slate-50/70">
                 <td className="border border-slate-400 py-0.5 px-1 font-black text-left text-slate-900">OE (Longe)</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeEsf || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeCil || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeEixo || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeDnp || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeAlt || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeDp || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeOpa || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeEsf || osData['OE_ESF'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeCil || osData['OE_CIL'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeEixo || osData['OE_EIXO'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeDnp || osData['OE_DNP'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeAlt || osData['OE_ALT'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeDp || osData['OE_DP'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeOpa || osData['OE_OPA'] || '---'}</td>
               </tr>
               {/* Perto */}
-              {(osData.odPertoEsf || osData.oePertoEsf || osData.adicao || osData.odPertoCil || osData.oePertoCil) && (
+              {(osData.odPertoEsf || osData['OD_PERTO_ESF'] || osData.oePertoEsf || osData['OE_PERTO_ESF'] || osData.adicao || osData['ADICAO'] || osData.odPertoCil || osData['OD_PERTO_CIL'] || osData.oePertoCil || osData['OE_PERTO_CIL']) && (
                 <>
                   <tr className="bg-amber-50/40">
                     <td className="border border-slate-400 py-0.5 px-1 font-black text-left text-amber-950">OD (Perto)</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoEsf || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoCil || osData.odCil || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoEixo || osData.odEixo || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoDnp || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoAlt || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoDp || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoOpa || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoEsf || osData['OD_PERTO_ESF'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoCil || osData['OD_PERTO_CIL'] || osData.odCil || osData['OD_CIL'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoEixo || osData['OD_PERTO_EIXO'] || osData.odEixo || osData['OD_EIXO'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoDnp || osData['OD_PERTO_DNP'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoAlt || osData['OD_PERTO_ALT'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoDp || osData['OD_PERTO_DP'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoOpa || osData['OD_PERTO_OPA'] || '---'}</td>
                   </tr>
                   <tr className="bg-amber-50/60">
                     <td className="border border-slate-400 py-0.5 px-1 font-black text-left text-amber-950">OE (Perto)</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoEsf || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoCil || osData.oeCil || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoEixo || osData.oeEixo || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoDnp || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoAlt || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoDp || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoOpa || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoEsf || osData['OE_PERTO_ESF'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoCil || osData['OE_PERTO_CIL'] || osData.oeCil || osData['OE_CIL'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoEixo || osData['OE_PERTO_EIXO'] || osData.oeEixo || osData['OE_EIXO'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoDnp || osData['OE_PERTO_DNP'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoAlt || osData['OE_PERTO_ALT'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoDp || osData['OE_PERTO_DP'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoOpa || osData['OE_PERTO_OPA'] || '---'}</td>
                   </tr>
                 </>
               )}
@@ -519,7 +530,7 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
                 {isSecondary ? 'Cobrança da OS' : 'Valor Total da OS'}
               </p>
               <p className="font-black text-xs text-slate-950">
-                {isSecondary ? 'Cobrança Unificada' : `R$ ${formatCurrencyPrint(osData.valorTotal)}`}
+                {isSecondary ? 'Cobrança Unificada' : `R$ ${formatCurrencyPrint(displayTotal)}`}
               </p>
             </div>
             <div className="border border-emerald-700 p-1 text-center rounded bg-emerald-50/50">
@@ -527,22 +538,22 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
                 {isSecondary ? 'Faturamento' : 'Sinal / Entrada Paga'}
               </p>
               <p className="font-black text-xs text-emerald-800">
-                {isSecondary ? 'Faturado na OS 1' : `R$ ${formatCurrencyPrint(osData.valorEntrada)}`}
+                {isSecondary ? 'Faturado na OS 1' : `R$ ${formatCurrencyPrint(displayEntrada)}`}
               </p>
-              {!isSecondary && parseCurrencyPrint(osData.valorEntrada) > 0 && resolvedFormaEntrada && (
+              {!isSecondary && parseCurrencyPrint(displayEntrada) > 0 && resolvedFormaEntrada && (
                 <p className="text-[7px] font-black text-emerald-900 mt-0.5 uppercase">
                   Forma da Entrada: {resolvedFormaEntrada}
                 </p>
               )}
             </div>
-            <div className={`p-1 text-center rounded border ${(!isSecondary && parseCurrencyPrint(osData.restante) > 0) ? 'border-rose-600 bg-rose-50/50' : 'border-slate-400 bg-slate-50'}`}>
-              <p className={`uppercase text-[7.5px] font-black ${(!isSecondary && parseCurrencyPrint(osData.restante) > 0) ? 'text-rose-700' : 'text-slate-600'}`}>
+            <div className={`p-1 text-center rounded border ${(!isSecondary && parseCurrencyPrint(displayRestante) > 0) ? 'border-rose-600 bg-rose-50/50' : 'border-slate-400 bg-slate-50'}`}>
+              <p className={`uppercase text-[7.5px] font-black ${(!isSecondary && parseCurrencyPrint(displayRestante) > 0) ? 'text-rose-700' : 'text-slate-600'}`}>
                 {isSecondary ? 'Saldo Desta OS' : 'Falta / Restante'}
               </p>
-              <p className={`font-black text-xs ${(!isSecondary && parseCurrencyPrint(osData.restante) > 0) ? 'text-rose-800' : 'text-slate-900'}`}>
-                {isSecondary ? 'R$ 0,00 (Faturamento Único)' : `R$ ${formatCurrencyPrint(osData.restante)}`}
+              <p className={`font-black text-xs ${(!isSecondary && parseCurrencyPrint(displayRestante) > 0) ? 'text-rose-800' : 'text-slate-900'}`}>
+                {isSecondary ? 'R$ 0,00 (Faturamento Único)' : `R$ ${formatCurrencyPrint(displayRestante)}`}
               </p>
-              {!isSecondary && parseCurrencyPrint(osData.restante) > 0 && resolvedFormaRestante && (
+              {!isSecondary && parseCurrencyPrint(displayRestante) > 0 && resolvedFormaRestante && (
                 <p className="text-[7px] font-black text-rose-900 mt-0.5 uppercase">
                   Forma do Restante: {resolvedFormaRestante}
                 </p>

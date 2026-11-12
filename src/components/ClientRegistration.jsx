@@ -431,9 +431,34 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     const isEmDia = formData['Status de Pagamento'] === 'Em dia' || valorDevidoNum <= 0;
 
     if (editingClientData) {
+      const cleanNome = formData['Nome Completo'] || formData['NOME'] || editingClientData['Nome Completo'] || editingClientData['NOME'] || '';
+      const cleanCpf = formData['CPF / CNPJ'] || formData['CPF'] || editingClientData['CPF / CNPJ'] || editingClientData['CPF'] || '';
+      const cleanTel = formData['WhatsApp'] || formData['TELEFONE'] || editingClientData['WhatsApp'] || editingClientData['TELEFONE'] || '';
+      const cleanRua = formData['Rua'] || formData['RUA'] || formData['ENDEREÇO'] || '';
+      const cleanCid = formData['Cidade'] || formData['CIDADE'] || '';
+      const cleanEst = formData['Estado'] || formData['ESTADO'] || '';
+
       const updatedRowData = {
         ...editingClientData,
         ...formData,
+        'Nome Completo': cleanNome,
+        'NOME': cleanNome,
+        'Nome': cleanNome,
+        'CLIENTE': cleanNome,
+        'CPF / CNPJ': cleanCpf,
+        'CPF': cleanCpf,
+        'WhatsApp': cleanTel,
+        'TELEFONE': cleanTel,
+        'TELEFONE CLIENTE': cleanTel,
+        'Celular': cleanTel,
+        'Rua': cleanRua,
+        'RUA': cleanRua,
+        'ENDEREÇO': cleanRua,
+        'Cidade': cleanCid,
+        'CIDADE': cleanCid,
+        'Estado': cleanEst,
+        'ESTADO': cleanEst,
+        'UF': cleanEst,
         id: editingClientData.id || formData.id || `client_${Date.now()}`
       };
 
@@ -2199,7 +2224,10 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         clientData={profileClientData}
         currentUser={currentUser}
         onDeleteClient={onDeleteClient}
-        onUpdateClient={onUpdateClient}
+        onUpdateClient={(params) => {
+          if (onUpdateClient) onUpdateClient(params);
+          if (params?.newRow) setProfileClientData(params.newRow);
+        }}
         clientHistory={salesData.filter(sale => isSameClient(profileClientData, sale))}
         receberData={receberData}
         onUpdateRow={onUpdateRow}

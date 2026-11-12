@@ -258,7 +258,7 @@ const EditOSModal = ({
 
   useEffect(() => {
     if (osData) {
-      const numOS = String(osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['OS da COMPRA'] || '').trim();
+      const numOS = String(osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['OS da COMPRA'] || osData.numeroOS || osData.osNumber || osData['Nº DA OS'] || osData['Num OS'] || '').trim();
       const rawTotal = osData['VALOR TOTAL'] || osData['VALOR DO ORÇAMENTO'] || osData['VALOR DA VENDA'] || osData['VALOR'] || '';
       const totalNum = cleanVal(rawTotal);
       const rawEntrada = osData['VALOR ENTRADA'] || osData['SINAL'] || '';

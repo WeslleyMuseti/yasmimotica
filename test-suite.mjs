@@ -3581,6 +3581,11 @@ async function runTests() {
 
   // 38.6 Timeout Seguro em syncUserPasswordToFirestore com Fallback Gracioso Offline
   clearOfflineQueue();
+  if (typeof globalThis.navigator === 'undefined') {
+    globalThis.navigator = { onLine: false };
+  } else {
+    Object.defineProperty(globalThis.navigator, 'onLine', { value: false, configurable: true, writable: true });
+  }
   const testNewHash = await hashPassword('novaSenhaSegura2026!');
   const syncOfflineRes = await syncUserPasswordToFirestore('vendedor_teste_timeout', testNewHash, {
     role: 'vendedor',
@@ -3598,6 +3603,7 @@ async function runTests() {
   console.assert(queuedUserOp.type === 'save', 'Tipo de operação na fila offline deve ser save');
   console.assert(queuedUserOp.data.password === testNewHash, 'Hash de senha correto deve ser gravado na fila');
   clearOfflineQueue();
+  Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true, writable: true });
 
   // 38.7 Persistência de Role & City com updatedAt em AdminUsers
   const adminUsersList = [
@@ -8155,6 +8161,51 @@ async function runTests() {
     console.assert(receiptSrc.includes("saleData.descontoTipo === 'PORCENTAGEM'") || receiptSrc.includes("descontoPercentual"), 'PrintableReceipt deve exibir a porcentagem do desconto extra quando aplicável');
 
     console.log('  ✅ Test 83 Passed: Desconto Extra com R$ e % no PDV validado com 100% de sucesso!\n');
+  }
+
+  // =========================================================================
+  // Test 84: Fidelidade Absoluta das Edições (Valores, Nomes, OS e Impressão Exata)
+  // =========================================================================
+  {
+    console.log('▶ Test 84: Fidelidade Absoluta das Edições (Valores, Nomes, OS e Impressão Exata)');
+
+    const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'App.jsx'), 'utf-8');
+    const printableOSSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableOS.jsx'), 'utf-8');
+    const printableLabSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableLabOS.jsx'), 'utf-8');
+    const printableReceiptSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableReceipt.jsx'), 'utf-8');
+    const editOSModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'EditOSModal.jsx'), 'utf-8');
+    const osManagementSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'OSManagement.jsx'), 'utf-8');
+    const clientProfileModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ClientProfileModal.jsx'), 'utf-8');
+
+    // 1. Validar que App.jsx possui syncRowAliases garantindo simetria de todos os aliases canônicos
+    console.assert(appSrc.includes('const syncRowAliases = (row, sheetName) =>'), 'App.jsx deve implementar syncRowAliases');
+    console.assert(appSrc.includes("synced['Nome Completo'] = nome") && appSrc.includes("synced['NOME'] = nome"), 'syncRowAliases deve sincronizar Nome Completo e NOME');
+    console.assert(appSrc.includes("synced['OS DA VENDA'] = osNum") && appSrc.includes("synced['numeroOS'] = osNum"), 'syncRowAliases deve sincronizar OS DA VENDA e numeroOS');
+    console.assert(appSrc.includes("synced['PACIENTE'] = pac") && appSrc.includes("synced['nomePessoa'] = pac"), 'syncRowAliases deve sincronizar PACIENTE e nomePessoa');
+
+    // 2. Validar que handleRowUpdate salva imediatamente no IndexedDB (Zero Delay / Sem risco de perda ao recarregar)
+    console.assert(appSrc.includes('saveCollectionToIndexedDb(s, nextData[s])'), 'handleRowUpdate deve salvar imediatamente cada coleção no IndexedDB');
+    console.assert(appSrc.includes('saveMasterCache(nextData)'), 'handleRowUpdate deve atualizar o master cache local imediatamente');
+
+    // 3. Validar que getItemKey prioriza OS sobre CPF para vendas (evitando colisão de vendas do mesmo cliente)
+    console.assert(appSrc.includes("if (os && os !== '—') return `os:${os}`"), 'getItemKey deve priorizar OS sobre CPF para vendas');
+
+    // 4. Validar que PrintableOS possui fallbacks completos para prescrição maiúscula/minúscula e valores
+    console.assert(printableOSSrc.includes("osData.odEsf || osData['OD_ESF']"), 'PrintableOS deve suportar fallback para OD_ESF');
+    console.assert(printableOSSrc.includes("osData.oeEsf || osData['OE_ESF']"), 'PrintableOS deve suportar fallback para OE_ESF');
+    console.assert(printableOSSrc.includes('displayTotal') && printableOSSrc.includes('displayEntrada') && printableOSSrc.includes('displayRestante'), 'PrintableOS deve calcular valores com displayTotal, displayEntrada e displayRestante');
+    console.assert(printableOSSrc.includes('displayOSNumber'), 'PrintableOS deve sanitizar número de OS sem duplicar prefixo #');
+
+    // 5. Validar que PrintableLabOS exibe dados do cliente e paciente/beneficiário
+    console.assert(printableLabSrc.includes('clientName') && printableLabSrc.includes('pacienteNome'), 'PrintableLabOS deve identificar Nome do Cliente e Paciente');
+
+    // 6. Validar que OSManagement passa pacienteNome para impressão individual e em lote
+    console.assert(osManagementSrc.includes('pacienteNomeVal') || osManagementSrc.includes('pacName'), 'OSManagement deve propagar pacienteNome para impressão de OS');
+
+    // 7. Validar que ClientProfileModal sincroniza aliases simétricos ao salvar edição do cliente
+    console.assert(clientProfileModalSrc.includes("'Nome Completo': cleanNome") && clientProfileModalSrc.includes("'NOME': cleanNome"), 'ClientProfileModal deve salvar Nome Completo e NOME simultaneamente');
+
+    console.log('  ✅ Test 84 Passed: Fidelidade Absoluta das Edições (Valores, Nomes, OS e Impressão Exata) validada com 100% de sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');

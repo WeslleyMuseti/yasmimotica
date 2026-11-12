@@ -69,9 +69,10 @@ const PrintableReceipt = ({ saleData, clientData }) => {
         <h1 className="text-sm font-black uppercase tracking-wider">YASMIN ÓTICA</h1>
         <p className="text-[10px] text-gray-700 uppercase">Comprovante de Venda Não Fiscal</p>
         <p className="text-[10px] text-gray-600 mt-1">Data: {receiptDateTimeStr}</p>
-        {saleData.numeroOS && (
-          <p className="text-xs font-bold mt-1">Ordem de Serviço: #{saleData.numeroOS}</p>
-        )}
+        {(() => {
+          const receiptOS = String(saleData.numeroOS || saleData['OS DA VENDA'] || saleData['OS'] || saleData['VENDA_OS'] || '').replace(/^#+/, '');
+          return receiptOS ? <p className="text-xs font-bold mt-1">Ordem de Serviço: #{receiptOS}</p> : null;
+        })()}
       </div>
 
       {/* Dados do Cliente */}

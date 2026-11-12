@@ -640,9 +640,34 @@ const ClientProfileModal = ({
 
   const handleSaveEdit = (e) => {
     e.preventDefault();
+    const cleanNome = editFormData['Nome Completo'] || editFormData['NOME'] || currentClient['Nome Completo'] || currentClient['NOME'] || '';
+    const cleanCpf = editFormData['CPF / CNPJ'] || editFormData['CPF'] || currentClient['CPF / CNPJ'] || currentClient['CPF'] || '';
+    const cleanTel = editFormData['WhatsApp'] || editFormData['TELEFONE'] || currentClient['WhatsApp'] || currentClient['TELEFONE'] || '';
+    const cleanRua = editFormData['Rua'] || editFormData['RUA'] || editFormData['ENDEREÇO'] || '';
+    const cleanCid = editFormData['Cidade'] || editFormData['CIDADE'] || '';
+    const cleanEst = editFormData['Estado'] || editFormData['ESTADO'] || '';
+
     const updated = {
       ...currentClient,
       ...editFormData,
+      'Nome Completo': cleanNome,
+      'NOME': cleanNome,
+      'Nome': cleanNome,
+      'CLIENTE': cleanNome,
+      'CPF / CNPJ': cleanCpf,
+      'CPF': cleanCpf,
+      'WhatsApp': cleanTel,
+      'TELEFONE': cleanTel,
+      'TELEFONE CLIENTE': cleanTel,
+      'Celular': cleanTel,
+      'Rua': cleanRua,
+      'RUA': cleanRua,
+      'ENDEREÇO': cleanRua,
+      'Cidade': cleanCid,
+      'CIDADE': cleanCid,
+      'Estado': cleanEst,
+      'ESTADO': cleanEst,
+      'UF': cleanEst,
       id: currentClient?.id || editFormData?.id || `client_${Date.now()}`
     };
 
