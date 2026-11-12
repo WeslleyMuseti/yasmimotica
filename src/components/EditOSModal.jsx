@@ -203,6 +203,7 @@ const EditOSModal = ({
   const [formData, setFormData] = useState({
     numeroOS: '',
     status: 'Aguardando Confirmação',
+    pacienteNome: '',
     armacao: '',
     lente: '',
     laboratorio: '',
@@ -267,10 +268,12 @@ const EditOSModal = ({
       const fpStr = osData['FORMAS_PAGAMENTO'] || osData['FORMA_PAGTO'] || osData['FORMA DE PAGAMENTO'] || osData['MEIO_PAGAMENTO'] || '';
       const rawFormaEntrada = osData['FORMA_ENTRADA'] || osData['formaPagamentoEntrada'] || '';
       const rawFormaRestante = osData['FORMA_RESTANTE'] || osData['formaPagamentoRestante'] || '';
+      const rawPaciente = osData['PACIENTE'] || osData['NOME_BENEFICIARIO'] || osData['CLIENTE_BENEFICIARIO'] || osData['nomePessoa'] || osData['beneficiario'] || '';
 
       setFormData({
         numeroOS: numOS,
         status: 'Aguardando Confirmação',
+        pacienteNome: rawPaciente,
         armacao: osData['ARMAÇÃO'] || osData['Armação'] || osData['PRODUTO'] || '',
         lente: osData['LENTE'] || osData['Lente'] || '',
         laboratorio: osData['LABORATORIO'] || osData['Laboratório'] || osData['LAB'] || '',
@@ -515,6 +518,11 @@ const EditOSModal = ({
         'parentSaleId': osData.parentSaleId || osData.saleId || '',
         'FINANCEIRO_UNIFICADO': true,
         'COBRANCA_UNICA': true,
+        'PACIENTE': formData.pacienteNome || '',
+        'NOME_BENEFICIARIO': formData.pacienteNome || '',
+        'CLIENTE_BENEFICIARIO': formData.pacienteNome || '',
+        'nomePessoa': formData.pacienteNome || '',
+        'beneficiario': formData.pacienteNome || '',
         'ARMAÇÃO': formData.armacao,
         'LENTE': formData.lente,
         'PRODUTO': [formData.armacao, formData.lente].filter(Boolean).join(' + ') || osData['PRODUTO'] || 'Óculos Completo',
@@ -644,6 +652,11 @@ const EditOSModal = ({
       'parentSaleId': osData.parentSaleId || osData.saleId || '',
       'FINANCEIRO_UNIFICADO': Boolean(osData.FINANCEIRO_UNIFICADO || osData.isSecondaryOS),
       'COBRANCA_UNICA': Boolean(osData.COBRANCA_UNICA || osData.isSecondaryOS),
+      'PACIENTE': formData.pacienteNome || '',
+      'NOME_BENEFICIARIO': formData.pacienteNome || '',
+      'CLIENTE_BENEFICIARIO': formData.pacienteNome || '',
+      'nomePessoa': formData.pacienteNome || '',
+      'beneficiario': formData.pacienteNome || '',
       'ARMAÇÃO': formData.armacao,
       'LENTE': formData.lente,
       'PRODUTO': formData.lente ? `${formData.armacao || 'Armação'} + ${formData.lente}` : (formData.armacao || osData['PRODUTO'] || 'Óculos Completo'),
@@ -712,6 +725,14 @@ const EditOSModal = ({
 
   const clientName = clientData?.['Nome Completo'] || clientData?.['NOME'] || osData?.['NOME CLIENTE'] || osData?.['CLIENTE'] || 'Cliente';
   const clientCPF = clientData?.['CPF / CNPJ'] || clientData?.['CPF'] || osData?.['CPF'] || '';
+  const isSecondaryOS = Boolean(
+    osData?.isSecondaryOS || 
+    osData?.FINANCEIRO_UNIFICADO || 
+    osData?.financeiroUnificado ||
+    osData?.cobrançaUnica ||
+    osData?.COBRANCA_UNICA ||
+    (cleanVal(osData?.['VALOR TOTAL']) === 0 && cleanVal(osData?.['VALOR DA VENDA']) === 0 && (osData?.parentSaleId || osData?.saleId))
+  );
 
   return (
     <AnimatePresence>
@@ -740,11 +761,22 @@ const EditOSModal = ({
                     <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
                     Semáforo Azul
                   </span>
+                  {isSecondaryOS && (
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                      OS Adicional
+                    </span>
+                  )}
                 </div>
-                <h3 className="text-lg sm:text-xl font-black text-white tracking-tight mt-0.5 flex items-center gap-2">
+                <h3 className="text-lg sm:text-xl font-black text-white tracking-tight mt-0.5 flex items-center gap-2 flex-wrap">
                   <span>{clientName}</span>
                   {clientCPF && (
                     <span className="text-xs font-normal text-slate-400">({clientCPF})</span>
+                  )}
+                  {formData.pacienteNome && formData.pacienteNome.trim() && formData.pacienteNome.trim().toLowerCase() !== clientName.trim().toLowerCase() && (
+                    <span className="text-xs font-bold text-pink-400 bg-pink-500/10 border border-pink-500/30 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                      <User size={12} />
+                      <span>Paciente: {formData.pacienteNome}</span>
+                    </span>
                   )}
                 </h3>
               </div>
@@ -838,6 +870,35 @@ const EditOSModal = ({
                       <span>Ao salvar qualquer alteração, a OS voltará para <strong>🔵 Aguardando Confirmação</strong> (Semáforo Azul) para conferência obrigatória do Financeiro.</span>
                     </div>
                   </div>
+                </div>
+
+                {/* Identificação da Pessoa nesta OS (Beneficiário / Paciente) */}
+                <div className="bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
+                  <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-pink-400 flex items-center gap-1.5">
+                      <User size={13} className="text-pink-400" />
+                      <span>Nome da Pessoa nesta OS (Beneficiário / Paciente)</span>
+                    </label>
+                    {isSecondaryOS ? (
+                      <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                        OS Adicional / Dependente
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-bold text-slate-400 bg-slate-800/60 border border-slate-700 px-2 py-0.5 rounded-full">
+                        OS Principal
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    value={formData.pacienteNome}
+                    onChange={e => handleChange('pacienteNome', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 shadow-inner"
+                    placeholder={clientName ? `Ex: ${clientName} (Titular) ou Nome do Dependente/Familiar` : 'Nome da pessoa que usará os óculos'}
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1.5 flex items-center gap-1">
+                    <span>💡 Este nome sai impresso no campo <strong>Paciente</strong> da OS e identifica quem usará os óculos no histórico do cliente.</span>
+                  </p>
                 </div>
 
                 {/* Linha 2: Datas & Entrega */}

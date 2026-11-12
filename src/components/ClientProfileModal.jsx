@@ -1699,6 +1699,17 @@ const ClientProfileModal = ({
                                     {statusOS === 'Aguardando Confirmação' ? '🔵 Aguardando Confirmação' : statusOS}
                                   </span>
                                 )}
+                                {(compra.isSecondaryOS || compra.FINANCEIRO_UNIFICADO || compra.financeiroUnificado) && (
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                                    OS Adicional
+                                  </span>
+                                )}
+                                {(compra['PACIENTE'] || compra['NOME_BENEFICIARIO'] || compra['CLIENTE_BENEFICIARIO'] || compra.nomePessoa) && (
+                                  <span className="text-[10px] font-bold text-pink-300 bg-pink-500/15 border border-pink-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                                    <User size={10} className="text-pink-400" />
+                                    <span>Paciente: {compra['PACIENTE'] || compra['NOME_BENEFICIARIO'] || compra['CLIENTE_BENEFICIARIO'] || compra.nomePessoa}</span>
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-bold text-slate-400">OS: {compra['OS DA VENDA'] || compra['OS'] || '—'}</span>
