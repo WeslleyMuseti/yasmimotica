@@ -794,23 +794,34 @@ function App() {
       id: rowId || `row_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
     };
     const oldKey = getItemKey(oldRow);
+    const isSalesSheet = ['Registro_Vendas', 'BD MARKETING', 'VENDAS'].includes(sheetName);
 
     setData(prev => {
-      if (!prev || !prev[sheetName]) return prev;
-      return {
-        ...prev,
-        [sheetName]: prev[sheetName].map(r => {
+      if (!prev) return prev;
+      const targetSheets = isSalesSheet 
+        ? ['Registro_Vendas', 'BD MARKETING', 'VENDAS'].filter(s => Array.isArray(prev[s]))
+        : (prev[sheetName] ? [sheetName] : []);
+
+      if (targetSheets.length === 0) return prev;
+
+      const nextData = { ...prev };
+      targetSheets.forEach(s => {
+        nextData[s] = prev[s].map(r => {
           const isMatch = r === oldRow ||
             (rowId && (r?.id === rowId || r?.['_id'] === rowId)) ||
             (oldKey && getItemKey(r) === oldKey);
           return isMatch ? mergedNewRow : r;
-        })
-      };
+        });
+      });
+      return nextData;
     });
 
     if (isConfigured) {
       try {
         await saveDocument(sheetName, mergedNewRow, rowId);
+        if (isSalesSheet && sheetName !== 'Registro_Vendas') {
+          await saveDocument('Registro_Vendas', mergedNewRow, rowId).catch(() => {});
+        }
       } catch (err) {
         console.error("Erro ao salvar no banco de dados (Firebase):", err);
       }

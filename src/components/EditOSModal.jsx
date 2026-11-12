@@ -501,13 +501,28 @@ const EditOSModal = ({
       (osData?.FINANCEIRO_UNIFICADO && (cleanVal(osData?.['VALOR TOTAL']) === 0 || osData?.['VALOR TOTAL'] === '0,00'))
     );
 
+    const finalNumeroOS = (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['numeroOS'] || '';
+    const oldOSNumber = String(osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['OS da COMPRA'] || osData.numeroOS || '').trim();
+    const updatedLinkedOS = Array.isArray(osData.allLinkedOS)
+      ? osData.allLinkedOS.map(num => String(num).trim().toLowerCase() === oldOSNumber.toLowerCase() ? finalNumeroOS : num)
+      : [finalNumeroOS];
+
     if (isSecondary) {
       const secNormDate = buildNormalizedDateTime(formData.dataVenda, osData.hora || osData.HORA);
       const updatedRow = {
         ...osData,
-        'OS DA VENDA': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
-        'OS': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
-        'VENDA_OS': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
+        'OS DA VENDA': finalNumeroOS,
+        'OS': finalNumeroOS,
+        'VENDA_OS': finalNumeroOS,
+        'OS da COMPRA': finalNumeroOS,
+        'OS da VENDA': finalNumeroOS,
+        'Nº DA OS': finalNumeroOS,
+        'Num OS': finalNumeroOS,
+        'numeroOS': finalNumeroOS,
+        'osNumber': finalNumeroOS,
+        'osNumero': finalNumeroOS,
+        'os': finalNumeroOS,
+        'allLinkedOS': updatedLinkedOS,
         'STATUS_OS': 'Aguardando Confirmação',
         'SITUAÇÃO': 'Aguardando Confirmação',
         'PAGAMENTO_CONFERIDO': 'Sim',
@@ -638,9 +653,18 @@ const EditOSModal = ({
 
     const updatedRow = {
       ...osData,
-      'OS DA VENDA': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
-      'OS': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
-      'VENDA_OS': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
+      'OS DA VENDA': finalNumeroOS,
+      'OS': finalNumeroOS,
+      'VENDA_OS': finalNumeroOS,
+      'OS da COMPRA': finalNumeroOS,
+      'OS da VENDA': finalNumeroOS,
+      'Nº DA OS': finalNumeroOS,
+      'Num OS': finalNumeroOS,
+      'numeroOS': finalNumeroOS,
+      'osNumber': finalNumeroOS,
+      'osNumero': finalNumeroOS,
+      'os': finalNumeroOS,
+      'allLinkedOS': updatedLinkedOS,
       // Reconfirmação Obrigatória do Financeiro (Semáforo Azul)
       'STATUS_OS': 'Aguardando Confirmação',
       'SITUAÇÃO': 'Aguardando Confirmação',
@@ -855,7 +879,8 @@ const EditOSModal = ({
                     <input
                       type="text"
                       value={formData.numeroOS}
-                      onChange={e => handleChange('numeroOS', e.target.value.toUpperCase().trim())}
+                      onChange={e => handleChange('numeroOS', e.target.value.toUpperCase())}
+                      onBlur={e => handleChange('numeroOS', e.target.value.trim())}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-pink-300 font-mono font-bold uppercase focus:outline-none focus:border-pink-500 shadow-inner"
                       placeholder="Ex: CAJ-001"
                     />

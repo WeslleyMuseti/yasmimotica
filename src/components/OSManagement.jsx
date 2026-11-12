@@ -5,11 +5,12 @@ import {
   Trash2, MapPin, ArrowLeft, ArrowUpDown, ChevronRight, ShieldAlert,
   Sparkles, CheckCircle2, AlertCircle, ShoppingBag, Phone, X, Check, PackageCheck, Tag,
   Glasses, ChevronDown, ChevronUp, LayoutGrid, Table as TableIcon, CreditCard, DollarSign,
-  ShieldCheck, XCircle, FileText, Receipt, FlaskConical, Layers, Link
+  ShieldCheck, XCircle, FileText, Receipt, FlaskConical, Layers, Link, Edit2
 } from "lucide-react";
 import PrintableOS from "./PrintableOS";
 import PrintableLabOS from "./PrintableLabOS";
 import { PrintableLabelModal } from "./PrintableLabel";
+import EditOSModal from "./EditOSModal";
 import { isSameClient } from "../firebaseSync";
 import { findOSRelatedEntities, executeOSCascadeDeletion } from "../osDeletionUtils";
 
@@ -392,6 +393,22 @@ const OSManagement = ({
   const [deleteDebtChoice, setDeleteDebtChoice] = useState(true); // true = apagar dívida, false = manter dívida
   const [isDeletingOS, setIsDeletingOS] = useState(false);
 
+  // Modal de Edição Completa da OS diretamente na Gestão de OS
+  const [editingOrder, setEditingOrder] = useState(null);
+
+  const handleSaveEditedOS = async (finalizedRow) => {
+    if (!editingOrder) return;
+    const rawSale = editingOrder.raw || editingOrder;
+    const sheetName = data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING';
+    if (onUpdateRow) {
+      await onUpdateRow(sheetName, rawSale, finalizedRow);
+    }
+    setEditingOrder(null);
+    const osNum = finalizedRow['OS DA VENDA'] || finalizedRow['OS'] || finalizedRow.numeroOS || 'Atualizada';
+    setSuccessToast(`✅ OS #${osNum} atualizada com sucesso!`);
+    setTimeout(() => setSuccessToast(''), 5000);
+  };
+
   const toggleCollapse = (orderId) => {
     setCollapsedOrders(prev => ({
       ...prev,
@@ -452,18 +469,25 @@ const OSManagement = ({
     const list = [];
 
     validSales.forEach((sale, idx) => {
-      const osNum = sale["OS DA VENDA"] || sale["OS"] || sale["OS da COMPRA"] || sale["VENDA_OS"];
+      const osNum = sale["OS DA VENDA"] || sale["OS"] || sale["numeroOS"] || sale["osNumber"] || sale["VENDA_OS"] || sale["OS da COMPRA"] || sale["OS da VENDA"] || sale["Nº DA OS"] || sale["Num OS"] || sale["osNumero"] || sale["os"];
       if (!osNum || String(osNum).trim() === "" || String(osNum) === "—") return;
 
       const osNumber = String(osNum).trim();
       const upperOS = osNumber.toUpperCase();
 
-      // Se não for multi-OS legítima com sufixo (ex: -1, -2) e já foi mapeada, ignora linha duplicada
+      // Desduplica com segurança evitando esconder OSs editadas
       const isMultiSuffix = /-\d+$/.test(osNumber);
-      if (!isMultiSuffix && seenOSNumbers.has(upperOS)) {
+      const isMultiRow = Boolean(
+        sale["isMultiOS"] === true || 
+        sale["isSecondaryOS"] === true ||
+        (Array.isArray(sale["allLinkedOS"]) && sale["allLinkedOS"].length > 1) ||
+        isMultiSuffix
+      );
+      const saleUniqueKey = sale.id ? `id_${sale.id}` : (isMultiRow ? `os_${upperOS}_${sale.osIndex || idx}` : `os_${upperOS}`);
+      if (seenOSNumbers.has(saleUniqueKey)) {
         return;
       }
-      seenOSNumbers.add(upperOS);
+      seenOSNumbers.add(saleUniqueKey);
 
       const clientName = (sale["NOME CLIENTE"] || sale["NOME"] || sale["Cliente"] || sale["Nome Completo"] || "Cliente").trim();
       
@@ -1784,7 +1808,7 @@ const OSManagement = ({
                       {/* Nº OS */}
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-black text-base sm:text-lg text-pink-400 bg-pink-500/10 border border-pink-500/20 px-3 py-1 rounded-xl shadow-inner">
-                          #{order.osNumber}
+                          {String(order.osNumber).startsWith('#') ? order.osNumber : `#${order.osNumber}`}
                         </span>
                         <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg bg-white/5 text-slate-300 border border-white/10">
                           {order.unit}
@@ -1973,6 +1997,16 @@ const OSManagement = ({
                         >
                           <Printer size={15} />
                           <span className="hidden sm:inline">Imprimir OS</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEditingOrder(order)}
+                          className="p-2 bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 rounded-xl transition-colors border border-pink-500/20 flex items-center gap-1 text-xs font-bold"
+                          title="Editar Dados da OS (Número, Beneficiário, Graus, Armação, Lente, Prazos, Valores)"
+                        >
+                          <Edit2 size={15} />
+                          <span className="hidden sm:inline">Editar OS</span>
                         </button>
 
                         {order.isMultiOS && (
@@ -2357,7 +2391,7 @@ const OSManagement = ({
                                 {isCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
                               </button>
                               <span className="font-mono font-black text-base text-pink-400">
-                                #{order.osNumber}
+                                {String(order.osNumber).startsWith('#') ? order.osNumber : `#${order.osNumber}`}
                               </span>
                               <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-white/5 text-slate-300 border border-white/10">
                                 {order.unit}
@@ -2633,6 +2667,15 @@ const OSManagement = ({
                                 title="Imprimir Ordem de Serviço"
                               >
                                 <Printer size={15} />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setEditingOrder(order)}
+                                className="p-2 bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 rounded-xl transition-colors border border-pink-500/20"
+                                title="Editar Dados da OS"
+                              >
+                                <Edit2 size={15} />
                               </button>
 
                               {order.isMultiOS && (
@@ -3408,6 +3451,22 @@ const OSManagement = ({
         data={labelModalData}
         defaultType="envelope_lab"
       />
+
+      {/* Modal de Edição de OS Completa diretamente na Gestão de OS */}
+      {editingOrder && (
+        <EditOSModal
+          isOpen={Boolean(editingOrder)}
+          onClose={() => setEditingOrder(null)}
+          osData={editingOrder.raw || editingOrder}
+          clientData={clientsData.find(c => isSameClient(c, editingOrder.raw || editingOrder)) || {
+            'Nome Completo': editingOrder.clientName,
+            'CPF / CNPJ': editingOrder.clientCPF,
+            'WhatsApp': editingOrder.clientPhone
+          }}
+          currentUser={currentUser}
+          onSave={handleSaveEditedOS}
+        />
+      )}
     </div>
   );
 };
