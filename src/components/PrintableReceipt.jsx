@@ -128,9 +128,12 @@ const PrintableReceipt = ({ saleData, clientData }) => {
 
           {/* Dados do Cliente */}
           <div className="border-b border-black pb-3 mb-3 text-[11px]">
-            <p><strong>Cliente:</strong> {safeClient['Nome Completo'] || safeClient['NOME'] || 'Cliente não identificado'}</p>
-            {(safeClient['CPF / CNPJ'] || safeClient['CPF']) && (
-              <p><strong>CPF:</strong> {safeClient['CPF / CNPJ'] || safeClient['CPF']}</p>
+            <p><strong>Cliente:</strong> {safeClient['Nome Completo'] || safeClient['NOME'] || safeClient['Cliente'] || 'Cliente não identificado'}</p>
+            {(safeClient['Responsável Nome'] || safeClient['responsavelNome']) && (
+              <p><strong>Responsável Legal:</strong> {safeClient['Responsável Nome'] || safeClient['responsavelNome']}</p>
+            )}
+            {(safeClient['Responsável CPF'] || safeClient['CPF / CNPJ'] || safeClient['CPF']) && (
+              <p><strong>CPF:</strong> {safeClient['Responsável CPF'] || safeClient['CPF / CNPJ'] || safeClient['CPF']}</p>
             )}
             {safeClient['WhatsApp'] && (
               <p><strong>WhatsApp:</strong> {safeClient['WhatsApp']}</p>

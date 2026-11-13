@@ -8571,7 +8571,7 @@ async function runTests() {
     const sheetSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableCashMovementSheet.jsx'), 'utf8');
     const cashModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'CashManagementModal.jsx'), 'utf8');
 
-    console.assert(sheetSrc.includes('height: \'19.5px\''), 'PrintableCashMovementSheet deve usar altura compacta para evitar quebra em 2 páginas');
+    console.assert(sheetSrc.includes('height: \'17px\'') || sheetSrc.includes('height: \'19.5px\''), 'PrintableCashMovementSheet deve usar altura compacta para evitar quebra em 2 páginas');
     console.assert(sheetSrc.includes('page-break-after: avoid'), 'PrintableCashMovementSheet deve evitar quebra de página');
     console.assert(cashModalSrc.includes('totalSaidas: sessionStats.totalSaidas'), 'CashManagementModal deve passar totalSaidas em extratoData');
 
@@ -8834,6 +8834,58 @@ async function runTests() {
     console.assert(posRegisterSrc.includes('cashContabilSheetData.closingData?.unidade'), 'POSRegister deve priorizar unidade vinda do modal de histórico');
 
     console.log('  ✅ Test 92 Passed: Fidelidade dos Filtros do Histórico de Caixa & Relatório sem Poluição validada com 100% de sucesso!\n');
+  }
+
+  // ==========================================
+  // TEST 93: Visibilidade de Abel Gonçalves & Responsável Financeiro em RC-07 e Recibos
+  // ==========================================
+  console.log('▶ Test 93: Visibilidade de Abel Gonçalves & Responsável Financeiro em RC-07 e Recibos');
+  {
+    const { prepareCashMovementRows } = await import('./src/cashMovementUtils.js');
+    const printableReceiptSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableReceipt.jsx'), 'utf8');
+    const sheetSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableCashMovementSheet.jsx'), 'utf8');
+    const clientRegSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ClientRegistration.jsx'), 'utf8');
+
+    // 1. Simulação Exata da Movimentação RC-07 (Recebimento de Parcela com Responsável Abel Gonçalves)
+    const testMovements = [
+      { id: 'm1', tipo: 'ABERTURA', valor: 100, formaPagamento: 'DINHEIRO', motivo: 'Abertura de Caixa' },
+      { id: 'm2', tipo: 'VENDA', valor: 50, formaPagamento: 'DINHEIRO', osNumero: 'REG-001', cliente: 'Cliente 1' },
+      { id: 'm3', tipo: 'VENDA', valor: 100, formaPagamento: 'PIX', osNumero: 'REG-001', cliente: 'Cliente 1' },
+      { id: 'm4', tipo: 'VENDA', valor: 400, formaPagamento: 'DINHEIRO', osNumero: 'REG-003-1', cliente: 'Cliente 2' },
+      { id: 'm5', tipo: 'VENDA', valor: 950, formaPagamento: 'CREDITO', osNumero: 'REG-003-1', cliente: 'Cliente 2' },
+      { id: 'm6', tipo: 'VENDA', valor: 9780, formaPagamento: 'CREDITO', osNumero: 'REG-004', cliente: 'Cliente 3' },
+      {
+        id: 'mov_1794573900402_t1u4',
+        tipo: 'RECEBIMENTO',
+        valor: 119.85,
+        formaPagamento: 'Cartão de Débito',
+        osNumero: 'CAJ-009',
+        cliente: 'ABEL GONÇALVES (Laura Garcia Lameu)',
+        responsavelNome: 'ABEL GONÇALVES',
+        motivo: 'Recebimento Parcela - ABEL GONÇALVES (Laura Garcia Lameu)'
+      }
+    ];
+
+    const result = prepareCashMovementRows({ unidade: 'Cajati', fundoInicial: 100 }, testMovements, 16);
+    const rc07Row = result.rows.find(r => r.docNo === 'RC-07');
+
+    console.assert(rc07Row, 'Deve existir uma linha com DOC Nº RC-07');
+    console.assert(rc07Row.historico.includes('ABEL GONÇALVES'), 'Linha RC-07 DEVE exibir o nome de ABEL GONÇALVES');
+    console.assert(rc07Row.historico.includes('Laura Garcia Lameu'), 'Linha RC-07 deve incluir referência ao titular da compra');
+    console.assert(rc07Row.entrada === '119,85', `Valor da entrada de RC-07 deve ser 119,85, obteve ${rc07Row.entrada}`);
+
+    // 2. Verificação de Código Estático em PrintableReceipt.jsx
+    console.assert(printableReceiptSrc.includes('Responsável Legal:'), 'PrintableReceipt deve exibir Responsável Legal se existir');
+    console.assert(printableReceiptSrc.includes('safeClient[\'Responsável Nome\']'), 'PrintableReceipt deve ler Responsável Nome do cadastro');
+
+    // 3. Verificação de Código Estático em ClientRegistration.jsx
+    console.assert(clientRegSrc.includes('profileClientData[\'Responsável Nome\']'), 'ClientRegistration deve repassar Responsável Nome ao baixar parcelas no Fluxo de Caixa');
+
+    // 4. Verificação de Altura Compacta em PrintableCashMovementSheet.jsx para 1 única página
+    console.assert(sheetSrc.includes('height: \'17px\''), 'PrintableCashMovementSheet deve usar altura compacta de 17px por linha');
+    console.assert(sheetSrc.includes('margin: 3mm 5mm 3mm 5mm !important'), 'PrintableCashMovementSheet deve usar margens otimizadas para folha única');
+
+    console.log('  ✅ Test 93 Passed: Visibilidade de Abel Gonçalves & Responsável Financeiro validada com 100% de sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');

@@ -1154,6 +1154,11 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     }
 
     // 2. Registrar Entrada de Dinheiro no FLUXO_CAIXA
+    const respNome = (profileClientData['Responsável Nome'] || profileClientData['responsavelNome'] || '').trim();
+    const effectiveClientDisplay = respNome && respNome.toLowerCase() !== clientName.toLowerCase()
+      ? `${clientName} (Resp: ${respNome})`
+      : clientName;
+
     if (countInCash && onAddRow) {
       onAddRow('FLUXO_CAIXA', {
         id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
@@ -1164,8 +1169,12 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         operador: currentUser?.username || 'Caixa',
         valor: amountPaid,
         formaPagamento: paymentMethod,
-        motivo: `Recebimento Boleto - ${clientName}`,
+        motivo: `Recebimento Boleto - ${effectiveClientDisplay}`,
         detalhes: osClean ? `OS #${osClean}` : (specificInvoice ? `Parcela ${specificInvoice.DOCUMENTO || specificInvoice.DESCRICAO || ''}` : 'Recebimento de Débito'),
+        cliente: effectiveClientDisplay,
+        CLIENTE: effectiveClientDisplay,
+        responsavelNome: respNome || '',
+        osNumero: osClean || '',
         CLIENTE_ID: clientId,
         CLIENTE_CPF: clientCpf,
         CPF: clientCpf

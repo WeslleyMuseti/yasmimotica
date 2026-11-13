@@ -59,8 +59,8 @@ export const PrintableCashMovementSheet = ({
   })();
 
   // Cálculo e estruturação de linhas e balanço contábil
-  // 🌟 Limite de 20 linhas para garantir 100% que a folha física A4 caiba em exatamente 1 PÁGINA (sem risco de quebra para página 2)
-  const targetRows = Math.max(20, (movements || []).filter(Boolean).length);
+  // 🌟 Limite ajustado de 16 a 20 linhas para garantir 100% que a folha física A4 caiba em exatamente 1 PÁGINA (sem risco de quebra para página 2)
+  const targetRows = Math.max(16, Math.min(20, (movements || []).filter(Boolean).length));
   const {
     rows: allDisplayRows,
     totalVendasFinal,
@@ -96,7 +96,7 @@ export const PrintableCashMovementSheet = ({
       <style>{`
         @page {
           size: A4 portrait;
-          margin: 5mm 6mm 5mm 6mm;
+          margin: 3mm 5mm 3mm 5mm !important;
         }
         @media print {
           html, body {
@@ -105,6 +105,7 @@ export const PrintableCashMovementSheet = ({
             padding: 0 !important;
             width: 100% !important;
             height: 100% !important;
+            overflow: hidden !important;
           }
           body * {
             visibility: hidden !important;
@@ -120,6 +121,7 @@ export const PrintableCashMovementSheet = ({
             top: 0 !important;
             width: 100% !important;
             max-width: 100% !important;
+            max-height: 262mm !important;
             margin: 0 !important;
             padding: 0 !important;
             display: block !important;
@@ -127,6 +129,7 @@ export const PrintableCashMovementSheet = ({
             page-break-after: avoid !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+            overflow: hidden !important;
           }
           .avoid-break {
             page-break-inside: avoid !important;
@@ -141,7 +144,8 @@ export const PrintableCashMovementSheet = ({
         style={{
           border: '1.5px solid #000000',
           width: '100%',
-          maxHeight: '272mm',
+          maxHeight: '262mm',
+          overflow: 'hidden',
           boxSizing: 'border-box',
           backgroundColor: '#ffffff',
           pageBreakInside: 'avoid',
@@ -358,7 +362,7 @@ export const PrintableCashMovementSheet = ({
               <tr
                 key={idx}
                 style={{
-                  height: '19.5px',
+                  height: '17px',
                   borderBottom: '1px solid #000000',
                   backgroundColor: idx % 2 === 0 ? '#ffffff' : '#fafafa'
                 }}
@@ -370,7 +374,7 @@ export const PrintableCashMovementSheet = ({
                     padding: '0 4px',
                     textAlign: 'center',
                     fontWeight: 700,
-                    fontSize: '9px',
+                    fontSize: '8.5px',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis'
@@ -386,7 +390,7 @@ export const PrintableCashMovementSheet = ({
                     padding: '0 6px',
                     textAlign: 'left',
                     fontWeight: 600,
-                    fontSize: '9px',
+                    fontSize: '8.5px',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis'
@@ -402,7 +406,7 @@ export const PrintableCashMovementSheet = ({
                     padding: '0 6px',
                     textAlign: 'right',
                     fontWeight: 700,
-                    fontSize: '9.5px',
+                    fontSize: '9px',
                     fontFamily: "'Courier New', Courier, monospace"
                   }}
                 >
@@ -416,7 +420,7 @@ export const PrintableCashMovementSheet = ({
                     padding: '0 6px',
                     textAlign: 'right',
                     fontWeight: 700,
-                    fontSize: '9.5px',
+                    fontSize: '9px',
                     fontFamily: "'Courier New', Courier, monospace"
                   }}
                 >
@@ -429,7 +433,7 @@ export const PrintableCashMovementSheet = ({
                     padding: '0 6px',
                     textAlign: 'right',
                     fontWeight: 700,
-                    fontSize: '9.5px',
+                    fontSize: '9px',
                     fontFamily: "'Courier New', Courier, monospace"
                   }}
                 >

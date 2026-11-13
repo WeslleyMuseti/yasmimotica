@@ -338,13 +338,23 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     const displayValor = isPureBoleto ? (effectiveRestBoleto || totalOS) : rawValor;
 
     // Doc Nº
-    const osRaw = m.osNumero || m.os || m['OS DA VENDA'] || m['Nº DA OS'] || m.OS || '';
+    const osRaw = m.osNumero || m.os || m['OS DA VENDA'] || m['Nº DA OS'] || m.OS || (() => {
+      if (m.detalhes) {
+        const matchOS = String(m.detalhes).match(/OS\s*#?([A-Z0-9\-_]+)/i);
+        if (matchOS) return matchOS[1];
+      }
+      if (m.motivo) {
+        const matchOS = String(m.motivo).match(/OS\s*#?([A-Z0-9\-_]+)/i);
+        if (matchOS) return matchOS[1];
+      }
+      return '';
+    })();
     let docNo = '';
     if (m.docNo) {
       docNo = m.docNo;
     } else if (isAbertura) {
       docNo = 'AB-01';
-    } else if (osRaw) {
+    } else if (osRaw && isVenda) {
       docNo = `OS-${String(osRaw).replace(/^#|^os[-_ ]?/i, '').trim()}`;
     } else if (tipo === 'SANGRIA') {
       docNo = `SG-${String(idx + 1).padStart(2, '0')}`;
@@ -362,14 +372,22 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     }
 
     // Histórico
-    const cliente = m.cliente || m.CLIENTE || m.NOME || '';
+    let cliente = m.cliente || m.CLIENTE || m.NOME || m.nomePessoa || '';
+    const responsavel = m.responsavelNome || m.responsavel || m['Responsável Nome'] || '';
+    if (responsavel && !cliente.toLowerCase().includes(responsavel.toLowerCase())) {
+      cliente = cliente ? `${responsavel} (${cliente})` : responsavel;
+    }
     const motivo = m.motivo || m.MOTIVO || m.descricao || m.detalhes || '';
     let historico = '';
 
     if (isVenda) {
       historico = `Venda ${cliente ? `- ${cliente}` : ''}${forma ? ` (${forma})` : ''}`.trim();
     } else if (isRecebimento) {
-      historico = `Recebimento Parcela ${cliente ? `- ${cliente}` : ''}${forma ? ` (${forma})` : ''}`.trim();
+      let displayRec = cliente;
+      if (!displayRec && motivo) {
+        displayRec = String(motivo).replace(/^Recebimento\s*(?:Boleto|Carn[eê]|Parcela)?\s*[-–:]?\s*/i, '').trim();
+      }
+      historico = `Recebimento Parcela ${displayRec ? `- ${displayRec}` : ''}${forma ? ` (${forma})` : ''}`.trim();
     } else if (tipo === 'SANGRIA') {
       historico = motivo ? (String(motivo).startsWith('Sangria') ? motivo : `Sangria: ${motivo}`) : 'Sangria de Caixa / Recolhimento';
     } else if (tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'DESPESA' || tipo === 'PAGAMENTO') {
