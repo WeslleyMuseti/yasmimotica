@@ -625,13 +625,14 @@ const OSGeneratorModal = ({
             : (saleData?.['SINAL'] !== undefined && saleData?.['SINAL'] !== '' 
                 ? saleData['SINAL'] 
                 : (isBoletoOrCarne ? '0,00' : (clientData['restante'] ? '0,00' : vTotal))));
-      const vRestante = clientData['restante'] !== undefined && clientData['restante'] !== '' 
+      const isOrderZero = parseCurrency(vTotal) <= 0;
+      const vRestante = isOrderZero ? '0,00' : (clientData['restante'] !== undefined && clientData['restante'] !== '' 
         ? clientData['restante'] 
         : (saleData?.['RESTANTE'] !== undefined && saleData?.['RESTANTE'] !== '' 
             ? saleData['RESTANTE'] 
             : (saleData?.['restante'] !== undefined && saleData?.['restante'] !== '' 
                 ? saleData['restante'] 
-                : (isBoletoOrCarne ? vTotal : '0,00')));
+                : (isBoletoOrCarne ? vTotal : '0,00'))));
       // 🛡️ Ordem de Prioridade Soberana para a Loja/Unidade da OS:
       // 1. Loja ativa informada pelo chamador (propSelectedCity / initialCity do PDV)
       // 2. Unidade registrada na Venda (saleData.UNIDADE / CIDADE / LOJA / selectedCity)

@@ -407,27 +407,35 @@ const ErpOptica = ({
   const pagarStats = useMemo(() => {
     let pendente = 0;
     let pago = 0;
+    let validCount = 0;
     pagarData.forEach(item => {
       if (!item || typeof item !== 'object') return;
+      const fornecedor = String(item.FORNECEDOR || item.fornecedor || item.FAVORECIDO || item.CATEGORIA || item.DESPESA || '').trim();
       const val = parseCurrency(item.VALOR || item.valor);
+      if (!fornecedor && val === 0) return;
+      validCount++;
       const st = String(item.STATUS || item.status || 'Pendente').trim();
-      if (st === 'Pago') pago += val;
+      if (st.toLowerCase() === 'pago') pago += val;
       else pendente += val;
     });
-    return { pendente, pago, total: pagarData.length };
+    return { pendente, pago, total: validCount };
   }, [pagarData]);
 
   const receberStats = useMemo(() => {
     let pendente = 0;
     let recebido = 0;
+    let validCount = 0;
     receberData.forEach(item => {
       if (!item || typeof item !== 'object') return;
+      const client = String(item.CLIENTE || item.NOME || item['NOME DO CLIENTE'] || item['NOME CLIENTE'] || item.Cliente || '').trim();
+      if (!client) return; // 🛡️ Ignora qualquer resquício fantasma sem cliente
+      validCount++;
       const val = parseCurrency(item.VALOR || item.valor);
       const st = String(item.STATUS || item.status || 'Pendente').trim();
       if (st === 'Recebido' || st === 'Pago') recebido += val;
       else pendente += val;
     });
-    return { pendente, recebido, total: receberData.length };
+    return { pendente, recebido, total: validCount };
   }, [receberData]);
 
   const transferStats = useMemo(() => {
@@ -1201,6 +1209,13 @@ const ErpOptica = ({
       }
     }
     if (activeTab === 'receber' || activeTab === 'pagar') {
+      if (activeTab === 'receber') {
+        rows = rows.filter(item => {
+          if (!item || typeof item !== 'object') return false;
+          const cl = String(item.CLIENTE || item.NOME || item['NOME DO CLIENTE'] || item['NOME CLIENTE'] || item.Cliente || '').trim();
+          return Boolean(cl);
+        });
+      }
       rows = filterInstallmentsByDateRange(rows, {
         startDate: installmentStartDate,
         endDate: installmentEndDate,

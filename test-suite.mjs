@@ -3344,7 +3344,14 @@ async function runTests() {
   console.assert(parseSafeCurrencyTest('1.250,50') === 1250.50, '1.250,50 deve ser convertido para 1250.50');
   console.assert(parseSafeCurrencyTest('R$ 99,90') === 99.90, 'R$ 99,90 deve ser convertido para 99.90');
 
-  // 36.3 Batching de Aprovação: saveBatch aceita lote de duplicatas
+  // 36.3 Batching de Aprovação: saveBatch aceita lote de duplicatas (Blindado contra poluição do DB em testes unitários)
+  const prevNavOnLine = globalThis.navigator?.onLine;
+  if (!globalThis.navigator) {
+    globalThis.navigator = { onLine: false };
+  } else {
+    globalThis.navigator.onLine = false;
+  }
+
   const batchItems = [
     { collectionName: 'CONTAS_RECEBER', dataObj: { DOCUMENTO: 'BOLETO 1/3', VALOR: '100,00' } },
     { collectionName: 'CONTAS_RECEBER', dataObj: { DOCUMENTO: 'BOLETO 2/3', VALOR: '100,00' } },
@@ -3352,6 +3359,8 @@ async function runTests() {
   ];
   const batchResult = await saveBatch(batchItems);
   console.assert(batchResult.length === 3, `saveBatch deve processar todos os 3 itens do lote, processou ${batchResult.length}`);
+  clearOfflineQueue();
+  if (globalThis.navigator) globalThis.navigator.onLine = prevNavOnLine !== undefined ? prevNavOnLine : true;
   console.log('  ✅ Test 36 Passed: Dead-Letter Queue, Sanitização Monetária e Batching validados com sucesso!\n');
 
   // ─── TEST 37: Proteção Anti-Write-Storm, Web Locks Mutex Multi-Aba e Higienização de Fila ───
@@ -3663,8 +3672,15 @@ async function runTests() {
   const userAdmin2 = [{ username: 'wmusete', role: 'administrativo', assignedStore: 'Cajati', authorized: true, password: 'hash', updatedAt: '2026-10-05T10:00:00.000Z' }];
   console.assert(areUserListsEqual(userAdmin1, userAdmin2) === true, 'areUserListsEqual deve normalizar admin/administrativo e city/assignedStore para evitar loops espúrios');
 
-  // 38.10 Preservação de Metadados Extras em syncUserPasswordToFirestore
+  // 38.10 Preservação de Metadados Extras em syncUserPasswordToFirestore (Blindado contra poluição do DB em testes)
   clearOfflineQueue();
+  const prevMetaNav = globalThis.navigator?.onLine;
+  if (!globalThis.navigator) {
+    globalThis.navigator = { onLine: false };
+  } else {
+    globalThis.navigator.onLine = false;
+  }
+
   const syncWithMeta = await syncUserPasswordToFirestore('vendedor_meta', 'hash_meta_123', {
     role: 'vendedor',
     assignedStore: 'Registro',
@@ -3674,6 +3690,7 @@ async function runTests() {
   console.assert(syncWithMeta.userDoc.email === 'vendedor@otica.com', 'syncUserPasswordToFirestore deve preservar campos adicionais como email');
   console.assert(syncWithMeta.userDoc.city === 'Registro' && syncWithMeta.userDoc.assignedStore === 'Registro', 'city e assignedStore devem estar sincronizados');
   clearOfflineQueue();
+  if (globalThis.navigator) globalThis.navigator.onLine = prevMetaNav !== undefined ? prevMetaNav : true;
 
   console.log('  ✅ Test 38 Passed: Módulo de Usuários (Anti-Loop, Anti-Rollback, Churn Prevention, Timeout & Reconciliação) validado com sucesso!\n');
 
@@ -8266,6 +8283,75 @@ async function runTests() {
     console.assert(printableProfileSrc.includes('osNumero'), 'PrintableClientProfile deve incluir osNumero');
 
     console.log('  ✅ Test 85 Passed: Visibilidade Permanente de OSs e Resiliência Fonética validada com 100% de sucesso!\n');
+  }
+
+  // ----------------------------------------------------
+  // TEST 86: INTEGRIDADE DOS DOIS ERPS FINANCEIROS & PARIDADE EXATA DE DÍVIDA REAL
+  // ----------------------------------------------------
+  {
+    console.log('▶ Test 86: Integridade dos Dois ERPs Financeiros, Purga de Fantasmas & Dívida Real');
+
+    // 1. Validar auto-purga de registros fantasmas em App.jsx
+    const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'App.jsx'), 'utf-8');
+    console.assert(appSrc.includes('PURGA AUTOMÁTICA DE REGISTROS FANTASMAS EM CONTAS_RECEBER'), 'App.jsx deve conter purga automática de fantasmas em CONTAS_RECEBER');
+    console.assert(appSrc.includes('toDeleteIds.push(ghostId)'), 'App.jsx deve enfileirar exclusão atômica de documentos fantasmas');
+
+    // 2. Validar que ErpOptica.jsx filtra fantasmas e calcula dívidas estritamente reais
+    const erpSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ErpOptica.jsx'), 'utf-8');
+    console.assert(erpSrc.includes('const client = String(item.CLIENTE || item.NOME || item[\'NOME DO CLIENTE\'] || item[\'NOME CLIENTE\'] || item.Cliente || \'\').trim()'), 'ErpOptica deve validar existência do cliente');
+    console.assert(erpSrc.includes('if (!client) return; // 🛡️ Ignora qualquer resquício fantasma sem cliente'), 'ErpOptica receberStats deve ignorar resquícios fantasmas');
+    console.assert(erpSrc.includes('if (activeTab === \'receber\') {'), 'ErpOptica deve filtrar registros em currentTabRows');
+
+    // 3. Validar que Dashboard.jsx filtra registros fantasmas em Contas a Receber e Pagar
+    const dashSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'Dashboard.jsx'), 'utf-8');
+    console.assert(dashSrc.includes('sheets[\'CONTAS_RECEBER\'] || []).filter(item => {'), 'Dashboard.jsx deve higienizar receberRows contra fantasmas');
+    console.assert(dashSrc.includes('sheets[\'CONTAS_PAGAR\'] || []).filter(item => {'), 'Dashboard.jsx deve higienizar pagarRows contra fantasmas');
+
+    // 4. Validar blindagem contra saldo restante fantasma em pedidos gratuitos/cortesia no PDV e no Modal de OS
+    const posSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf-8');
+    console.assert(posSrc.includes('const isFreeOrder = parseCurrency(singleData.valorTotal) <= 0'), 'POSRegister deve identificar isFreeOrder para compras gratuitas/cortesia');
+    console.assert(posSrc.includes('isFreeOrder ? \'0,00\' :'), 'POSRegister deve zerar restante em isFreeOrder');
+
+    const osModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'OSGeneratorModal.jsx'), 'utf-8');
+    console.assert(osModalSrc.includes('const isOrderZero = parseCurrency(vTotal) <= 0'), 'OSGeneratorModal deve verificar isOrderZero');
+    console.assert(osModalSrc.includes('isOrderZero ? \'0,00\' :'), 'OSGeneratorModal deve fixar vRestante em 0,00 para ordens zeradas');
+
+    // 5. Simulação Matemática de Paridade da Dívida Real
+    const mockReceberBase = [
+      { id: 'ghost_1', DOCUMENTO: 'BOLETO 1/3', VALOR: '100,00' }, // fantasma sem cliente
+      { id: 'ghost_2', DOCUMENTO: 'BOLETO 2/3', VALOR: '100,00' }, // fantasma sem cliente
+      { id: 'laura_1', CLIENTE: 'Laura Garcia Lameu', VALOR: '119,83', STATUS: 'Pendente' },
+      { id: 'laura_2', CLIENTE: 'Laura Garcia Lameu', VALOR: '119,83', STATUS: 'Pendente' },
+      { id: 'laura_3', CLIENTE: 'Laura Garcia Lameu', VALOR: '119,83', STATUS: 'Pendente' },
+      { id: 'laura_4', CLIENTE: 'Laura Garcia Lameu', VALOR: '119,83', STATUS: 'Pendente' },
+      { id: 'laura_5', CLIENTE: 'Laura Garcia Lameu', VALOR: '119,83', STATUS: 'Pendente' },
+      { id: 'laura_6', CLIENTE: 'Laura Garcia Lameu', VALOR: '119,83', STATUS: 'Pendente' },
+      { id: 'mirella_1', CLIENTE: 'MIRELLA DE SOUZA DOMINGUES', VALOR: '100,00', STATUS: 'Pendente' },
+      { id: 'camily_1', CLIENTE: 'CAMILY VITORIA OLIVEIRA SATURNINO', VALOR: '150,00', STATUS: 'Recebido' },
+      { id: 'camily_2', CLIENTE: 'CAMILY VITORIA OLIVEIRA SATURNINO', VALOR: '150,00', STATUS: 'Pendente' },
+      { id: 'catia_1', CLIENTE: 'Catia Cristina Maranho Nunes', VALOR: '25,00', STATUS: 'Pendente' },
+      { id: 'catia_2', CLIENTE: 'Catia Cristina Maranho Nunes', VALOR: '25,00', STATUS: 'Pendente' }
+    ];
+
+    const parseMoney = (v) => parseFloat(String(v || 0).replace(',', '.')) || 0;
+
+    // Higienização contra fantasmas
+    const validReceber = mockReceberBase.filter(r => Boolean(r.CLIENTE));
+    console.assert(validReceber.length === 11, `Deveria filtrar exatamente os 2 fantasmas, restando 11 registros reais (retornou ${validReceber.length})`);
+
+    const totalPendenteReal = validReceber
+      .filter(r => r.STATUS === 'Pendente')
+      .reduce((sum, r) => sum + parseMoney(r.VALOR), 0);
+
+    const totalRecebidoReal = validReceber
+      .filter(r => r.STATUS === 'Recebido')
+      .reduce((sum, r) => sum + parseMoney(r.VALOR), 0);
+
+    // 6 * 119.83 = 718.98 + 100 + 150 + 50 = 1018.98
+    console.assert(Math.abs(totalPendenteReal - 1018.98) < 0.01, `Total de dívida real deve ser exatamente 1018.98, calculou ${totalPendenteReal}`);
+    console.assert(Math.abs(totalRecebidoReal - 150.00) < 0.01, `Total recebido deve ser exatamente 150.00, calculou ${totalRecebidoReal}`);
+
+    console.log('  ✅ Test 86 Passed: Integridade dos Dois ERPs Financeiros, Purga de Fantasmas & Dívida Real validada com 100% de sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');

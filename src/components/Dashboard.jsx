@@ -934,8 +934,23 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
   const armacoesRows = useMemo(() => filterByCity(sheets['CAD_ARMACOES'] || []), [sheets, selectedCity]);
   const lentesRows = useMemo(() => filterByCity(sheets['CAD_LENTES'] || []), [sheets, selectedCity]);
   const brindesRows = useMemo(() => filterByCity(sheets['CAD_BRINDES'] || []), [sheets, selectedCity]);
-  const receberRows = useMemo(() => filterByCity(sheets['CONTAS_RECEBER'] || []), [sheets, selectedCity]);
-  const pagarRows = useMemo(() => filterByCity(sheets['CONTAS_PAGAR'] || []), [sheets, selectedCity]);
+  const receberRows = useMemo(() => {
+    const raw = (sheets['CONTAS_RECEBER'] || []).filter(item => {
+      if (!item || typeof item !== 'object') return false;
+      const cl = String(item.CLIENTE || item.NOME || item['NOME DO CLIENTE'] || item['NOME CLIENTE'] || item.Cliente || '').trim();
+      return Boolean(cl);
+    });
+    return filterByCity(raw);
+  }, [sheets, selectedCity]);
+  const pagarRows = useMemo(() => {
+    const raw = (sheets['CONTAS_PAGAR'] || []).filter(item => {
+      if (!item || typeof item !== 'object') return false;
+      const f = String(item.FORNECEDOR || item.fornecedor || item.FAVORECIDO || item.CATEGORIA || item.DESPESA || '').trim();
+      const v = cleanVal(item.VALOR || item.valor || 0);
+      return Boolean(f || v > 0);
+    });
+    return filterByCity(raw);
+  }, [sheets, selectedCity]);
 
   // KPIs Globais Consolidados (Nuvem + Vendas)
   const globalStats = useMemo(() => {

@@ -1833,7 +1833,8 @@ const POSRegister = ({
     if (!isMulti || osList.length <= 1) {
       // ─── FLUXO CONVENCIONAL DE 1 OS ────────────────────────────────
       const singleData = osList[0] || osGeneratedData;
-      const osRestante = Math.max(0, parseCurrency(singleData.valorTotal) - parseCurrency(singleData.valorEntrada));
+      const isFreeOrder = parseCurrency(singleData.valorTotal) <= 0 || (completedSale && parseCurrency(completedSale?.['VALOR TOTAL']) <= 0);
+      const osRestante = isFreeOrder ? 0 : Math.max(0, parseCurrency(singleData.valorTotal) - parseCurrency(singleData.valorEntrada));
 
       const singleSaleDate = singleData.dataVenda || completedSale?.['DATA  DA VENDA'] || completedSale?.['DATA'] || todayStr;
       const singleSaleIso = completedSale?.dataHora || (singleData.dataHora) || new Date().toISOString();
@@ -1841,7 +1842,7 @@ const POSRegister = ({
       const singleSaleDataHoraFmt = completedSale?.DATA_HORA || new Date(singleSaleIso).toLocaleString('pt-BR');
       const singleSaleHoraFmt = completedSale?.HORA || completedSale?.hora || new Date(singleSaleIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
       const resolvedFormaEntrada = singleData.formaPagamentoEntrada || singleData.FORMA_ENTRADA || completedSale?.['FORMA_ENTRADA'] || completedSale?.formaPagamentoEntrada || '';
-      const resolvedFormaRestante = singleData.formaPagamentoRestante || singleData.FORMA_RESTANTE || completedSale?.['FORMA_RESTANTE'] || completedSale?.formaPagamentoRestante || '';
+      const resolvedFormaRestante = isFreeOrder ? '' : (singleData.formaPagamentoRestante || singleData.FORMA_RESTANTE || completedSale?.['FORMA_RESTANTE'] || completedSale?.formaPagamentoRestante || '');
 
       const mergedSaleData = {
         ...(completedSale || {}),
@@ -1867,7 +1868,7 @@ const POSRegister = ({
         'VALOR DA VENDA': singleData.valorTotal || completedSale?.['VALOR DA VENDA'],
         'VALOR ENTRADA': singleData.valorEntrada || completedSale?.['VALOR ENTRADA'] || '0,00',
         'SINAL': singleData.valorEntrada || completedSale?.['SINAL'] || '0,00',
-        'RESTANTE': singleData.restante || (osRestante > 0 ? osRestante.toFixed(2).replace('.', ',') : '0,00'),
+        'RESTANTE': isFreeOrder ? '0,00' : (singleData.restante || (osRestante > 0 ? osRestante.toFixed(2).replace('.', ',') : '0,00')),
         'FORMAS_PAGAMENTO': singleData.formasPagamento || completedSale?.['FORMA_PAGTO'] || '',
         'FORMA_ENTRADA': resolvedFormaEntrada,
         'formaPagamentoEntrada': resolvedFormaEntrada,

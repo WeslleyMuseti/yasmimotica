@@ -325,11 +325,20 @@ function App() {
     let hasChange = false;
     const toDeleteIds = [];
 
-    // Agrupa por cliente para identificar duplicidades
+    // Agrupa por cliente para identificar duplicidades e purgar registros fantasmas
     const byClient = {};
     receberList.forEach(r => {
-      const client = String(r['CLIENTE'] || r['NOME CLIENTE'] || r['NOME'] || '').trim().toUpperCase();
-      if (!client) return;
+      const client = String(r['CLIENTE'] || r['NOME CLIENTE'] || r['NOME'] || r['Cliente'] || '').trim().toUpperCase();
+      if (!client) {
+        // 🛡️ PURGA AUTOMÁTICA DE REGISTROS FANTASMAS EM CONTAS_RECEBER (Sem cliente vinculado)
+        hasChange = true;
+        const ghostId = r.id || r._id;
+        if (ghostId && !processedDuplicateDeletionsRef.current.has(ghostId)) {
+          processedDuplicateDeletionsRef.current.add(ghostId);
+          toDeleteIds.push(ghostId);
+        }
+        return;
+      }
       if (!byClient[client]) byClient[client] = [];
       byClient[client].push(r);
     });

@@ -891,6 +891,9 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
         if (isInf) {
           return { success: true, infiniteStock: true, previousStock: 'infinito', newStock: 'infinito' };
         }
+      } else {
+        // Se a lente não existir explicitamente como estoque físico cadastrado, ela é tratada como digital/sob demanda (estoque infinito)
+        return { success: true, infiniteStock: true, previousStock: 'infinito', newStock: 'infinito' };
       }
     } catch {
       return { success: true, infiniteStock: true, previousStock: 'infinito', newStock: 'infinito' };
