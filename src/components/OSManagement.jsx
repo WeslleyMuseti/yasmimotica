@@ -1191,12 +1191,30 @@ const OSManagement = ({
     setPrintLabClient(null);
     const cleanedFP = cleanPaymentMethodForOS(order.raw["FORMAS_PAGAMENTO"] || order.raw["MEIO_PAGAMENTO"] || order.formasPagamento || "");
     const pacienteNomeVal = order.pacienteNome || order.raw?.["PACIENTE"] || order.raw?.["NOME_BENEFICIARIO"] || order.raw?.["CLIENTE_BENEFICIARIO"] || order.raw?.["nomePessoa"] || order.raw?.["beneficiario"] || "";
+    
+    // Obter cadastro completo do cliente e responsável legal de clientsData com alta tolerância
+    const targetClient = (clientsData || []).find(c => isSameClient(c, order.raw || {}))
+      || (clientsData || []).find(c => {
+        const cpfOrder = String(order.raw?.["CPF / CNPJ"] || order.raw?.["CPF"] || order.clientCPF || "").replace(/\D/g, "");
+        const cpfC = String(c["CPF / CNPJ"] || c["CPF"] || "").replace(/\D/g, "");
+        return cpfOrder && cpfC && cpfOrder === cpfC;
+      })
+      || (clientsData || []).find(c => {
+        const n1 = String(c["Nome Completo"] || c["NOME"] || "").trim().toLowerCase();
+        const n2 = String(order.clientName || order.raw?.["CLIENTE"] || "").trim().toLowerCase();
+        return n1 && n2 && n1 === n2;
+      })
+      || order.clientData
+      || order.matchedClient
+      || {};
+
     const cData = {
       ...order.raw,
       ...(order.clientData || {}),
-      "Nome Completo": order.clientName || order.raw?.['CLIENTE'] || order.raw?.['NOME'],
-      "WhatsApp": order.clientPhone || order.raw?.['TELEFONE'],
-      "Cidade": order.clientCity || order.unit,
+      ...(targetClient || {}),
+      "Nome Completo": order.clientName || targetClient["Nome Completo"] || targetClient["NOME"] || order.raw?.['CLIENTE'] || order.raw?.['NOME'],
+      "WhatsApp": order.clientPhone || targetClient["WhatsApp"] || targetClient["TELEFONE"] || order.raw?.['TELEFONE'],
+      "Cidade": order.clientCity || targetClient["Cidade"] || targetClient["CIDADE"] || order.unit,
       "FORMAS_PAGAMENTO": cleanedFP,
       "FORMA_PAGTO": cleanedFP,
       "FORMA_ENTRADA": order.formaEntrada || order.raw?.["FORMA_ENTRADA"] || "",
@@ -1213,6 +1231,7 @@ const OSManagement = ({
     setPrintClient(cData);
     setOsDataForPrint({
       raw: order.raw,
+      clientData: targetClient,
       numeroOS: order.osNumber,
       selectedCity: order.unit,
       unidade: order.unit,
@@ -1384,12 +1403,30 @@ const OSManagement = ({
 
     const primary = ordersToPrint[0];
     const primaryCleanedFP = cleanPaymentMethodForOS(primary.raw?.["FORMAS_PAGAMENTO"] || primary.raw?.["MEIO_PAGAMENTO"] || primary.formasPagamento || "");
+    
+    // Obter cadastro completo do cliente e responsável legal para o lote
+    const targetClient = (clientsData || []).find(c => isSameClient(c, primary.raw || {}))
+      || (clientsData || []).find(c => {
+        const cpfOrder = String(primary.raw?.["CPF / CNPJ"] || primary.raw?.["CPF"] || primary.clientCPF || "").replace(/\D/g, "");
+        const cpfC = String(c["CPF / CNPJ"] || c["CPF"] || "").replace(/\D/g, "");
+        return cpfOrder && cpfC && cpfOrder === cpfC;
+      })
+      || (clientsData || []).find(c => {
+        const n1 = String(c["Nome Completo"] || c["NOME"] || "").trim().toLowerCase();
+        const n2 = String(primary.clientName || primary.raw?.["CLIENTE"] || "").trim().toLowerCase();
+        return n1 && n2 && n1 === n2;
+      })
+      || primary.clientData
+      || primary.matchedClient
+      || {};
+
     const cData = {
       ...primary.raw,
       ...(primary.clientData || {}),
-      "Nome Completo": primary.clientName || primary.raw?.['CLIENTE'] || primary.raw?.['NOME'],
-      "WhatsApp": primary.clientPhone || primary.raw?.['TELEFONE'],
-      "Cidade": primary.clientCity || primary.unit,
+      ...(targetClient || {}),
+      "Nome Completo": primary.clientName || targetClient["Nome Completo"] || targetClient["NOME"] || primary.raw?.['CLIENTE'] || primary.raw?.['NOME'],
+      "WhatsApp": primary.clientPhone || targetClient["WhatsApp"] || targetClient["TELEFONE"] || primary.raw?.['TELEFONE'],
+      "Cidade": primary.clientCity || targetClient["Cidade"] || targetClient["CIDADE"] || primary.unit,
       "FORMAS_PAGAMENTO": primaryCleanedFP,
       "FORMA_PAGTO": primaryCleanedFP,
       "FORMA_ENTRADA": primary.formaEntrada || primary.raw?.["FORMA_ENTRADA"] || "",
@@ -1402,9 +1439,25 @@ const OSManagement = ({
     setPrintClient(cData);
 
     const mappedMulti = ordersToPrint.map((o, idx) => {
+      const orderTargetClient = (clientsData || []).find(c => isSameClient(c, o.raw || {}))
+        || (clientsData || []).find(c => {
+          const cpfOrder = String(o.raw?.["CPF / CNPJ"] || o.raw?.["CPF"] || o.clientCPF || "").replace(/\D/g, "");
+          const cpfC = String(c["CPF / CNPJ"] || c["CPF"] || "").replace(/\D/g, "");
+          return cpfOrder && cpfC && cpfOrder === cpfC;
+        })
+        || (clientsData || []).find(c => {
+          const n1 = String(c["Nome Completo"] || c["NOME"] || "").trim().toLowerCase();
+          const n2 = String(o.clientName || o.raw?.["CLIENTE"] || "").trim().toLowerCase();
+          return n1 && n2 && n1 === n2;
+        })
+        || o.clientData
+        || o.matchedClient
+        || targetClient;
+
       const pacName = o.pacienteNome || o.raw?.["PACIENTE"] || o.raw?.["NOME_BENEFICIARIO"] || o.raw?.["nomePessoa"] || "";
       return {
         ...o.raw,
+        clientData: orderTargetClient,
         numeroOS: o.osNumber,
         selectedCity: o.unit,
         unidade: o.unit,

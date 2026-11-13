@@ -41,7 +41,12 @@ const formatDatePrint = (dStr) => {
 
 const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total = 1 }) => {
   if (!osData) return null;
-  const safeClient = clientData || osData?.clientData || {};
+  const safeClient = {
+    ...(osData?.raw || {}),
+    ...(osData?.clientData || {}),
+    ...(osData?.matchedClient || {}),
+    ...(clientData || {})
+  };
 
   const isSecondary = Boolean(osData.isSecondaryOS || (isMulti && index > 1 && (osData.financeiroUnificado || parseCurrencyPrint(osData.valorTotal) === 0)));
   const saleDate = osData.dataVenda || osData['DATA  DA VENDA'] || osData['DATA DA VENDA'] || osData['DATA_VENDA'] || osData['Data da Venda'] || osData['DATA'] || osData['Data'] || safeClient['DATA  DA VENDA'] || safeClient['DATA'] || '';
@@ -50,20 +55,21 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
   // ─── UNIDADE DA LOJA ONDE A OS FOI EMITIDA ───────────────────────
   const osUnit = resolveOSUnit(osData, safeClient);
 
-  // ─── DADOS DO CLIENTE TITULAR ───────────────────────────────────
-  const clientName = safeClient['Nome Completo'] || safeClient['NOME'] || safeClient['CLIENTE'] || safeClient['Nome'] || osData['nomeCliente'] || osData['CLIENTE'] || 'Cliente';
-  const clientZap = safeClient['WhatsApp'] || safeClient['TELEFONE'] || safeClient['Telefone'] || safeClient['Celular'] || safeClient['FONE'] || 'Não informado';
-  const clientCpf = safeClient['CPF / CNPJ'] || safeClient['CPF'] || safeClient['CNPJ'] || safeClient['CLIENTE_CPF'] || 'Não informado';
-  const clientRg = safeClient['RG'] || safeClient['rg'] || osData.rg || '';
-  const clientNasc = safeClient['Data de Nascimento'] || safeClient['DATA_NASCIMENTO'] || safeClient['Nascimento'] ? formatDatePrint(safeClient['Data de Nascimento'] || safeClient['DATA_NASCIMENTO'] || safeClient['Nascimento']) : '';
-  const clientEmail = safeClient['E-mail'] || safeClient['Email'] || safeClient['EMAIL'] || '';
+  // ─── DADOS COMPLETOS DO CLIENTE TITULAR ─────────────────────────
+  const clientName = safeClient['Nome Completo'] || safeClient['NOME'] || safeClient['CLIENTE'] || safeClient['Nome'] || osData['nomeCliente'] || osData['CLIENTE'] || osData.clientName || 'Cliente';
+  const clientZap = safeClient['WhatsApp'] || safeClient['TELEFONE'] || safeClient['Telefone'] || safeClient['Celular'] || safeClient['FONE'] || safeClient['Telefone Cliente'] || 'Não informado';
+  const clientCpf = safeClient['CPF / CNPJ'] || safeClient['CPF'] || safeClient['CNPJ'] || safeClient['CLIENTE_CPF'] || safeClient['Cpf'] || osData.clientCPF || 'Não informado';
+  const clientRg = safeClient['RG'] || safeClient['rg'] || safeClient['Rg'] || osData.rg || '';
+  const clientNascRaw = safeClient['Data de Nascimento'] || safeClient['DATA_NASCIMENTO'] || safeClient['Nascimento'] || safeClient['Dt. Nasc'] || safeClient['dataNascimento'] || '';
+  const clientNasc = clientNascRaw ? formatDatePrint(clientNascRaw) : '';
+  const clientEmail = safeClient['E-mail'] || safeClient['Email'] || safeClient['EMAIL'] || safeClient['email'] || '';
   const clientCep = safeClient['CEP'] || safeClient['Cep'] || safeClient['cep'] || '';
   
-  const rua = safeClient['Rua'] || safeClient['ENDERECO'] || safeClient['Endereço'] || safeClient['LOGRADOURO'] || '';
-  const num = safeClient['Número'] || safeClient['NUMERO'] || safeClient['Numero'] || '';
-  const bairro = safeClient['Bairro'] || safeClient['BAIRRO'] || '';
-  const cidade = safeClient['Cidade'] || safeClient['CIDADE'] || osUnit;
-  const estado = safeClient['Estado'] || safeClient['ESTADO'] || safeClient['UF'] || 'SP';
+  const rua = safeClient['Rua'] || safeClient['ENDERECO'] || safeClient['Endereço'] || safeClient['LOGRADOURO'] || safeClient['rua'] || '';
+  const num = safeClient['Número'] || safeClient['NUMERO'] || safeClient['Numero'] || safeClient['numero'] || '';
+  const bairro = safeClient['Bairro'] || safeClient['BAIRRO'] || safeClient['bairro'] || '';
+  const cidade = safeClient['Cidade'] || safeClient['CIDADE'] || safeClient['cidade'] || osUnit;
+  const estado = safeClient['Estado'] || safeClient['ESTADO'] || safeClient['UF'] || safeClient['estado'] || 'SP';
   
   const addressParts = [
     rua && num ? `${rua}, nº ${num}` : (rua || (num ? `Nº ${num}` : '')),
@@ -73,10 +79,78 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
   ].filter(Boolean);
   const clientAddress = addressParts.length > 0 ? addressParts.join(' - ') : 'Não informado';
 
-  // Responsável Legal (apenas se existir)
-  const respName = safeClient['Responsável Nome'] || safeClient['Responsável'] || safeClient['RESPONSAVEL'] || osData.responsavel;
-  const respZap = safeClient['Responsável WhatsApp'] || safeClient['RESPONSAVEL_WHATSAPP'] || '';
-  const respCpf = safeClient['Responsável CPF'] || safeClient['RESPONSAVEL_CPF'] || '';
+  // Referências Pessoais do Titular
+  const formatRef = (name, phone, kin) => {
+    const parts = [];
+    if (name) parts.push(name);
+    if (phone) parts.push(phone);
+    if (kin) parts.push(`(${kin})`);
+    return parts.join(' ').trim();
+  };
+
+  const clientRef1 = formatRef(
+    safeClient['Nome Referência 1'] || safeClient['Nome Ref. 1'] || safeClient['NOME_REF_1'],
+    safeClient['Referência 1'] || safeClient['Ref. 1'] || safeClient['REF_1'] || safeClient['TELEFONE_REF_1'],
+    safeClient['Parentesco Ref. 1'] || safeClient['Parentesco 1'] || safeClient['PARENTESCO_1']
+  );
+  const clientRef2 = formatRef(
+    safeClient['Nome Referência 2'] || safeClient['Nome Ref. 2'] || safeClient['NOME_REF_2'],
+    safeClient['Referência 2'] || safeClient['Ref. 2'] || safeClient['REF_2'] || safeClient['TELEFONE_REF_2'],
+    safeClient['Parentesco Ref. 2'] || safeClient['Parentesco 2'] || safeClient['PARENTESCO_2']
+  );
+
+  const clientInstagram = safeClient['Instagram'] || safeClient['INSTAGRAM'] || safeClient['instagram'] || '';
+  const clientFacebook = safeClient['Facebook'] || safeClient['FACEBOOK'] || safeClient['facebook'] || '';
+  const clientTikTok = safeClient['TikTok'] || safeClient['TIKTOK'] || safeClient['tiktok'] || '';
+
+  // ─── DADOS COMPLETOS DO RESPONSÁVEL LEGAL ─────────────────────
+  const respName = String(
+    safeClient['Responsável Nome'] || 
+    safeClient['Responsável'] || 
+    safeClient['RESPONSAVEL'] || 
+    safeClient['NOME RESPONSAVEL'] || 
+    safeClient['Nome Responsável'] || 
+    safeClient['responsavelNome'] || 
+    safeClient['responsavel'] || 
+    osData.responsavel || 
+    ''
+  ).trim();
+
+  const respCpf = safeClient['Responsável CPF'] || safeClient['RESPONSAVEL_CPF'] || safeClient['CPF Responsável'] || safeClient['responsavelCpf'] || '';
+  const respRg = safeClient['Responsável RG'] || safeClient['RESPONSAVEL_RG'] || safeClient['RG Responsável'] || safeClient['responsavelRg'] || '';
+  const respNascRaw = safeClient['Responsável Data de Nascimento'] || safeClient['RESPONSAVEL_DATA_NASCIMENTO'] || safeClient['Nascimento Responsável'] || safeClient['responsavelNascimento'] || '';
+  const respNasc = respNascRaw ? formatDatePrint(respNascRaw) : '';
+  const respZap = safeClient['Responsável WhatsApp'] || safeClient['RESPONSAVEL_WHATSAPP'] || safeClient['RESPONSAVEL_TELEFONE'] || safeClient['WhatsApp Responsável'] || safeClient['Telefone Responsável'] || safeClient['responsavelWhatsApp'] || '';
+
+  const respRua = safeClient['Responsável Rua'] || safeClient['RESPONSAVEL_RUA'] || '';
+  const respNum = safeClient['Responsável Número'] || safeClient['RESPONSAVEL_NUMERO'] || '';
+  const respBairro = safeClient['Responsável Bairro'] || safeClient['RESPONSAVEL_BAIRRO'] || '';
+  const respCidade = safeClient['Responsável Cidade'] || safeClient['RESPONSAVEL_CIDADE'] || '';
+  const respEstado = safeClient['Responsável Estado'] || safeClient['RESPONSAVEL_ESTADO'] || '';
+  const respCep = safeClient['Responsável CEP'] || safeClient['RESPONSAVEL_CEP'] || '';
+
+  const respAddressParts = [
+    respRua && respNum ? `${respRua}, nº ${respNum}` : (respRua || (respNum ? `Nº ${respNum}` : '')),
+    respBairro ? `Bairro ${respBairro}` : '',
+    (respCidade || respEstado) ? `${respCidade || ''}${respEstado ? `/${respEstado}` : ''}` : '',
+    respCep ? `CEP ${respCep}` : ''
+  ].filter(Boolean);
+  const respAddress = respAddressParts.length > 0 ? respAddressParts.join(' - ') : '';
+
+  const respRef1 = formatRef(
+    safeClient['Responsável Nome Referência 1'] || safeClient['Responsável Nome Ref. 1'] || safeClient['RESPONSAVEL_NOME_REF_1'],
+    safeClient['Responsável Referência 1'] || safeClient['Responsável Ref. 1'] || safeClient['RESPONSAVEL_REF_1'] || safeClient['RESPONSAVEL_TELEFONE_REF_1'],
+    safeClient['Responsável Parentesco Ref. 1'] || safeClient['RESPONSAVEL_PARENTESCO_1']
+  );
+  const respRef2 = formatRef(
+    safeClient['Responsável Nome Referência 2'] || safeClient['Responsável Nome Ref. 2'] || safeClient['RESPONSAVEL_NOME_REF_2'],
+    safeClient['Responsável Referência 2'] || safeClient['Responsável Ref. 2'] || safeClient['RESPONSAVEL_REF_2'] || safeClient['RESPONSAVEL_TELEFONE_REF_2'],
+    safeClient['Responsável Parentesco Ref. 2'] || safeClient['RESPONSAVEL_PARENTESCO_2']
+  );
+
+  const respInstagram = safeClient['Responsável Instagram'] || safeClient['RESPONSAVEL_INSTAGRAM'] || '';
+  const respFacebook = safeClient['Responsável Facebook'] || safeClient['RESPONSAVEL_FACEBOOK'] || '';
+  const respTikTok = safeClient['Responsável TikTok'] || safeClient['RESPONSAVEL_TIKTOK'] || '';
 
   // Beneficiário / Paciente (quando for OS extra ou nominalmente diferente do titular)
   const beneficiaryName = String(
@@ -318,15 +392,16 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
           </div>
         </div>
 
-        {/* ─── 1. IDENTIFICAÇÃO DO CLIENTE (TITULAR & CONTATO) ───────── */}
+        {/* ─── 1. IDENTIFICAÇÃO DO CLIENTE & RESPONSÁVEL ───────── */}
         <div className="mb-1.5 border border-slate-300 rounded p-1.5 bg-slate-50/50">
           <div className="flex items-center justify-between border-b border-slate-200 pb-0.5 mb-1">
             <h3 className="text-[8.5px] font-black uppercase tracking-wider text-slate-900 flex items-center gap-1">
-              1. Identificação do Cliente
+              1. Identificação do Cliente {respName ? '& Responsável Legal' : ''}
             </h3>
-            <span className="text-[7.5px] font-bold text-slate-500 uppercase">Cadastro Oficial</span>
+            <span className="text-[7.5px] font-bold text-slate-500 uppercase">Cadastro Oficial Yasmin Ótica</span>
           </div>
           
+          {/* Dados do Cliente Titular */}
           <div className="grid grid-cols-4 gap-x-2 gap-y-0.5 text-[8.5px]">
             <p className="col-span-2">
               <strong className="text-slate-600">Cliente Titular:</strong> <span className="font-black uppercase text-slate-900">{clientName}</span>
@@ -343,27 +418,85 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
               <strong className="text-slate-600">WhatsApp:</strong> <span className="font-bold text-slate-900">{clientZap}</span>
             </p>
             
-            <p className="col-span-3">
+            <p className="col-span-2">
               <strong className="text-slate-600">Endereço:</strong> <span className="font-medium text-slate-900">{clientAddress}</span>
             </p>
-            {clientNasc ? (
-              <p>
-                <strong className="text-slate-600">Dt. Nasc:</strong> <span className="font-medium text-slate-900">{clientNasc}</span>
-              </p>
-            ) : (
-              <p>
-                <strong className="text-slate-600">RG:</strong> <span className="font-medium text-slate-900">{clientRg || '—'}</span>
+            <p>
+              <strong className="text-slate-600">RG:</strong> <span className="font-medium text-slate-900">{clientRg || '—'}</span>
+            </p>
+            <p>
+              <strong className="text-slate-600">Dt. Nasc:</strong> <span className="font-medium text-slate-900">{clientNasc || '—'}</span>
+            </p>
+
+            {(clientEmail || clientInstagram || clientFacebook || clientTikTok) && (
+              <p className="col-span-4 text-[7.5px] text-slate-700">
+                {clientEmail && <span><strong className="text-slate-600">E-mail:</strong> {clientEmail}</span>}
+                {clientInstagram && <span className="ml-2"><strong className="text-slate-600">Insta:</strong> {clientInstagram}</span>}
+                {clientFacebook && <span className="ml-2"><strong className="text-slate-600">Face:</strong> {clientFacebook}</span>}
+                {clientTikTok && <span className="ml-2"><strong className="text-slate-600">TikTok:</strong> {clientTikTok}</span>}
               </p>
             )}
 
-            {respName && (
-              <p className="col-span-4 text-[8px] bg-slate-100 p-0.5 rounded border border-slate-200 text-slate-800 mt-0.5">
-                <strong>Responsável Legal:</strong> <span className="font-bold uppercase">{respName}</span>
-                {respCpf && <span> | CPF: {respCpf}</span>}
-                {respZap && <span> | Tel: {respZap}</span>}
+            {(clientRef1 || clientRef2) && (
+              <p className="col-span-4 text-[7.5px] text-slate-700">
+                <strong className="text-slate-600">Ref. Pessoais:</strong>{' '}
+                {clientRef1 && <span>[1] {clientRef1}</span>}
+                {clientRef1 && clientRef2 && <span> | </span>}
+                {clientRef2 && <span>[2] {clientRef2}</span>}
               </p>
             )}
           </div>
+
+          {/* Dados Completos do Responsável Legal (se houver) */}
+          {respName && (
+            <div className="mt-1 pt-1 border-t border-slate-200 bg-amber-50/60 p-1 rounded border border-amber-200/80">
+              <div className="flex items-center justify-between pb-0.5 mb-0.5 border-b border-amber-200/50">
+                <span className="text-[8px] font-black uppercase text-amber-950 tracking-wider">
+                  Dados do Responsável Legal (Assina pelo Dependente):
+                </span>
+                <span className="text-[7px] font-bold text-amber-800 uppercase">Responsável</span>
+              </div>
+              <div className="grid grid-cols-4 gap-x-2 gap-y-0.5 text-[8px] text-slate-800">
+                <p className="col-span-2">
+                  <strong className="text-slate-600">Nome:</strong> <span className="font-black uppercase text-slate-900">{respName}</span>
+                </p>
+                <p>
+                  <strong className="text-slate-600">CPF:</strong> <span className="font-bold text-slate-900">{respCpf || '—'}</span>
+                </p>
+                <p>
+                  <strong className="text-slate-600">WhatsApp:</strong> <span className="font-bold text-slate-900">{respZap || '—'}</span>
+                </p>
+
+                <p className="col-span-2">
+                  <strong className="text-slate-600">Endereço:</strong> <span className="font-medium text-slate-900">{respAddress || clientAddress || 'Mesmo endereço do titular'}</span>
+                </p>
+                <p>
+                  <strong className="text-slate-600">RG:</strong> <span className="font-medium text-slate-900">{respRg || '—'}</span>
+                </p>
+                <p>
+                  <strong className="text-slate-600">Dt. Nasc:</strong> <span className="font-medium text-slate-900">{respNasc || '—'}</span>
+                </p>
+
+                {(respRef1 || respRef2) && (
+                  <p className="col-span-4 text-[7.5px] text-slate-700">
+                    <strong className="text-slate-600">Ref. Responsável:</strong>{' '}
+                    {respRef1 && <span>[1] {respRef1}</span>}
+                    {respRef1 && respRef2 && <span> | </span>}
+                    {respRef2 && <span>[2] {respRef2}</span>}
+                  </p>
+                )}
+
+                {(respInstagram || respFacebook || respTikTok) && (
+                  <p className="col-span-4 text-[7.5px] text-slate-700">
+                    <strong className="text-slate-600">Redes Resp.:</strong>{' '}
+                    {respInstagram && <span>Insta: {respInstagram} </span>}
+                    {respFacebook && <span>Face: {respFacebook} </span>}
+                    {respTikTok && <span>TikTok: {respTikTok}</span>}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ─── 2. RECEITA OFTALMOLÓGICA (DIOPTRIA) ───────────────────── */}

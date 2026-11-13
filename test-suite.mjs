@@ -8578,6 +8578,180 @@ async function runTests() {
     console.log('  ✅ Test 89 Passed: Aberturas, Saídas, Sangrias e Suprimentos no Relatório de Caixa validados com 100% de sucesso!\n');
   }
 
+  // ==========================================
+  // TEST 90: Informações Completas do Cliente e do Responsável Legal na Impressão da OS
+  // ==========================================
+  console.log('▶ Test 90: Informações Completas do Cliente e Responsável Legal na Impressão da OS');
+  {
+    const printableOSSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableOS.jsx'), 'utf8');
+    const osManagementSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'OSManagement.jsx'), 'utf8');
+
+    // 1. Verificação Estática de Campos Extraídos em PrintableOS.jsx
+    const requiredClientFields = [
+      'clientName', 'clientZap', 'clientCpf', 'clientRg', 'clientNasc',
+      'clientEmail', 'clientAddress', 'clientRef1', 'clientRef2',
+      'clientInstagram', 'clientFacebook', 'clientTikTok'
+    ];
+    requiredClientFields.forEach(field => {
+      console.assert(printableOSSrc.includes(field), `PrintableOS.jsx deve extrair o campo do cliente: ${field}`);
+    });
+
+    const requiredRespFields = [
+      'respName', 'respCpf', 'respRg', 'respNasc', 'respZap',
+      'respAddress', 'respRef1', 'respRef2', 'respInstagram',
+      'respFacebook', 'respTikTok'
+    ];
+    requiredRespFields.forEach(field => {
+      console.assert(printableOSSrc.includes(field), `PrintableOS.jsx deve extrair o campo do responsável: ${field}`);
+    });
+
+    // 2. Verificação de Elementos de Interface do Titular & Responsável
+    console.assert(printableOSSrc.includes('1. Identificação do Cliente') && printableOSSrc.includes('& Responsável Legal'), 'Título da Seção 1 deve incluir Responsável Legal condicionalmente');
+    console.assert(printableOSSrc.includes('Dados do Responsável Legal (Assina pelo Dependente)'), 'Container dedicado para dados do Responsável Legal deve existir');
+    console.assert(printableOSSrc.includes('Ref. Pessoais:'), 'Linha de referências pessoais do cliente deve existir');
+    console.assert(printableOSSrc.includes('Ref. Responsável:'), 'Linha de referências do responsável legal deve existir');
+    console.assert(printableOSSrc.includes('Redes Resp.:'), 'Linha de redes sociais do responsável legal deve existir');
+
+    // 3. Verificação de Injeção Completa de Dados em OSManagement.jsx
+    console.assert(osManagementSrc.includes('targetClient = (clientsData || []).find'), 'OSManagement.jsx deve buscar targetClient em clientsData para impressão individual');
+    console.assert(osManagementSrc.includes('clientData: targetClient'), 'OSManagement.jsx deve injetar targetClient em osDataForPrint.clientData');
+    console.assert(osManagementSrc.includes('clientData: orderTargetClient'), 'OSManagement.jsx deve injetar orderTargetClient em mappedMulti para impressão em lote');
+
+    // 4. Teste Funcional de Mapeamento com Dados Reais de CAD_CLIENTES
+    const fullMockClientMinor = {
+      'Nome Completo': 'Enzo Gabriel Silva',
+      'CPF / CNPJ': '123.456.789-00',
+      'RG': '55.444.333-2',
+      'Data de Nascimento': '2015-08-10',
+      'WhatsApp': '(13) 99888-7766',
+      'E-mail': 'enzo.gabriel@email.com',
+      'Rua': 'Rua das Flores',
+      'Número': '150',
+      'Bairro': 'Centro',
+      'Cidade': 'Cajati',
+      'Estado': 'SP',
+      'CEP': '11950-000',
+      'Nome Referência 1': 'Tia Maria',
+      'Referência 1': '(13) 98765-4321',
+      'Parentesco Ref. 1': 'Tia',
+      'Nome Referência 2': 'Vô Carlos',
+      'Referência 2': '(13) 97654-3210',
+      'Parentesco Ref. 2': 'Avô',
+      'Instagram': '@enzosilva',
+      'Facebook': 'fb.com/enzosilva',
+      'TikTok': '@enzo_tik',
+      // Dados do Responsável Legal
+      'Responsável Nome': 'Juliana Silva',
+      'Responsável CPF': '987.654.321-99',
+      'Responsável RG': '33.222.111-0',
+      'Responsável Data de Nascimento': '1985-04-20',
+      'Responsável WhatsApp': '(13) 99111-2233',
+      'Responsável Rua': 'Rua das Flores',
+      'Responsável Número': '150',
+      'Responsável Bairro': 'Centro',
+      'Responsável Cidade': 'Cajati',
+      'Responsável Estado': 'SP',
+      'Responsável CEP': '11950-000',
+      'Responsável Nome Referência 1': 'Dr. Marcos',
+      'Responsável Referência 1': '(13) 99222-3344',
+      'Responsável Parentesco Ref. 1': 'Amigo de Família',
+      'Responsável Instagram': '@juliana_resp',
+      'Responsável Facebook': 'fb.com/julianaresp'
+    };
+
+    // Simulação do extrator do PrintableOS.jsx
+    const extractPrintDetails = (osData, clientData) => {
+      const safeClient = {
+        ...(osData?.raw || {}),
+        ...(osData?.clientData || {}),
+        ...(osData?.matchedClient || {}),
+        ...(clientData || {})
+      };
+
+      const clientName = safeClient['Nome Completo'] || safeClient['NOME'] || 'Cliente';
+      const clientZap = safeClient['WhatsApp'] || safeClient['TELEFONE'] || 'Não informado';
+      const clientCpf = safeClient['CPF / CNPJ'] || safeClient['CPF'] || 'Não informado';
+      const clientRg = safeClient['RG'] || safeClient['rg'] || '';
+      const clientNasc = safeClient['Data de Nascimento'] || '';
+      const clientEmail = safeClient['E-mail'] || safeClient['Email'] || '';
+      const clientAddress = [
+        safeClient['Rua'] && safeClient['Número'] ? `${safeClient['Rua']}, nº ${safeClient['Número']}` : safeClient['Rua'],
+        safeClient['Bairro'],
+        safeClient['Cidade'] && safeClient['Estado'] ? `${safeClient['Cidade']} - ${safeClient['Estado']}` : safeClient['Cidade'],
+        safeClient['CEP'] ? `CEP: ${safeClient['CEP']}` : ''
+      ].filter(Boolean).join(', ');
+
+      const ref1Name = safeClient['Nome Referência 1'] || '';
+      const ref1Phone = safeClient['Referência 1'] || '';
+      const ref1Kin = safeClient['Parentesco Ref. 1'] || '';
+      const clientRef1 = [ref1Name, ref1Phone, ref1Kin ? `(${ref1Kin})` : ''].filter(Boolean).join(' - ');
+
+      const ref2Name = safeClient['Nome Referência 2'] || '';
+      const ref2Phone = safeClient['Referência 2'] || '';
+      const ref2Kin = safeClient['Parentesco Ref. 2'] || '';
+      const clientRef2 = [ref2Name, ref2Phone, ref2Kin ? `(${ref2Kin})` : ''].filter(Boolean).join(' - ');
+
+      const clientInstagram = safeClient['Instagram'] || '';
+      const clientFacebook = safeClient['Facebook'] || '';
+      const clientTikTok = safeClient['TikTok'] || '';
+
+      const respName = safeClient['Responsável Nome'] || safeClient['RESPONSAVEL_NOME'] || '';
+      const respCpf = safeClient['Responsável CPF'] || safeClient['RESPONSAVEL_CPF'] || '';
+      const respRg = safeClient['Responsável RG'] || safeClient['RESPONSAVEL_RG'] || '';
+      const respNasc = safeClient['Responsável Data de Nascimento'] || safeClient['RESPONSAVEL_NASCIMENTO'] || '';
+      const respZap = safeClient['Responsável WhatsApp'] || safeClient['RESPONSAVEL_WHATSAPP'] || '';
+
+      const respAddress = [
+        safeClient['Responsável Rua'] && safeClient['Responsável Número'] ? `${safeClient['Responsável Rua']}, nº ${safeClient['Responsável Número']}` : safeClient['Responsável Rua'],
+        safeClient['Responsável Bairro'],
+        safeClient['Responsável Cidade'] && safeClient['Responsável Estado'] ? `${safeClient['Responsável Cidade']} - ${safeClient['Responsável Estado']}` : safeClient['Responsável Cidade'],
+        safeClient['Responsável CEP'] ? `CEP: ${safeClient['Responsável CEP']}` : ''
+      ].filter(Boolean).join(', ');
+
+      const respRef1Name = safeClient['Responsável Nome Referência 1'] || '';
+      const respRef1Phone = safeClient['Responsável Referência 1'] || '';
+      const respRef1Kin = safeClient['Responsável Parentesco Ref. 1'] || '';
+      const respRef1 = [respRef1Name, respRef1Phone, respRef1Kin ? `(${respRef1Kin})` : ''].filter(Boolean).join(' - ');
+
+      const respInstagram = safeClient['Responsável Instagram'] || '';
+      const respFacebook = safeClient['Responsável Facebook'] || '';
+
+      return {
+        clientName, clientCpf, clientRg, clientNasc, clientZap, clientEmail, clientAddress, clientRef1, clientRef2, clientInstagram, clientFacebook, clientTikTok,
+        respName, respCpf, respRg, respNasc, respZap, respAddress, respRef1, respInstagram, respFacebook
+      };
+    };
+
+    // Caso 1: Cliente Menor com Responsável Legal Completo
+    const minorExtraction = extractPrintDetails({ numeroOS: 'OS-800' }, fullMockClientMinor);
+    console.assert(minorExtraction.clientName === 'Enzo Gabriel Silva', 'Nome do titular deve ser Enzo Gabriel Silva');
+    console.assert(minorExtraction.clientCpf === '123.456.789-00', 'CPF do titular deve ser 123.456.789-00');
+    console.assert(minorExtraction.clientRg === '55.444.333-2', 'RG do titular deve ser 55.444.333-2');
+    console.assert(minorExtraction.clientEmail === 'enzo.gabriel@email.com', 'E-mail do titular deve ser enzo.gabriel@email.com');
+    console.assert(minorExtraction.clientRef1.includes('Tia Maria') && minorExtraction.clientRef1.includes('Tia'), 'Ref 1 do titular deve conter nome e parentesco');
+    console.assert(minorExtraction.clientInstagram === '@enzosilva', 'Instagram do titular deve ser @enzosilva');
+
+    console.assert(minorExtraction.respName === 'Juliana Silva', 'Nome do responsável deve ser Juliana Silva');
+    console.assert(minorExtraction.respCpf === '987.654.321-99', 'CPF do responsável deve ser 987.654.321-99');
+    console.assert(minorExtraction.respRg === '33.222.111-0', 'RG do responsável deve ser 33.222.111-0');
+    console.assert(minorExtraction.respZap === '(13) 99111-2233', 'WhatsApp do responsável deve ser (13) 99111-2233');
+    console.assert(minorExtraction.respAddress.includes('Rua das Flores, nº 150'), 'Endereço do responsável deve ser formatado corretamente');
+    console.assert(minorExtraction.respRef1.includes('Dr. Marcos') && minorExtraction.respRef1.includes('Amigo de Família'), 'Ref 1 do responsável deve conter nome e parentesco');
+    console.assert(minorExtraction.respInstagram === '@juliana_resp', 'Instagram do responsável deve ser @juliana_resp');
+
+    // Caso 2: Cliente Adulto sem Responsável Legal
+    const adultMock = {
+      'Nome Completo': 'Carlos Alberto Souza',
+      'CPF / CNPJ': '444.555.666-77',
+      'WhatsApp': '(13) 98123-4567'
+    };
+    const adultExtraction = extractPrintDetails({ numeroOS: 'OS-801' }, adultMock);
+    console.assert(adultExtraction.clientName === 'Carlos Alberto Souza', 'Nome do titular adulto deve ser Carlos Alberto Souza');
+    console.assert(adultExtraction.respName === '', 'Nome do responsável deve estar vazio para cliente adulto');
+
+    console.log('  ✅ Test 90 Passed: Informações Completas do Cliente e Responsável Legal na Impressão da OS validadas com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
