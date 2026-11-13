@@ -174,10 +174,21 @@ export const buildCombinedShiftMovements = (movList = [], salesList = [], unitNa
     const valorCaixa = hasBoleto ? (entradaVal > 0 ? entradaVal : (restanteVal > 0 ? Math.max(0, totalVal - restanteVal) : 0)) : totalVal;
     const saldoBoleto = hasBoleto ? (restanteVal > 0 ? restanteVal : Math.max(0, totalVal - valorCaixa)) : 0;
     const resolvedUnit = resolveOSUnit({ numeroOS: osRaw, ...s });
+    const sUnit = s.UNIDADE || s.CIDADE || s.LOJA || s.unidade || s.cidade || resolvedUnit || unitName;
+
+    // 🛡️ Filtro estrito por loja/unidade: se unitName foi informado, nunca incorporar vendas de outra cidade (ex: Cajati em relatório de Registro)
+    if (unitName && unitName !== 'Central' && unitName !== 'Todas' && unitName !== 'Todas as Lojas' && unitName !== 'ALL') {
+      const norm = (str) => String(str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      const targetNorm = norm(unitName);
+      const sUnitNorm = norm(sUnit);
+      if (sUnitNorm && targetNorm && !sUnitNorm.includes(targetNorm) && !targetNorm.includes(sUnitNorm)) {
+        return;
+      }
+    }
 
     mappedMovs.push({
       ...s,
-      unidade: s.UNIDADE || s.CIDADE || s.LOJA || s.unidade || s.cidade || resolvedUnit || unitName,
+      unidade: sUnit,
       tipo: 'VENDA',
       valor: valorCaixa,
       valorTotalOS: totalVal,

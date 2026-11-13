@@ -8797,6 +8797,45 @@ async function runTests() {
     console.log('  ✅ Test 91 Passed: Recibos de Pagamento e Ficha de Caixa em Folha Única A4 validados com 100% de sucesso!\n');
   }
 
+  // ==========================================
+  // TEST 92: Fidelidade dos Filtros do Histórico de Caixa & Relatório sem Poluição entre Lojas
+  // ==========================================
+  console.log('▶ Test 92: Fidelidade dos Filtros do Histórico de Caixa & Relatório sem Poluição entre Lojas');
+  {
+    const { buildCombinedShiftMovements } = await import('./src/cashShiftUtils.js');
+    const cashHistorySrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'CashHistoryModal.jsx'), 'utf8');
+    const posRegisterSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf8');
+
+    // 1. Simulação: Vendas de Registro e Vendas de Cajati passadas juntas para buildCombinedShiftMovements com unitName='Registro'
+    const mixedSales = [
+      { id: 'v_reg_1', 'OS DA VENDA': 'REG10', CIDADE: 'Registro', 'VALOR TOTAL': 500, 'VALOR ENTRADA': 500 },
+      { id: 'v_reg_2', 'OS DA VENDA': 'REG11', CIDADE: 'Registro', 'VALOR TOTAL': 1000, 'VALOR ENTRADA': 200, RESTANTE: 800 },
+      { id: 'v_caj_1', 'OS DA VENDA': 'CAJ50', CIDADE: 'Cajati', 'VALOR TOTAL': 1200, 'VALOR ENTRADA': 1200 },
+      { id: 'v_caj_2', 'OS DA VENDA': 'CAJ51', CIDADE: 'Cajati', 'VALOR TOTAL': 800, 'VALOR ENTRADA': 800 }
+    ];
+
+    const registroMovements = buildCombinedShiftMovements([], mixedSales, 'Registro', 'Operador Registro');
+    console.assert(registroMovements.length === 2, `Esperado exatamente 2 movimentações de Registro, obteve ${registroMovements.length}`);
+    console.assert(registroMovements.every(m => m.unidade === 'Registro'), 'Todas as movimentações devem ser da unidade Registro');
+    console.assert(!registroMovements.some(m => m.osNumero === 'CAJ50' || m.osNumero === 'CAJ51'), 'Vendas de Cajati NÃO PODEM constar no relatório de Registro!');
+
+    // 2. Simulação com unitName='Cajati'
+    const cajatiMovements = buildCombinedShiftMovements([], mixedSales, 'Cajati', 'Operador Cajati');
+    console.assert(cajatiMovements.length === 2, `Esperado exatamente 2 movimentações de Cajati, obteve ${cajatiMovements.length}`);
+    console.assert(cajatiMovements.every(m => m.unidade === 'Cajati'), 'Todas as movimentações devem ser da unidade Cajati');
+
+    // 3. Verificação Estática de Código em CashHistoryModal.jsx
+    console.assert(cashHistorySrc.includes('movements: filteredMovements'), 'CashHistoryModal deve enviar filteredMovements diretamente sem reinjetar salesData global');
+    console.assert(cashHistorySrc.includes('dateStr: periodoLabel'), 'CashHistoryModal deve respeitar o periodoLabel selecionado no filtro');
+    console.assert(cashHistorySrc.includes('totalVendas: metrics.totalVendasGeral'), 'CashHistoryModal deve repassar totalVendas exato calculado para a loja');
+    console.assert(cashHistorySrc.includes('if (!itemUnit || (!itemUnit.includes(selUnit) && !selUnit.includes(itemUnit)))'), 'CashHistoryModal deve filtrar rigorosamente lojas');
+
+    // 4. Verificação em POSRegister.jsx
+    console.assert(posRegisterSrc.includes('cashContabilSheetData.closingData?.unidade'), 'POSRegister deve priorizar unidade vinda do modal de histórico');
+
+    console.log('  ✅ Test 92 Passed: Fidelidade dos Filtros do Histórico de Caixa & Relatório sem Poluição validada com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

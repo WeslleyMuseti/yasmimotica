@@ -936,10 +936,10 @@ export const CashHistoryContent = ({
 
     return allMovements.filter(item => {
       // 1. Filtro por Loja
-      if (selectedUnit && selectedUnit !== 'Todas') {
+      if (selectedUnit && selectedUnit !== 'Todas' && selectedUnit !== 'Todas as Lojas') {
         const itemUnit = String(item.unidade || item.CIDADE || item.LOJA || item.Cidade || '').trim().toLowerCase();
         const selUnit = String(selectedUnit).trim().toLowerCase();
-        if (itemUnit && !itemUnit.includes(selUnit) && !selUnit.includes(itemUnit)) {
+        if (!itemUnit || (!itemUnit.includes(selUnit) && !selUnit.includes(itemUnit))) {
           return false;
         }
       }
@@ -1227,6 +1227,8 @@ export const CashHistoryContent = ({
       dataAbertura: periodoLabel,
       dataFechamento: new Date().toLocaleString('pt-BR'),
       fundoInicial: metrics.fundoInicial,
+      totalVendas: metrics.totalVendasGeral || metrics.totalRecebidosCaixa,
+      totalFaturadoGeral: metrics.totalVendasGeral || metrics.totalRecebidosCaixa,
       vendasDinheiro: metrics.totalVendasDinheiro,
       totalRecebimentosDinheiro: metrics.totalRecebimentosDinheiro,
       vendasPix: metrics.totalPix,
@@ -1282,33 +1284,63 @@ export const CashHistoryContent = ({
       return;
     }
 
+    let periodoLabel = 'Histórico Completo';
+    if (selectedPeriod === 'HOJE') {
+      periodoLabel = `Hoje (${new Date().toLocaleDateString('pt-BR')})`;
+    } else if (selectedPeriod === 'ONTEM') {
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      periodoLabel = `Ontem (${y.toLocaleDateString('pt-BR')})`;
+    } else if (selectedPeriod === '7DIAS') {
+      periodoLabel = 'Últimos 7 Dias';
+    } else if (selectedPeriod === 'MES') {
+      periodoLabel = 'Mês Atual';
+    } else if (selectedPeriod === 'PERSONALIZADO') {
+      if (customStartDate && customEndDate) {
+        const [sy, sm, sd] = customStartDate.split('-');
+        const [ey, em, ed] = customEndDate.split('-');
+        periodoLabel = `${sd}/${sm}/${sy} a ${ed}/${em}/${ey}`;
+      } else if (customStartDate) {
+        const [sy, sm, sd] = customStartDate.split('-');
+        periodoLabel = `${sd}/${sm}/${sy}`;
+      }
+    }
+
     const unit = selectedUnit || 'Todas as Lojas';
     const closingData = {
       unidade: unit,
       operador: currentUser?.username || 'Gerência / Supervisão',
+      dataAbertura: periodoLabel,
       dataFechamento: new Date().toLocaleString('pt-BR'),
       fundoInicial: metrics.fundoInicial,
+      totalVendas: metrics.totalVendasGeral || metrics.totalRecebidosCaixa,
+      totalFaturadoGeral: metrics.totalVendasGeral || metrics.totalRecebidosCaixa,
       vendasDinheiro: metrics.totalVendasDinheiro,
       totalRecebimentosDinheiro: metrics.totalRecebimentosDinheiro,
       vendasPix: metrics.totalPix,
       vendasDebito: metrics.totalDebito,
       vendasCredito: metrics.totalCredito,
+      totalRecebidosCaixa: metrics.totalRecebidosCaixa,
       vendasBoletoTotal: metrics.totalFaturadoBoletoOS,
+      vendasBoletoQtd: metrics.vendasBoletoQtd,
+      totalEntradasEspecie: metrics.totalVendasDinheiro + metrics.totalRecebimentosDinheiro + metrics.totalSuprimentos,
       totalSangrias: metrics.totalSangrias,
       totalSaidas: metrics.totalSaidas,
       totalSuprimentos: metrics.totalSuprimentos,
       dinheiroContado: metrics.saldoEstimadoGaveta,
-      observacoes: 'Folha de Movimento de Caixa'
+      dinheiroEsperado: metrics.saldoEstimadoGaveta,
+      diferenca: 0,
+      observacoes: `Folha de Movimento de Caixa • Unidade: ${unit} • Período: ${periodoLabel}`
     };
 
-    const combinedMovements = buildCombinedShiftMovements(filteredMovements, salesData, unit, currentUser?.username || 'Gerência / Supervisão');
+    // 🛡️ filteredMovements já contém todas as movimentações e vendas unificadas e filtradas pela loja e período selecionados
     const sheetPayload = {
       type: 'CONTABIL_SHEET',
       closingData,
-      movements: combinedMovements,
+      movements: filteredMovements,
       storeName: unit,
-      shiftNumber: 'GERAL',
-      dateStr: new Date().toLocaleDateString('pt-BR')
+      shiftNumber: 'HISTORICO',
+      dateStr: periodoLabel
     };
 
     setLocalPrintData(null);
@@ -1381,11 +1413,11 @@ export const CashHistoryContent = ({
       return raw ? raw.slice(-4) : '001';
     })();
 
-    const combinedMovements = buildCombinedShiftMovements(dayMovements, salesData, unit, closingData.operador || 'Caixa');
+    const targetMovements = dayMovements.length > 0 ? dayMovements : [mov];
     const sheetPayload = {
       type: 'CONTABIL_SHEET',
       closingData,
-      movements: combinedMovements.length > 0 ? combinedMovements : dayMovements,
+      movements: targetMovements,
       storeName: unit,
       shiftNumber: seqShift,
       dateStr: dateFormatted

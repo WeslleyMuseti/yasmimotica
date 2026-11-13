@@ -4092,7 +4092,7 @@ const POSRegister = ({
         <PrintableCashMovementSheet
           closingData={cashClosingPdfData.closingData}
           movements={cashClosingPdfData.movements}
-          storeName={cashClosingPdfData.storeName || selectedPOSCity}
+          storeName={cashClosingPdfData.storeName || cashClosingPdfData.closingData?.unidade || selectedPOSCity}
           shiftNumber={cashClosingPdfData.shiftNumber || cashClosingPdfData.closingData?.id || ''}
           dateStr={cashClosingPdfData.periodLabel || cashClosingPdfData.closingData?.dataFechamento || ''}
         />
@@ -4103,7 +4103,7 @@ const POSRegister = ({
         <PrintableCashMovementSheet
           closingData={cashContabilSheetData.closingData}
           movements={cashContabilSheetData.movements}
-          storeName={cashContabilSheetData.storeName || selectedPOSCity}
+          storeName={cashContabilSheetData.storeName || cashContabilSheetData.closingData?.unidade || selectedPOSCity}
           shiftNumber={cashContabilSheetData.shiftNumber}
           dateStr={cashContabilSheetData.dateStr}
         />
