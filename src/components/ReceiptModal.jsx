@@ -79,7 +79,10 @@ const ReceiptModal = ({ isOpen, onClose, row, onSave, onDelete }) => {
 
   useEffect(() => {
     if (row && isOpen) {
-      const receiptVal = row.COMPROVANTE || row.comprovante || row.ANEXO_COMPROVANTE || null;
+      const receiptVal = row.COMPROVANTE || row.comprovante || row.ANEXO_COMPROVANTE ||
+        row.RECIBO || row.recibo || row.Recibo ||
+        row.RECIBO_PAGAMENTO || row.recibo_pagamento ||
+        row.COMPROVANTE_PAGAMENTO || row.comprovante_pagamento || null;
       setCurrentReceipt(receiptVal);
       setZoomLevel(1);
       setRotation(0);

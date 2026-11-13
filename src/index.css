@@ -206,7 +206,11 @@ section {
   #print-cash-movement-sheet,
   #print-cash-movement-sheet *,
   #print-reparcelamento-agreement,
-  #print-reparcelamento-agreement * {
+  #print-reparcelamento-agreement *,
+  #printable-reparcelamento-receipt,
+  #printable-reparcelamento-receipt *,
+  #print-reparcelamento-receipt,
+  #print-reparcelamento-receipt * {
     visibility: visible !important;
   }
 
@@ -332,7 +336,9 @@ section {
   #print-client-profile,
   #print-cash-closing-report,
   #print-cash-movement-sheet,
-  #print-reparcelamento-agreement {
+  #print-reparcelamento-agreement,
+  #printable-reparcelamento-receipt,
+  #print-reparcelamento-receipt {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
@@ -356,8 +362,13 @@ section {
 
   #print-section > div,
   #print-client-profile > div,
-  #print-cash-closing-report .avoid-break {
+  #print-cash-closing-report .avoid-break,
+  #print-cash-movement-sheet .avoid-break,
+  #print-cash-movement-sheet,
+  #printable-reparcelamento-receipt {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 }

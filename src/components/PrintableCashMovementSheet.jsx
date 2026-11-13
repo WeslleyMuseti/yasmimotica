@@ -59,6 +59,8 @@ export const PrintableCashMovementSheet = ({
   })();
 
   // Cálculo e estruturação de linhas e balanço contábil
+  // 🌟 Limite de 20 linhas para garantir 100% que a folha física A4 caiba em exatamente 1 PÁGINA (sem risco de quebra para página 2)
+  const targetRows = Math.max(20, (movements || []).filter(Boolean).length);
   const {
     rows: allDisplayRows,
     totalVendasFinal,
@@ -73,7 +75,7 @@ export const PrintableCashMovementSheet = ({
     totalCreditoDetalhes,
     totalBoletoDetalhes,
     totalGeralDetalhes
-  } = prepareCashMovementRows(closingData, movements, 24);
+  } = prepareCashMovementRows(closingData, movements, targetRows);
 
   const content = (
     <div
@@ -139,10 +141,13 @@ export const PrintableCashMovementSheet = ({
         style={{
           border: '1.5px solid #000000',
           width: '100%',
+          maxHeight: '272mm',
           boxSizing: 'border-box',
           backgroundColor: '#ffffff',
           pageBreakInside: 'avoid',
-          breakInside: 'avoid'
+          breakInside: 'avoid',
+          pageBreakAfter: 'avoid',
+          breakAfter: 'avoid'
         }}
       >
         {/* ─── 1. CABEÇALHO SUPERIOR ─── */}

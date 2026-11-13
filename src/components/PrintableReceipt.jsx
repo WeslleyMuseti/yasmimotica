@@ -52,139 +52,194 @@ const PrintableReceipt = ({ saleData, clientData }) => {
     return String(raw);
   })();
 
+  const effectivePagamentosLista = (() => {
+    if (Array.isArray(saleData.pagamentosLista) && saleData.pagamentosLista.length > 0) {
+      return saleData.pagamentosLista;
+    }
+    if (typeof saleData.pagamentosLista === 'string' && saleData.pagamentosLista.trim().startsWith('[')) {
+      try {
+        const parsed = JSON.parse(saleData.pagamentosLista);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (_) {}
+    }
+    if (typeof saleData.pagamentos_json === 'string' && saleData.pagamentos_json.trim().startsWith('[')) {
+      try {
+        const parsed = JSON.parse(saleData.pagamentos_json);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (_) {}
+    }
+    return [];
+  })();
+
+  const fallbackFormaPagamento = (
+    saleData.formaPagamento ||
+    saleData.FORMAS_PAGAMENTO ||
+    saleData['FORMAS_PAGAMENTO'] ||
+    saleData['FORMA_PAGTO'] ||
+    saleData['FORMA DE PAGAMENTO'] ||
+    saleData['FORMA'] ||
+    saleData.meioPagamento ||
+    saleData.MEIO_PAGAMENTO ||
+    ''
+  );
+
   return (
-    <div id="print-receipt-section" className="hidden print:block p-8 bg-white text-black max-w-sm mx-auto font-mono text-xs">
-      
-      {/* Cabeçalho */}
-      <div className="text-center border-b border-black pb-4 mb-4">
-        <img 
-          src="/logo-yasmin.png" 
-          alt="Yasmin Ótica" 
-          className="h-12 mx-auto mb-2 object-contain filter contrast-125" 
-          onError={(e) => {
-            e.target.onerror = null;
-            e.target.src = "/logo-yasmin-transparent.png";
-          }}
-        />
-        <h1 className="text-sm font-black uppercase tracking-wider">YASMIN ÓTICA</h1>
-        <p className="text-[10px] text-gray-700 uppercase">Comprovante de Venda Não Fiscal</p>
-        <p className="text-[10px] text-gray-600 mt-1">Data: {receiptDateTimeStr}</p>
-        {(() => {
-          const receiptOS = String(saleData.numeroOS || saleData['OS DA VENDA'] || saleData['OS'] || saleData['VENDA_OS'] || '').replace(/^#+/, '');
-          return receiptOS ? <p className="text-xs font-bold mt-1">Ordem de Serviço: #{receiptOS}</p> : null;
-        })()}
-      </div>
+    <>
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          #print-receipt-section,
+          #print-receipt-section * {
+            visibility: visible !important;
+          }
+          #print-receipt-section {
+            display: block !important;
+            position: absolute !important;
+            left: 0 !important;
+            right: 0 !important;
+            top: 0 !important;
+            margin: 0 auto !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            z-index: 99999999 !important;
+          }
+        }
+      `}} />
+      <div id="print-receipt-section" className="hidden print:block p-4 sm:p-6 bg-white text-black max-w-sm mx-auto font-mono text-xs">
+        <div className="w-[360px] max-w-full mx-auto text-left">
+          {/* Cabeçalho */}
+          <div className="text-center border-b border-black pb-4 mb-4">
+            <img 
+              src="/logo-yasmin.png" 
+              alt="Yasmin Ótica" 
+              className="h-12 mx-auto mb-2 object-contain filter contrast-125" 
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.src = "/logo-yasmin-transparent.png";
+              }}
+            />
+            <h1 className="text-sm font-black uppercase tracking-wider">YASMIN ÓTICA</h1>
+            <p className="text-[10px] text-gray-700 uppercase">Comprovante de Venda Não Fiscal</p>
+            <p className="text-[10px] text-gray-600 mt-1">Data: {receiptDateTimeStr}</p>
+            {(() => {
+              const receiptOS = String(saleData.numeroOS || saleData['OS DA VENDA'] || saleData['OS'] || saleData['VENDA_OS'] || '').replace(/^#+/, '');
+              return receiptOS ? <p className="text-xs font-bold mt-1">Ordem de Serviço: #{receiptOS}</p> : null;
+            })()}
+          </div>
 
-      {/* Dados do Cliente */}
-      <div className="border-b border-black pb-3 mb-3 text-[11px]">
-        <p><strong>Cliente:</strong> {safeClient['Nome Completo'] || safeClient['NOME'] || 'Cliente não identificado'}</p>
-        {(safeClient['CPF / CNPJ'] || safeClient['CPF']) && (
-          <p><strong>CPF:</strong> {safeClient['CPF / CNPJ'] || safeClient['CPF']}</p>
-        )}
-        {safeClient['WhatsApp'] && (
-          <p><strong>WhatsApp:</strong> {safeClient['WhatsApp']}</p>
-        )}
-        {saleData.cidade && (
-          <p><strong>Unidade / Loja:</strong> {saleData.cidade}</p>
-        )}
-        {saleData.vendedor && (
-          <p><strong>Atendente:</strong> {saleData.vendedor}</p>
-        )}
-      </div>
+          {/* Dados do Cliente */}
+          <div className="border-b border-black pb-3 mb-3 text-[11px]">
+            <p><strong>Cliente:</strong> {safeClient['Nome Completo'] || safeClient['NOME'] || 'Cliente não identificado'}</p>
+            {(safeClient['CPF / CNPJ'] || safeClient['CPF']) && (
+              <p><strong>CPF:</strong> {safeClient['CPF / CNPJ'] || safeClient['CPF']}</p>
+            )}
+            {safeClient['WhatsApp'] && (
+              <p><strong>WhatsApp:</strong> {safeClient['WhatsApp']}</p>
+            )}
+            {saleData.cidade && (
+              <p><strong>Unidade / Loja:</strong> {saleData.cidade}</p>
+            )}
+            {saleData.vendedor && (
+              <p><strong>Atendente:</strong> {saleData.vendedor}</p>
+            )}
+          </div>
 
-      {/* Itens Comprados */}
-      <div className="border-b border-black pb-3 mb-3">
-        <p className="font-bold uppercase text-[11px] mb-2">Itens da Compra:</p>
-        <div className="space-y-1.5 text-[11px]">
-          {saleData.itens && saleData.itens.length > 0 ? (
-            saleData.itens.map((item, idx) => (
-              <div key={idx} className="flex justify-between items-start">
-                <div className="flex-1 pr-2">
-                  <p className="font-bold">{item.qtd || 1}x {item.nome || item.descricao}</p>
-                  {item.detalhes && <p className="text-[10px] text-gray-600">{item.detalhes}</p>}
+          {/* Itens Comprados */}
+          <div className="border-b border-black pb-3 mb-3">
+            <p className="font-bold uppercase text-[11px] mb-2">Itens da Compra:</p>
+            <div className="space-y-1.5 text-[11px]">
+              {saleData.itens && saleData.itens.length > 0 ? (
+                saleData.itens.map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-start">
+                    <div className="flex-1 pr-2">
+                      <p className="font-bold">{item.qtd || 1}x {item.nome || item.descricao}</p>
+                      {item.detalhes && <p className="text-[10px] text-gray-600">{item.detalhes}</p>}
+                    </div>
+                    <p className="font-bold shrink-0">{fmtMoeda((item.preco || 0) * (item.qtd || 1))}</p>
+                  </div>
+                ))
+              ) : (
+                <div className="flex justify-between items-center">
+                  <span>{saleData.produto || saleData.descricao || 'Produtos / Serviços Óticos'}</span>
+                  <span>{fmtMoeda(saleData.valorTotal || saleData.valor)}</span>
                 </div>
-                <p className="font-bold shrink-0">{fmtMoeda((item.preco || 0) * (item.qtd || 1))}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Totais e Pagamento */}
+          <div className="border-b border-black pb-3 mb-3 text-[11px] space-y-1">
+            <div className="flex justify-between">
+              <span>Subtotal:</span>
+              <span>{fmtMoeda(saleData.subtotal || saleData.valorTotal || saleData.valor)}</span>
+            </div>
+            {saleData.descontoVoucher > 0 && (
+              <div className="flex justify-between text-gray-700">
+                <span>Cupom {saleData.voucher?.CODIGO || saleData.voucher?.codigo ? `(${saleData.voucher?.CODIGO || saleData.voucher?.codigo})` : ''}:</span>
+                <span>- {fmtMoeda(saleData.descontoVoucher)}</span>
               </div>
-            ))
-          ) : (
-            <div className="flex justify-between items-center">
-              <span>{saleData.produto || saleData.descricao || 'Produtos / Serviços Óticos'}</span>
+            )}
+            {saleData.desconto > 0 && (
+              <div className="flex justify-between text-gray-700">
+                <span>
+                  Desconto Extra{saleData.descontoTipo === 'PORCENTAGEM' || saleData.TIPO_DESCONTO === 'PORCENTAGEM' ? ` (${saleData.descontoPercentual || saleData.DESCONTO_PERCENTUAL}%)` : ''}:
+                </span>
+                <span>- {fmtMoeda(saleData.desconto)}</span>
+              </div>
+            )}
+            <div className="flex justify-between font-black text-sm pt-1 border-t border-dashed border-gray-400">
+              <span>TOTAL PAGO:</span>
               <span>{fmtMoeda(saleData.valorTotal || saleData.valor)}</span>
             </div>
-          )}
-        </div>
-      </div>
 
-      {/* Totais e Pagamento */}
-      <div className="border-b border-black pb-3 mb-3 text-[11px] space-y-1">
-        <div className="flex justify-between">
-          <span>Subtotal:</span>
-          <span>{fmtMoeda(saleData.subtotal || saleData.valorTotal || saleData.valor)}</span>
-        </div>
-        {saleData.descontoVoucher > 0 && (
-          <div className="flex justify-between text-gray-700">
-            <span>Cupom {saleData.voucher?.CODIGO || saleData.voucher?.codigo ? `(${saleData.voucher?.CODIGO || saleData.voucher?.codigo})` : ''}:</span>
-            <span>- {fmtMoeda(saleData.descontoVoucher)}</span>
-          </div>
-        )}
-        {saleData.desconto > 0 && (
-          <div className="flex justify-between text-gray-700">
-            <span>
-              Desconto Extra{saleData.descontoTipo === 'PORCENTAGEM' || saleData.TIPO_DESCONTO === 'PORCENTAGEM' ? ` (${saleData.descontoPercentual || saleData.DESCONTO_PERCENTUAL}%)` : ''}:
-            </span>
-            <span>- {fmtMoeda(saleData.desconto)}</span>
-          </div>
-        )}
-        <div className="flex justify-between font-black text-sm pt-1 border-t border-dashed border-gray-400">
-          <span>TOTAL PAGO:</span>
-          <span>{fmtMoeda(saleData.valorTotal || saleData.valor)}</span>
-        </div>
+            {/* Detalhamento dos Pagamentos Lançados */}
+            <div className="pt-2 text-[10px] space-y-1">
+              <p className="font-bold uppercase text-[10px]">Formas de Pagamento:</p>
+              {effectivePagamentosLista.length > 0 ? (
+                effectivePagamentosLista.map((p, idx) => {
+                  const desc = p.texto || (p.metodo ? `${p.metodo.toUpperCase()}: ${fmtMoeda(p.valor)}` : String(p));
+                  return (
+                    <div key={idx} className="flex justify-between text-gray-800">
+                      <span>• {cleanBoletoText(desc)}</span>
+                    </div>
+                  );
+                })
+              ) : (
+                <p>{cleanBoletoText(fallbackFormaPagamento) || 'Não informado'}</p>
+              )}
 
-        {/* Detalhamento dos Pagamentos Lançados */}
-        <div className="pt-2 text-[10px] space-y-1">
-          <p className="font-bold uppercase text-[10px]">Formas de Pagamento:</p>
-          {saleData.pagamentosLista && saleData.pagamentosLista.length > 0 ? (
-            saleData.pagamentosLista.map((p, idx) => (
-              <div key={idx} className="flex justify-between text-gray-800">
-                <span>• {cleanBoletoText(p.texto)}</span>
+              {saleData.trocoTotal > 0 && (
+                <div className="flex justify-between font-bold text-emerald-800 pt-1">
+                  <span>Troco Devolvido:</span>
+                  <span>{fmtMoeda(saleData.trocoTotal)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Parcelamento Boleto se houver */}
+          {saleData.parcelas && saleData.parcelas.length > 0 && (
+            <div className="border-b border-black pb-3 mb-3 text-[10px]">
+              <p className="font-bold uppercase mb-1">Parcelamento no Boleto:</p>
+              <div className="grid grid-cols-2 gap-1">
+                {saleData.parcelas.map((parc, idx) => (
+                  <div key={idx} className="flex justify-between pr-2">
+                    <span>{parc.numero}ª {parc.vencimento}:</span>
+                    <span>{fmtMoeda(parc.valor)}</span>
+                  </div>
+                ))}
               </div>
-            ))
-          ) : (
-            <p>{cleanBoletoText(saleData.formaPagamento) || 'Não informado'}</p>
-          )}
-
-          {saleData.trocoTotal > 0 && (
-            <div className="flex justify-between font-bold text-emerald-800 pt-1">
-              <span>Troco Devolvido:</span>
-              <span>{fmtMoeda(saleData.trocoTotal)}</span>
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Parcelamento Boleto se houver */}
-      {saleData.parcelas && saleData.parcelas.length > 0 && (
-        <div className="border-b border-black pb-3 mb-3 text-[10px]">
-          <p className="font-bold uppercase mb-1">Parcelamento no Boleto:</p>
-          <div className="grid grid-cols-2 gap-1">
-            {saleData.parcelas.map((parc, idx) => (
-              <div key={idx} className="flex justify-between pr-2">
-                <span>{parc.numero}ª {parc.vencimento}:</span>
-                <span>{fmtMoeda(parc.valor)}</span>
-              </div>
-            ))}
+          {/* Rodapé / Termo de Garantia */}
+          <div className="text-center text-[9px] text-gray-600 space-y-1 pt-2">
+            <p>Apresente este comprovante para retirada e garantia de seus óculos.</p>
+            <p className="font-bold">Obrigado pela preferência!</p>
+            <p className="text-[8px] mt-2 text-gray-400">YASMIN ÓTICA - SISTEMA INTEGRADO</p>
           </div>
         </div>
-      )}
-
-      {/* Rodapé / Termo de Garantia */}
-      <div className="text-center text-[9px] text-gray-600 space-y-1 pt-2">
-        <p>Apresente este comprovante para retirada e garantia de seus óculos.</p>
-        <p className="font-bold">Obrigado pela preferência!</p>
-        <p className="text-[8px] mt-2 text-gray-400">YASMIN ÓTICA - SISTEMA INTEGRADO</p>
       </div>
-
-    </div>
+    </>
   );
 };
 

@@ -3,9 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Search, Table2, Edit2, Save, X, ClipboardList, Eye, Trash2, Printer, Tag, AlertTriangle, Paperclip, Upload, FileText, RefreshCw } from 'lucide-react';
 import RowEditModal from './RowEditModal';
 import PrintableOS from './PrintableOS';
+import PrintableReparcelamentoReceipt from './PrintableReparcelamentoReceipt';
 import { PrintableLabelModal } from './PrintableLabel';
 import ReceiptModal from './ReceiptModal';
 import { normalizeSearchText } from '../firebaseSync';
+import { buildGeneralPaymentReceiptPayload } from '../reparcelamentoUtils';
 
 const PAGE_SIZE = 25;
 
@@ -59,6 +61,7 @@ export const COLUMN_LABELS = {
   'venda_os': 'OS / Venda', 'VENDA_OS': 'OS / Venda',
   'meio_pagamento': 'Meio Pag.', 'MEIO_PAGAMENTO': 'Meio Pag.',
   'comprovante': 'Comprovante', 'COMPROVANTE': 'Comprovante', 'ANEXO_COMPROVANTE': 'Comprovante',
+  'recibo': 'Comprovante', 'RECIBO': 'Comprovante', 'recibo_pagamento': 'Comprovante', 'RECIBO_PAGAMENTO': 'Comprovante', 'comprovante_pagamento': 'Comprovante',
   // Campos de Transferência de Estoque
   'origem': 'Loja Origem', 'ORIGEM': 'Loja Origem',
   'destino': 'Loja Destino', 'DESTINO': 'Loja Destino',
@@ -191,7 +194,7 @@ export const CANONICAL_ALIASES = [
     id: 'comprovante',
     canonical: 'COMPROVANTE',
     label: 'Comprovante',
-    keys: ['COMPROVANTE', 'comprovante', 'ANEXO_COMPROVANTE', 'anexo_comprovante']
+    keys: ['COMPROVANTE', 'comprovante', 'ANEXO_COMPROVANTE', 'anexo_comprovante', 'RECIBO', 'recibo', 'Recibo', 'RECIBO_PAGAMENTO', 'recibo_pagamento', 'COMPROVANTE_PAGAMENTO', 'comprovante_pagamento']
   },
   {
     id: 'descricao',
@@ -358,6 +361,7 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
   const [printClientData, setPrintClientData] = useState(null);
   const [labelModalItem, setLabelModalItem] = useState(null);
   const [receiptModalRow, setReceiptModalRow] = useState(null);
+  const [printReparcelamentoReceiptData, setPrintReparcelamentoReceiptData] = useState(null);
 
   const handleEditClick = (row) => {
     setEditingRow(row);
@@ -703,14 +707,43 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                       <button 
                         onClick={() => setReceiptModalRow(row)} 
                         className={`p-1.5 flex items-center gap-1.5 px-2.5 rounded-lg transition-all font-black text-xs border ${
-                          (row.COMPROVANTE || row.comprovante || row.ANEXO_COMPROVANTE)
+                          (row.COMPROVANTE || row.comprovante || row.ANEXO_COMPROVANTE || row.RECIBO || row.recibo || row.Recibo || row.RECIBO_PAGAMENTO || row.recibo_pagamento || row.COMPROVANTE_PAGAMENTO || row.comprovante_pagamento)
                             ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/30 shadow-sm'
                             : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border-white/10'
                         }`}
-                        title={(row.COMPROVANTE || row.comprovante || row.ANEXO_COMPROVANTE) ? "Ver Comprovante Anexado" : "Anexar Comprovante de Pagamento"}
+                        title={(row.COMPROVANTE || row.comprovante || row.ANEXO_COMPROVANTE || row.RECIBO || row.recibo || row.Recibo || row.RECIBO_PAGAMENTO || row.recibo_pagamento || row.COMPROVANTE_PAGAMENTO || row.comprovante_pagamento) ? "Ver Comprovante Anexado" : "Anexar Comprovante de Pagamento"}
                       >
-                        <Paperclip size={13} className={(row.COMPROVANTE || row.comprovante || row.ANEXO_COMPROVANTE) ? "text-emerald-400" : "text-slate-400"} />
-                        <span className="hidden sm:inline">{(row.COMPROVANTE || row.comprovante || row.ANEXO_COMPROVANTE) ? 'Comprovante' : '+ Anexar'}</span>
+                        <Paperclip size={13} className={(row.COMPROVANTE || row.comprovante || row.ANEXO_COMPROVANTE || row.RECIBO || row.recibo || row.Recibo || row.RECIBO_PAGAMENTO || row.recibo_pagamento || row.COMPROVANTE_PAGAMENTO || row.comprovante_pagamento) ? "text-emerald-400" : "text-slate-400"} />
+                        <span className="hidden sm:inline">{(row.COMPROVANTE || row.comprovante || row.ANEXO_COMPROVANTE || row.RECIBO || row.recibo || row.Recibo || row.RECIBO_PAGAMENTO || row.recibo_pagamento || row.COMPROVANTE_PAGAMENTO || row.comprovante_pagamento) ? 'Comprovante' : '+ Anexar'}</span>
+                      </button>
+                    )}
+                    {sheetName === 'CONTAS_RECEBER' && ['recebido', 'pago'].includes(String(row.STATUS || row.status || '').toLowerCase()) && (
+                      <button
+                        onClick={() => {
+                          const val = parseFloat(String(row.VALOR || row.valor || 0).replace(/R\$\s?/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+                          const osNum = String(row.VENDA_OS || row.OS || row['Nº DA OS'] || '').replace(/^#/, '');
+                          const dt = row.DATA_PAGAMENTO || row.DATA_RECEBIMENTO || row.DATA_VENCIMENTO || new Date().toLocaleDateString('pt-BR');
+                          const payload = buildGeneralPaymentReceiptPayload({
+                            amount: val,
+                            osNumero: osNum,
+                            paymentDate: dt,
+                            paymentMethod: row.MEIO_PAGAMENTO || row.FORMA_PAGAMENTO || 'Boleto',
+                            clientData: {
+                              'Nome Completo': row.CLIENTE || row.NOME || 'Cliente',
+                              'CPF / CNPJ': row.CLIENTE_CPF || row.CPF || '',
+                              'WhatsApp': row.TELEFONE || row['TELEFONE CLIENTE'] || '',
+                              'Cidade': row.CIDADE || row.UNIDADE || 'Cajati'
+                            },
+                            currentUser
+                          });
+                          setPrintReparcelamentoReceiptData(payload);
+                          setTimeout(() => window.print(), 250);
+                        }}
+                        className="p-1.5 flex items-center gap-1.5 px-2.5 bg-sky-500/15 text-sky-300 hover:bg-sky-500/25 border border-sky-500/30 rounded-lg transition-all font-black text-xs shadow-sm cursor-pointer"
+                        title="Imprimir Recibo Oficial A4 desta Parcela Paga"
+                      >
+                        <Printer size={13} className="text-sky-400" />
+                        <span>Recibo A4</span>
                       </button>
                     )}
                     {onGenerateOS && (
@@ -925,8 +958,13 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                     );
                   }
 
-                  if (colLower === 'comprovante' || colLower === 'anexo_comprovante') {
-                    const hasReceipt = Boolean(val || row.COMPROVANTE || row.comprovante || row.ANEXO_COMPROVANTE);
+                  if (colLower === 'comprovante' || colLower === 'anexo_comprovante' || colLower === 'recibo' || colLower === 'recibo_pagamento' || colLower === 'comprovante_pagamento') {
+                    const hasReceipt = Boolean(
+                      val || row.COMPROVANTE || row.comprovante || row.ANEXO_COMPROVANTE ||
+                      row.RECIBO || row.recibo || row.Recibo ||
+                      row.RECIBO_PAGAMENTO || row.recibo_pagamento ||
+                      row.COMPROVANTE_PAGAMENTO || row.comprovante_pagamento
+                    );
                     return (
                       <td key={col} className="px-4 py-3 whitespace-nowrap text-xs">
                         {hasReceipt ? (
@@ -1125,6 +1163,9 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
               ...receiptModalRow,
               COMPROVANTE: comprovante,
               comprovante: comprovante,
+              RECIBO: comprovante,
+              recibo: comprovante,
+              RECIBO_PAGAMENTO: comprovante,
               DATA_COMPROVANTE: dataAnexo,
               NOME_COMPROVANTE: nomeArquivo,
               ...(markAsPaid ? { STATUS: 'Recebido', status: 'Recebido', DATA_RECEBIMENTO: new Date().toLocaleDateString('pt-BR') } : {})
@@ -1140,6 +1181,9 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
               COMPROVANTE: '',
               comprovante: '',
               ANEXO_COMPROVANTE: '',
+              RECIBO: '',
+              recibo: '',
+              RECIBO_PAGAMENTO: '',
               DATA_COMPROVANTE: '',
               NOME_COMPROVANTE: ''
             };
@@ -1148,6 +1192,11 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
           }
         }}
       />
+
+      {/* Componente Oficial Imprimível de Recibo A4 de Parcela Quitada */}
+      {printReparcelamentoReceiptData && (
+        <PrintableReparcelamentoReceipt receiptData={printReparcelamentoReceiptData} />
+      )}
     </motion.div>
   );
 };

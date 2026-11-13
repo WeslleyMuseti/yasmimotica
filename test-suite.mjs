@@ -8752,6 +8752,51 @@ async function runTests() {
     console.log('  ✅ Test 90 Passed: Informações Completas do Cliente e Responsável Legal na Impressão da OS validadas com 100% de sucesso!\n');
   }
 
+  // ==========================================
+  // TEST 91: Visibilidade e Impressão de Recibos de Pagamento e Ficha de Caixa em Folha Única A4
+  // ==========================================
+  console.log('▶ Test 91: Visibilidade e Impressão de Recibos de Pagamento e Ficha de Caixa em Folha Única A4');
+  {
+    const indexCssSrc = fs.readFileSync(path.join(__dirname, 'src', 'index.css'), 'utf8');
+    const printableReceiptSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableReparcelamentoReceipt.jsx'), 'utf8');
+    const dataTableSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'DataTable.jsx'), 'utf8');
+    const clientProfileSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ClientProfileModal.jsx'), 'utf8');
+    const receiptModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ReceiptModal.jsx'), 'utf8');
+    const sheetSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableCashMovementSheet.jsx'), 'utf8');
+
+    // 1. Whitelist de visibilidade no index.css
+    console.assert(indexCssSrc.includes('#printable-reparcelamento-receipt'), 'index.css deve incluir #printable-reparcelamento-receipt na whitelist de visibilidade');
+    console.assert(indexCssSrc.includes('#print-cash-movement-sheet .avoid-break'), 'index.css deve evitar quebra de página em #print-cash-movement-sheet');
+
+    // 2. Componente Oficial de Recibo A4 (PrintableReparcelamentoReceipt)
+    console.assert(printableReceiptSrc.includes('buildGeneralPaymentReceiptPayload'), 'PrintableReparcelamentoReceipt deve exportar buildGeneralPaymentReceiptPayload');
+    console.assert(printableReceiptSrc.includes('id="printable-reparcelamento-receipt"'), 'PrintableReparcelamentoReceipt deve ter id oficial printable-reparcelamento-receipt');
+    console.assert(printableReceiptSrc.includes('size: A4 portrait'), 'PrintableReparcelamentoReceipt deve definir explicitamente tamanho A4');
+
+    // 3. DataTable com Botão de Recibo A4 e Aliases de Recibo
+    console.assert(dataTableSrc.includes('PrintableReparcelamentoReceipt'), 'DataTable deve importar PrintableReparcelamentoReceipt');
+    console.assert(dataTableSrc.includes('buildGeneralPaymentReceiptPayload'), 'DataTable deve importar buildGeneralPaymentReceiptPayload');
+    console.assert(dataTableSrc.includes('RECIBO_PAGAMENTO'), 'DataTable deve mapear coluna RECIBO_PAGAMENTO');
+    console.assert(dataTableSrc.includes('Recibo A4'), 'DataTable deve renderizar botão de Recibo A4 para parcelas quitadas');
+
+    // 4. Modal do Perfil do Cliente com Emissão de Recibos e Persistência Contábil
+    console.assert(clientProfileSrc.includes('handlePrintPurchaseReceipt'), 'ClientProfileModal deve possuir handler handlePrintPurchaseReceipt');
+    console.assert(clientProfileSrc.includes('handlePrintCashReceipt'), 'ClientProfileModal deve possuir handler handlePrintCashReceipt');
+    console.assert(clientProfileSrc.includes('Recibo de Pagamento'), 'ClientProfileModal deve conter botão Recibo de Pagamento');
+    console.assert(clientProfileSrc.includes('CONTAS_RECEBER'), 'ClientProfileModal deve salvar no CONTAS_RECEBER ao registrar pagamento');
+    console.assert(clientProfileSrc.includes('FLUXO_CAIXA'), 'ClientProfileModal deve registrar no FLUXO_CAIXA ao registrar pagamento');
+
+    // 5. Modal de Comprovantes com Aliases de Recibo
+    console.assert(receiptModalSrc.includes('row.RECIBO'), 'ReceiptModal deve verificar alias RECIBO');
+    console.assert(receiptModalSrc.includes('row.RECIBO_PAGAMENTO'), 'ReceiptModal deve verificar alias RECIBO_PAGAMENTO');
+
+    // 6. Ficha Contábil em Folha Única A4
+    console.assert(sheetSrc.includes('targetRows'), 'PrintableCashMovementSheet deve usar targetRows para garantir 1 página');
+    console.assert(sheetSrc.includes('maxHeight'), 'PrintableCashMovementSheet deve limitar maxHeight para evitar spillover');
+
+    console.log('  ✅ Test 91 Passed: Recibos de Pagamento e Ficha de Caixa em Folha Única A4 validados com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

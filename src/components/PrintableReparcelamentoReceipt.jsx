@@ -2,10 +2,11 @@ import React from 'react';
 import {
   parseCurrencyValue as cleanVal,
   formatMoneyBr as formatMoney,
-  numeroPorExtenso
+  numeroPorExtenso,
+  buildGeneralPaymentReceiptPayload
 } from '../reparcelamentoUtils';
 
-export { numeroPorExtenso };
+export { numeroPorExtenso, buildGeneralPaymentReceiptPayload };
 
 /**
  * Componente de Impressão Oficial de Recibo de Pagamento de Reparcelamento (Folha A4)
@@ -43,11 +44,46 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
   const valorExtenso = numeroPorExtenso(valorNum);
 
   return (
-    <div
-      id="printable-reparcelamento-receipt"
-      className="hidden print:block bg-white text-slate-950 font-sans p-8 max-w-[210mm] mx-auto min-h-[297mm] text-xs leading-relaxed"
-      style={{ boxSizing: 'border-box' }}
-    >
+    <>
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 8mm 10mm !important;
+          }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            color: #0f172a !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          #printable-reparcelamento-receipt,
+          #printable-reparcelamento-receipt * {
+            visibility: visible !important;
+          }
+          #printable-reparcelamento-receipt {
+            display: block !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            max-width: 210mm !important;
+            margin: 0 auto !important;
+            padding: 8mm !important;
+            box-sizing: border-box !important;
+            z-index: 99999999 !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+        }
+      `}} />
+      <div
+        id="printable-reparcelamento-receipt"
+        className="hidden print:block bg-white text-slate-950 font-sans p-8 max-w-[210mm] mx-auto min-h-[297mm] text-xs leading-relaxed"
+        style={{ boxSizing: 'border-box' }}
+      >
       {/* ─── CABEÇALHO OFICIAL COM LOGO E DADOS DA EMPRESA ─── */}
       <div className="flex items-center justify-between border-b-2 border-slate-900 pb-4 mb-5">
         <div className="flex items-center gap-4">
@@ -242,6 +278,7 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
         Yasmin Ótica • Sistema de Gestão Óptica e Financeira • Recibo {reciboNumero} • Documento Não Fiscal para Controle de Pagamento
       </div>
     </div>
+    </>
   );
 };
 

@@ -133,6 +133,7 @@ const ClientProfileModal = ({
   const [osSuccessMessage, setOsSuccessMessage] = useState(false);
   const [localHistory, setLocalHistory] = useState(clientHistory);
   const [receiptModalInvoice, setReceiptModalInvoice] = useState(null);
+  const [localRegisteredPayments, setLocalRegisteredPayments] = useState([]);
 
   // Modal de Quitação de Parcela com Opção de Contar no Caixa
   const [settleModalInvoice, setSettleModalInvoice] = useState(null);
@@ -308,12 +309,54 @@ const ClientProfileModal = ({
 
   if (typeof document === 'undefined') return null;
 
+  // Lista de OSs do cliente obtidas do histórico de compras e cadastro
+  const clientSalesOSList = useMemo(() => {
+    const list = new Set();
+    const directOS = currentClient?.['numeroOS'] || currentClient?.['OS DA VENDA'] || currentClient?.['OS'] || currentClient?.['VENDA_OS'];
+    if (directOS && String(directOS).trim() && String(directOS).trim() !== '—' && String(directOS).trim() !== '-' && String(directOS).trim() !== 'N/A') {
+      list.add(String(directOS).replace(/^#/, '').trim());
+    }
+    if (clientHistory && Array.isArray(clientHistory)) {
+      clientHistory.forEach(c => {
+        const os = c['OS DA VENDA'] || c['OS'] || c['VENDA_OS'] || c['OS_VENDA'] || c['numeroOS'] || c['osNumber'] || c['Nº DA OS'];
+        if (os && String(os).trim() && String(os).trim() !== '—' && String(os).trim() !== '-' && String(os).trim() !== 'N/A') {
+          list.add(String(os).replace(/^#/, '').trim());
+        }
+      });
+    }
+    return Array.from(list);
+  }, [clientHistory, currentClient]);
+
   const clientErpInvoices = useMemo(() => {
-    return (receberData || []).filter(item => {
+    const rawMatches = (receberData || []).filter(item => {
       if (!currentClient) return false;
-      return isSameClient(currentClient, item);
+      if (isSameClient(currentClient, item)) return true;
+      const itemOS = String(item.VENDA_OS || item.OS || item.venda_os || item['Nº DA OS'] || '').replace(/^#/, '').trim();
+      if (itemOS && clientSalesOSList.includes(itemOS)) return true;
+      return false;
     });
-  }, [receberData, currentClient]);
+
+    const combined = [...rawMatches];
+    (localRegisteredPayments || []).forEach(loc => {
+      if (!combined.some(c => c.id === loc.id)) {
+        combined.push(loc);
+      }
+    });
+
+    return combined;
+  }, [receberData, currentClient, clientSalesOSList, localRegisteredPayments]);
+
+  // Recibos e movimentações em dinheiro/PIX/cartão do cliente registrados no Fluxo de Caixa
+  const clientCashReceipts = useMemo(() => {
+    const fluxo = data?.['FLUXO_CAIXA'] || [];
+    if (!Array.isArray(fluxo) || fluxo.length === 0 || !currentClient) return [];
+    return fluxo.filter(mov => {
+      if (isSameClient(currentClient, mov)) return true;
+      const osMov = String(mov.osNumero || mov.OS || mov.VENDA_OS || mov['OS DA VENDA'] || '').replace(/^#/, '').trim();
+      if (osMov && clientSalesOSList.includes(osMov)) return true;
+      return false;
+    });
+  }, [data, currentClient, clientSalesOSList]);
 
   // Cálculos financeiros em tempo real sincronizados com CONTAS_RECEBER (ERP)
   const realFinancials = useMemo(() => {
@@ -423,6 +466,51 @@ const ClientProfileModal = ({
     }, 250);
   };
 
+  // 🧾 Imprime o Recibo Oficial A4 de uma Venda / Compra do Histórico
+  const handlePrintPurchaseReceipt = (compra) => {
+    const valTotal = parseCurrency(compra['VALOR TOTAL'] || compra['VALOR'] || compra['VALOR DA VENDA'] || 0);
+    const valEntrada = parseCurrency(compra['VALOR ENTRADA'] || compra['SINAL'] || 0);
+    const osNum = String(compra['OS DA VENDA'] || compra['OS'] || compra['VENDA_OS'] || '').replace(/^#/, '');
+    const forma = compra['FORMAS_PAGAMENTO'] || compra['FORMA_PAGTO'] || compra['MEIO_PAGAMENTO'] || compra['FORMA DE PAGAMENTO'] || 'Dinheiro';
+    const dataCompra = compra['DATA  DA VENDA'] || compra['DATA DA VENDA'] || compra['DATA'] || compra['data_venda'] || new Date().toLocaleDateString('pt-BR');
+    
+    const payload = buildGeneralPaymentReceiptPayload({
+      amount: valEntrada > 0 ? valEntrada : valTotal,
+      osNumero: osNum,
+      paymentDate: dataCompra,
+      paymentMethod: forma,
+      clientData: currentClient,
+      currentUser,
+      saldoRestante: Math.max(0, valTotal - valEntrada)
+    });
+    setPrintReparcelamentoReceiptData(payload);
+    setTimeout(() => {
+      window.print();
+    }, 250);
+  };
+
+  // 🧾 Imprime o Recibo Oficial A4 de um lançamento do Fluxo de Caixa
+  const handlePrintCashReceipt = (mov) => {
+    const val = parseCurrency(mov.valor || mov.VALOR || 0);
+    const osNum = String(mov.osNumero || mov.OS || mov.VENDA_OS || '').replace(/^#/, '');
+    const forma = mov.formaPagamento || mov.FORMA_PAGAMENTO || mov.meioPagamento || 'Dinheiro';
+    const dataMov = mov.data || mov.DATA || (mov.dataHora ? new Date(mov.dataHora).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR'));
+    
+    const payload = buildGeneralPaymentReceiptPayload({
+      amount: val,
+      osNumero: osNum,
+      paymentDate: dataMov,
+      paymentMethod: forma,
+      clientData: currentClient,
+      currentUser,
+      saldoRestante: parseCurrency(currentClient?.['Valor Devido'] || 0)
+    });
+    setPrintReparcelamentoReceiptData(payload);
+    setTimeout(() => {
+      window.print();
+    }, 250);
+  };
+
   // 🧾 Imprime o Recibo Oficial A4 com os dados preenchidos no formulário de pagamento
   const handlePrintFormReceipt = () => {
     const num = parseCurrency(paymentAmount);
@@ -445,7 +533,7 @@ const ClientProfileModal = ({
   };
 
   // 💰 Submissão do Formulário de Registro de Pagamento do Cliente
-  const handlePaymentFormSubmit = (e) => {
+  const handlePaymentFormSubmit = async (e) => {
     e.preventDefault();
     const num = parseCurrency(paymentAmount);
     if (!num || num <= 0) {
@@ -465,11 +553,78 @@ const ClientProfileModal = ({
     const currentDebt = parseCurrency(currentClient?.['Valor Devido'] || 0);
     const newDebt = Math.max(0, currentDebt - num);
     const newStatus = newDebt === 0 ? 'Em dia' : currentClient?.['Status de Pagamento'];
-    setCurrentClient(prev => ({
-      ...prev,
+    const updatedClient = {
+      ...currentClient,
       'Valor Devido': newDebt.toFixed(2).replace('.', ','),
       'Status de Pagamento': newStatus
-    }));
+    };
+    setCurrentClient(updatedClient);
+
+    if (onUpdateClient) {
+      onUpdateClient({ oldRow: currentClient, newRow: updatedClient });
+    } else if (onUpdateRow) {
+      onUpdateRow('CLIENTES_CADASTRADOS', currentClient, updatedClient);
+    }
+
+    // Criar registro persistente do recibo do pagamento em CONTAS_RECEBER
+    const newReceiptRow = {
+      id: `rec_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      CLIENTE_ID: currentClient?.id || currentClient?.['_id'] || '',
+      CLIENTE_CPF: currentClient?.['CPF / CNPJ'] || currentClient?.['CPF'] || '',
+      CLIENTE: currentClient?.['Nome Completo'] || currentClient?.['NOME'] || 'Cliente',
+      NOME: currentClient?.['Nome Completo'] || currentClient?.['NOME'] || 'Cliente',
+      DOCUMENTO: paymentOS ? `RECIBO - OS #${paymentOS}` : `RECIBO - PAGAMENTO`,
+      DESCRICAO: paymentOS ? `Pagamento de OS #${paymentOS}` : `Pagamento Parcial / Geral do Débito`,
+      VALOR: num.toFixed(2).replace('.', ','),
+      valor: num,
+      DATA_VENCIMENTO: paymentDate,
+      DATA_RECEBIMENTO: paymentDate,
+      DATA_PAGAMENTO: paymentDate,
+      STATUS: 'Recebido',
+      status: 'Recebido',
+      MEIO_PAGAMENTO: paymentMethod,
+      FORMA_PAGAMENTO: paymentMethod,
+      VENDA_OS: paymentOS || '',
+      OS: paymentOS || '',
+      UNIDADE: currentClient?.['Cidade'] || currentClient?.['CIDADE'] || currentUser?.city || 'Cajati',
+      CIDADE: currentClient?.['Cidade'] || currentClient?.['CIDADE'] || currentUser?.city || 'Cajati',
+      OPERADOR: currentUser?.username || 'Caixa',
+      OBSERVACOES: `Recibo emitido em ${new Date().toLocaleDateString('pt-BR')} via ${paymentMethod}.`
+    };
+
+    setLocalRegisteredPayments(prev => [newReceiptRow, ...prev]);
+
+    if (onAddRow) {
+      try {
+        await onAddRow('CONTAS_RECEBER', newReceiptRow);
+      } catch (err) {
+        console.warn('Aviso ao registrar comprovante em CONTAS_RECEBER:', err);
+      }
+      try {
+        await onAddRow('FLUXO_CAIXA', {
+          id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          osNumero: paymentOS || '',
+          tipo: 'RECEBIMENTO',
+          dataHora: new Date().toISOString(),
+          timestamp: Date.now(),
+          data: paymentDate.includes('-') ? paymentDate.split('-').reverse().join('/') : paymentDate,
+          DATA: paymentDate.includes('-') ? paymentDate.split('-').reverse().join('/') : paymentDate,
+          hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          HORA: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          unidade: currentClient?.['Cidade'] || currentClient?.['CIDADE'] || currentUser?.city || 'Cajati',
+          operador: currentUser?.username || 'Caixa',
+          valor: num,
+          formaPagamento: String(paymentMethod || 'DINHEIRO').toUpperCase(),
+          motivo: paymentOS ? `Recebimento OS #${paymentOS} - ${currentClient?.['Nome Completo'] || 'Cliente'}` : `Recebimento Débito - ${currentClient?.['Nome Completo'] || 'Cliente'}`,
+          cliente: currentClient?.['Nome Completo'] || 'Cliente',
+          CLIENTE_ID: currentClient?.id || '',
+          CLIENTE_CPF: currentClient?.['CPF / CNPJ'] || currentClient?.['CPF'] || '',
+          CPF: currentClient?.['CPF / CNPJ'] || currentClient?.['CPF'] || ''
+        });
+      } catch (fcErr) {
+        console.warn('Aviso ao registrar fluxo de caixa:', fcErr);
+      }
+    }
 
     // Se selecionado, dispara impressão automática do Recibo Oficial A4
     if (shouldPrintReceipt) {
@@ -485,7 +640,6 @@ const ClientProfileModal = ({
       setPrintReparcelamentoReceiptData(payload);
       setTimeout(() => {
         window.print();
-        setTimeout(() => setPrintReparcelamentoReceiptData(null), 1000);
       }, 300);
     }
 
@@ -1876,6 +2030,15 @@ const ClientProfileModal = ({
                                     <Printer size={13} /> Imprimir OS
                                   </button>
                                 )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handlePrintPurchaseReceipt(compra)}
+                                  className="flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 font-bold px-2 py-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 transition-all cursor-pointer shadow-xs"
+                                  title="Imprimir Recibo Oficial A4 de Pagamento desta Venda"
+                                >
+                                  <FileText size={13} /> Recibo de Pagamento
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -1930,7 +2093,12 @@ const ClientProfileModal = ({
                                 : status.includes('Atrasado') || status.includes('Inadimplente') 
                                 ? 'text-rose-400 bg-rose-400/10 border-rose-400/20' 
                                 : 'text-amber-400 bg-amber-400/10 border-amber-400/20';
-                              const hasReceipt = Boolean(inv.COMPROVANTE || inv.comprovante || inv.ANEXO_COMPROVANTE);
+                              const hasReceipt = Boolean(
+                                inv.COMPROVANTE || inv.comprovante || inv.ANEXO_COMPROVANTE ||
+                                inv.RECIBO || inv.recibo || inv.Recibo ||
+                                inv.RECIBO_PAGAMENTO || inv.recibo_pagamento ||
+                                inv.COMPROVANTE_PAGAMENTO || inv.comprovante_pagamento
+                              );
 
                               return (
                                 <tr key={idx} className="border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors">
@@ -1998,6 +2166,73 @@ const ClientProfileModal = ({
                                         <span>Quitar</span>
                                       </button>
                                     )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recibos de Pagamento Registrados no Caixa (FLUXO_CAIXA) */}
+                  {clientCashReceipts && clientCashReceipts.length > 0 && (
+                    <div className="mb-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-black flex items-center gap-2 text-sky-400">
+                          <CheckCircle2 size={18} /> Recibos de Pagamentos em Caixa (Fluxo de Caixa)
+                        </h3>
+                        <span className="text-xs text-slate-400 font-medium">
+                          {clientCashReceipts.length} {clientCashReceipts.length === 1 ? 'recibo' : 'recibos'}
+                        </span>
+                      </div>
+                      <div className="bg-slate-900 border border-white/5 rounded-2xl overflow-hidden">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead className="bg-slate-950 text-slate-400 border-b border-white/5 uppercase tracking-wider text-[10px]">
+                            <tr>
+                              <th className="p-3 font-black">Histórico / Movimento</th>
+                              <th className="p-3 font-black">Data / Hora</th>
+                              <th className="p-3 font-black">Forma de Pagto</th>
+                              <th className="p-3 font-black">Valor</th>
+                              <th className="p-3 font-black text-center">Situação</th>
+                              <th className="p-3 font-black text-center">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {clientCashReceipts.map((mov, mIdx) => {
+                              const movVal = parseCurrency(mov.valor || mov.VALOR || 0);
+                              const movDate = mov.data || mov.DATA || (mov.dataHora ? new Date(mov.dataHora).toLocaleDateString('pt-BR') : '—');
+                              const movForma = mov.formaPagamento || mov.FORMA_PAGAMENTO || mov.meioPagamento || 'Dinheiro';
+                              return (
+                                <tr key={mIdx} className="border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors">
+                                  <td className="p-3 font-bold text-slate-300">
+                                    {mov.motivo || mov.detalhes || (mov.osNumero ? `Recebimento OS #${mov.osNumero}` : 'Pagamento de Venda/Débito')}
+                                  </td>
+                                  <td className="p-3 font-medium text-slate-400">
+                                    {movDate} {mov.hora || mov.HORA ? `às ${mov.hora || mov.HORA}` : ''}
+                                  </td>
+                                  <td className="p-3 font-medium text-slate-300">
+                                    {movForma}
+                                  </td>
+                                  <td className="p-3 font-black text-emerald-400">
+                                    R$ {formatMoney(movVal)}
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <span className="px-2 py-0.5 rounded border text-[10px] font-black uppercase tracking-wider inline-block text-emerald-400 bg-emerald-400/10 border-emerald-400/20">
+                                      Recebido
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePrintCashReceipt(mov)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider bg-sky-500/15 text-sky-300 hover:bg-sky-500/25 border border-sky-500/30 transition-all shadow-sm cursor-pointer"
+                                      title="Imprimir Recibo Oficial A4 deste Pagamento"
+                                    >
+                                      <Printer size={10} />
+                                      <span>Recibo A4</span>
+                                    </button>
                                   </td>
                                 </tr>
                               );
@@ -2316,11 +2551,15 @@ const ClientProfileModal = ({
               ...receiptModalInvoice,
               COMPROVANTE: comprovante,
               comprovante: comprovante,
+              RECIBO: comprovante,
+              recibo: comprovante,
+              RECIBO_PAGAMENTO: comprovante,
               DATA_COMPROVANTE: dataAnexo,
               NOME_COMPROVANTE: nomeArquivo,
               ...(markAsPaid ? { STATUS: 'Recebido', status: 'Recebido', DATA_RECEBIMENTO: new Date().toLocaleDateString('pt-BR') } : {})
             };
             await onUpdateRow('CONTAS_RECEBER', receiptModalInvoice, updated);
+            setReceiptModalRow?.(updated);
             setReceiptModalInvoice(updated);
           }
         }}
@@ -2331,6 +2570,9 @@ const ClientProfileModal = ({
               COMPROVANTE: '',
               comprovante: '',
               ANEXO_COMPROVANTE: '',
+              RECIBO: '',
+              recibo: '',
+              RECIBO_PAGAMENTO: '',
               DATA_COMPROVANTE: '',
               NOME_COMPROVANTE: ''
             };
