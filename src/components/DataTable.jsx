@@ -201,9 +201,9 @@ export const CANONICAL_ALIASES = [
   },
   {
     id: 'os',
-    canonical: 'VENDA_OS',
+    canonical: 'OS DA VENDA',
     label: 'OS / Venda',
-    keys: ['VENDA_OS', 'venda_os', 'OS', 'os', 'Nº DA OS', 'OS DA VENDA']
+    keys: ['OS DA VENDA', 'OS', 'VENDA_OS', 'numeroOS', 'osNumber', 'osNumero', 'Nº DA OS', 'Num OS', 'os', 'venda_os']
   },
   {
     id: 'observacoes',

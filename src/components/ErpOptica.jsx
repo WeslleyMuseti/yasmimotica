@@ -1393,9 +1393,25 @@ const ErpOptica = ({
       const todayStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
       const filename = `Levantamento_Financeiro_Yasmin_Otica_${todayStr}.xlsx`;
 
-      const receberList = Array.isArray(data?.['CONTAS_RECEBER']) ? data['CONTAS_RECEBER'] : [];
-      const pagarList = Array.isArray(data?.['CONTAS_PAGAR']) ? data['CONTAS_PAGAR'] : [];
-      const fluxoList = Array.isArray(data?.['FLUXO_CAIXA']) ? data['FLUXO_CAIXA'] : [];
+      const rawReceber = Array.isArray(data?.['CONTAS_RECEBER']) ? data['CONTAS_RECEBER'] : [];
+      const rawPagar = Array.isArray(data?.['CONTAS_PAGAR']) ? data['CONTAS_PAGAR'] : [];
+      const rawFluxo = Array.isArray(data?.['FLUXO_CAIXA']) ? data['FLUXO_CAIXA'] : [];
+
+      // 🛡️ Filtra estritamente registros fantasmas sem cliente ou vazios
+      const receberList = rawReceber.filter(r => {
+        if (!r || typeof r !== 'object') return false;
+        const client = String(r.CLIENTE || r.NOME || r['NOME DO CLIENTE'] || r.cliente || '').trim();
+        return Boolean(client && client !== '---' && client !== 'undefined' && client !== 'null');
+      });
+
+      const pagarList = rawPagar.filter(p => {
+        if (!p || typeof p !== 'object') return false;
+        const fornecedor = String(p.FORNECEDOR || p.fornecedor || p.FAVORECIDO || p.CATEGORIA || p.DESPESA || '').trim();
+        const v = parseFloat(String(p.VALOR || p.valor || 0).replace(/\./g, '').replace(',', '.')) || 0;
+        return Boolean(fornecedor || v > 0);
+      });
+
+      const fluxoList = rawFluxo.filter(f => f && typeof f === 'object' && (f.tipo || f.valor !== undefined));
 
       // 1. Resumo Consolidado
       const totalReceber = receberList.reduce((acc, r) => acc + (parseFloat(String(r.VALOR || r['VALOR PARCELA'] || 0).replace(',', '.')) || 0), 0);
@@ -1481,10 +1497,29 @@ const ErpOptica = ({
       const todayStr = new Date().toISOString().slice(0, 10);
       const filename = `Levantamento_Financeiro_Yasmin_Otica_${todayStr}.xml`;
 
+      const rawReceber = Array.isArray(data?.['CONTAS_RECEBER']) ? data['CONTAS_RECEBER'] : [];
+      const rawPagar = Array.isArray(data?.['CONTAS_PAGAR']) ? data['CONTAS_PAGAR'] : [];
+      const rawFluxo = Array.isArray(data?.['FLUXO_CAIXA']) ? data['FLUXO_CAIXA'] : [];
+
+      const cleanReceber = rawReceber.filter(r => {
+        if (!r || typeof r !== 'object') return false;
+        const client = String(r.CLIENTE || r.NOME || r['NOME DO CLIENTE'] || r.cliente || '').trim();
+        return Boolean(client && client !== '---' && client !== 'undefined' && client !== 'null');
+      });
+
+      const cleanPagar = rawPagar.filter(p => {
+        if (!p || typeof p !== 'object') return false;
+        const fornecedor = String(p.FORNECEDOR || p.fornecedor || p.FAVORECIDO || p.CATEGORIA || p.DESPESA || '').trim();
+        const v = parseFloat(String(p.VALOR || p.valor || 0).replace(/\./g, '').replace(',', '.')) || 0;
+        return Boolean(fornecedor || v > 0);
+      });
+
+      const cleanFluxo = rawFluxo.filter(f => f && typeof f === 'object' && (f.tipo || f.valor !== undefined));
+
       const xmlContent = buildFinancialSummaryXml(
-        data?.['CONTAS_RECEBER'] || [],
-        data?.['CONTAS_PAGAR'] || [],
-        data?.['FLUXO_CAIXA'] || [],
+        cleanReceber,
+        cleanPagar,
+        cleanFluxo,
         {
           unidade: 'Todas',
           periodo: 'Histórico Geral Consolidado'

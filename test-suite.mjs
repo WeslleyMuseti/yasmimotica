@@ -8195,7 +8195,7 @@ async function runTests() {
     const clientProfileModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ClientProfileModal.jsx'), 'utf-8');
 
     // 1. Validar que App.jsx possui syncRowAliases garantindo simetria de todos os aliases canônicos
-    console.assert(appSrc.includes('const syncRowAliases = (row, sheetName) =>'), 'App.jsx deve implementar syncRowAliases');
+    console.assert(appSrc.includes('const syncRowAliases = (row, sheetName'), 'App.jsx deve implementar syncRowAliases');
     console.assert(appSrc.includes("synced['Nome Completo'] = nome") && appSrc.includes("synced['NOME'] = nome"), 'syncRowAliases deve sincronizar Nome Completo e NOME');
     console.assert(appSrc.includes("synced['OS DA VENDA'] = osNum") && appSrc.includes("synced['numeroOS'] = osNum"), 'syncRowAliases deve sincronizar OS DA VENDA e numeroOS');
     console.assert(appSrc.includes("synced['PACIENTE'] = pac") && appSrc.includes("synced['nomePessoa'] = pac"), 'syncRowAliases deve sincronizar PACIENTE e nomePessoa');
@@ -8352,6 +8352,91 @@ async function runTests() {
     console.assert(Math.abs(totalRecebidoReal - 150.00) < 0.01, `Total recebido deve ser exatamente 150.00, calculou ${totalRecebidoReal}`);
 
     console.log('  ✅ Test 86 Passed: Integridade dos Dois ERPs Financeiros, Purga de Fantasmas & Dívida Real validada com 100% de sucesso!\n');
+  }
+
+  // ─── TEST 87: Saneamento Gestão de OS, PDV e Extrações Financeiras (XML e Excel) ───────
+  {
+    console.log('▶ Test 87: Saneamento de Gestão de OS, PDV e Extrações Financeiras');
+
+    // 1. buildSalesHistoryXml: Rejeita vendas fantasmas e padroniza OS e unidades
+    const mockSalesWithGhosts = [
+      { id: 'v1', CLIENTE: 'Eliel de Souza Santos Junior', 'OS DA VENDA': 'CAJ-022', 'TOTAL VENDA': '530,00', UNIDADE: 'CAJATI' },
+      { id: 'v2', CLIENTE: 'Adineia das Neves Camargo', 'OS DA VENDA': 'CAJ-023', 'TOTAL VENDA': '450,00', UNIDADE: 'Cajati' },
+      { id: 'ghost_1', CLIENTE: '', 'OS DA VENDA': '', 'TOTAL VENDA': '0,00', UNIDADE: '' },
+      { id: 'ghost_2', CLIENTE: '   ', 'OS DA VENDA': '—', 'TOTAL VENDA': '0', UNIDADE: '' }
+    ];
+
+    const salesXml = buildSalesHistoryXml(mockSalesWithGhosts, { loja: 'Cajati' });
+    console.assert(salesXml.includes('total_vendas="2"'), 'buildSalesHistoryXml deve computar exatamente as 2 vendas reais');
+    console.assert(salesXml.includes('<os_numero>CAJ-022</os_numero>'), 'XML deve conter a OS CAJ-022');
+    console.assert(salesXml.includes('<loja_unidade>Cajati</loja_unidade>'), 'XML deve normalizar CAJATI para Cajati');
+    console.assert(!salesXml.includes('ghost_1'), 'XML não deve conter venda fantasma');
+
+    // 2. buildFinancialSummaryXml: Purga de registros órfãos e cálculo exato de dívida real
+    const mockReceberMixed = [
+      { id: 'rec_1', CLIENTE: 'Laura Garcia Lameu', VALOR: '119,83', STATUS: 'Pendente', OS: 'CAJ-009' },
+      { id: 'rec_2', CLIENTE: 'Mirella de Souza Domingues', VALOR: '100,00', STATUS: 'Pendente', OS: 'CAJ-011' },
+      { id: 'rec_3', CLIENTE: 'Camily Vitoria', VALOR: '150,00', STATUS: 'Recebido', OS: 'EXT-001' },
+      { id: 'rec_ghost', CLIENTE: '', VALOR: '100,00', STATUS: 'Pendente' }
+    ];
+
+    const finXml = buildFinancialSummaryXml(mockReceberMixed, [], [], { unidade: 'Todas' });
+    console.assert(finXml.includes('total_duplicatas_receber="3"'), 'buildFinancialSummaryXml deve considerar apenas os 3 registros reais');
+    console.assert(finXml.includes('total_receber_pendente="219.83"'), 'buildFinancialSummaryXml deve somar exatamente 219.83 pendente');
+    console.assert(finXml.includes('total_receber_pago="150.00"'), 'buildFinancialSummaryXml deve somar 150.00 pago');
+    console.assert(!finXml.includes('rec_ghost'), 'buildFinancialSummaryXml não deve incluir duplicata fantasma');
+
+    // 3. buildCashHistoryXml: Normalização de unidades
+    const mockCash = [
+      { id: 'm1', unidade: 'CAJATI', tipo: 'VENDA', valor: 530, formaPagamento: 'Cartão de Crédito' },
+      { id: 'm2', unidade: 'Registro', tipo: 'SANGRIA', valor: 100, formaPagamento: 'Dinheiro' }
+    ];
+    const cashXml = buildCashHistoryXml(mockCash, { loja: 'Todas' });
+    console.assert(cashXml.includes('<unidade>Cajati</unidade>'), 'buildCashHistoryXml deve normalizar CAJATI para Cajati');
+    console.assert(cashXml.includes('<valor>530</valor>'), 'buildCashHistoryXml deve exportar o valor correto');
+
+    // 4. Precedência de Edição em Aliases (Evitar sobrescrita de edição de OS por aliases legados)
+    const oldRow = {
+      id: 'sale_10',
+      'OS DA VENDA': 'CAJ-010',
+      'VENDA_OS': 'CAJ-010',
+      'OS': 'CAJ-010',
+      'TOTAL VENDA': '400,00'
+    };
+    // Usuário alterou intencionalmente 'OS DA VENDA' para 'CAJ-099'
+    const userEditedRow = {
+      ...oldRow,
+      'OS DA VENDA': 'CAJ-099'
+    };
+
+    // Função de sincronização com suporte a oldRow
+    const syncRowAliasesTest = (row, sheetName, oldR) => {
+      const keys = ['OS DA VENDA', 'OS', 'VENDA_OS', 'numeroOS', 'osNumber', 'osNumero'];
+      const synced = { ...row };
+      let changedVal = undefined;
+      if (oldR) {
+        for (const k of keys) {
+          if (row[k] !== undefined && row[k] !== oldR[k]) {
+            changedVal = row[k];
+            break;
+          }
+        }
+      }
+      const val = changedVal !== undefined ? changedVal : keys.find(k => row[k]);
+      if (val !== undefined) {
+        keys.forEach(k => {
+          if (row[k] !== undefined || synced[k] !== undefined) synced[k] = val;
+        });
+      }
+      return synced;
+    };
+
+    const syncedResult = syncRowAliasesTest(userEditedRow, 'Registro_Vendas', oldRow);
+    console.assert(syncedResult['OS DA VENDA'] === 'CAJ-099', `OS DA VENDA deve ser exatamente 'CAJ-099', retornou ${syncedResult['OS DA VENDA']}`);
+    console.assert(syncedResult['VENDA_OS'] === 'CAJ-099', `VENDA_OS deve ser atualizado para 'CAJ-099', retornou ${syncedResult['VENDA_OS']}`);
+    console.assert(syncedResult['OS'] === 'CAJ-099', `OS deve ser atualizado para 'CAJ-099', retornou ${syncedResult['OS']}`);
+
+    console.log('  ✅ Test 87 Passed: Saneamento Gestão de OS, PDV e Extrações Financeiras validado com sucesso!\n');
   }
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');

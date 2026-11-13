@@ -500,23 +500,36 @@ function App() {
   };
 
   // 🛡️ Sincronização Simétrica Obrigatória de Aliases (AGENTS.md)
-  const syncRowAliases = (row, sheetName) => {
+  const syncRowAliases = (row, sheetName, oldRow) => {
     if (!row || typeof row !== 'object') return row;
     const synced = { ...row };
 
     // 1. Sincronização Canônica Universal
     if (Array.isArray(CANONICAL_ALIASES)) {
       CANONICAL_ALIASES.forEach(group => {
-        let val = undefined;
-        for (const key of group.keys) {
-          if (row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== '') {
-            val = row[key];
-            break;
+        // Se houver oldRow, prioriza o campo especificamente editado pelo usuário para que aliases legados não sobrescrevam a edição
+        let changedVal = undefined;
+        if (oldRow && typeof oldRow === 'object') {
+          for (const key of group.keys) {
+            if (row[key] !== undefined && row[key] !== oldRow[key]) {
+              changedVal = row[key];
+              break;
+            }
+          }
+        }
+
+        let val = changedVal;
+        if (val === undefined) {
+          for (const key of group.keys) {
+            if (row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== '') {
+              val = row[key];
+              break;
+            }
           }
         }
         if (val !== undefined) {
           group.keys.forEach(k => {
-            if (row[k] !== undefined || synced[k] !== undefined) {
+            if (row[k] !== undefined || synced[k] !== undefined || (oldRow && oldRow[k] !== undefined)) {
               synced[k] = val;
             }
           });
@@ -922,7 +935,7 @@ function App() {
   };
 
   const handleRowUpdate = async (sheetName, oldRow, newRow) => {
-    const syncedNewRow = syncRowAliases(newRow, sheetName);
+    const syncedNewRow = syncRowAliases(newRow, sheetName, oldRow);
     const oldKey = getItemKey(oldRow);
     const rowId = oldRow?.id || syncedNewRow?.id || oldRow?.['id'] || syncedNewRow?.['id'] || (oldKey ? `row_${oldKey.replace(/[^a-zA-Z0-9_-]/g, '_')}` : `row_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`);
     const mergedNewRow = {

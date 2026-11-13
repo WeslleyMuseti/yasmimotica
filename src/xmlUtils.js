@@ -101,6 +101,15 @@ export const buildSalesHistoryXml = (salesRows = [], options = {}) => {
     periodo = 'Geral'
   } = options;
 
+  // 🛡️ Filtra registros nulos, vazios ou resquícios legados sem cliente/OS/valor
+  const cleanSales = (salesRows || []).filter(sale => {
+    if (!sale || typeof sale !== 'object') return false;
+    const client = String(sale['CLIENTE'] || sale['Nome Completo'] || sale.cliente || sale['NOME'] || '').trim();
+    const os = String(sale['OS DA VENDA'] || sale['OS'] || sale['VENDA_OS'] || sale.osNumero || '').trim();
+    const total = typeof sale['TOTAL VENDA'] === 'number' ? sale['TOTAL VENDA'] : (parseFloat(String(sale['VALOR TOTAL'] || sale['TOTAL VENDA'] || sale.valorTotal || 0).replace(/\./g, '').replace(',', '.')) || 0);
+    return Boolean(client || (os && os !== '—') || total > 0);
+  });
+
   const metadata = {
     sistema: 'Yasmin Ótica ERP & PDV',
     tipo: 'Histórico de Vendas e Ordens de Serviço',
@@ -108,10 +117,15 @@ export const buildSalesHistoryXml = (salesRows = [], options = {}) => {
     loja: loja,
     vendedor: vendedor,
     periodo: periodo,
-    total_vendas: salesRows.length
+    total_vendas: cleanSales.length
   };
 
-  const formattedRows = salesRows.map((sale, idx) => {
+  const formattedRows = cleanSales.map((sale, idx) => {
+    let unit = sale['UNIDADE'] || sale['CIDADE'] || sale.unidade || 'Central';
+    if (unit.toUpperCase() === 'CAJATI') unit = 'Cajati';
+    else if (unit.toUpperCase() === 'REGISTRO') unit = 'Registro';
+    else if (unit.toUpperCase() === 'JACUPIRANGA') unit = 'Jacupiranga';
+
     return {
       numero: idx + 1,
       id_venda: sale.id || '',
@@ -120,7 +134,7 @@ export const buildSalesHistoryXml = (salesRows = [], options = {}) => {
       cliente_cpf: sale['CPF'] || sale['CPF / CNPJ'] || '',
       data_venda: sale['DATA  DA VENDA'] || sale['DATA DA VENDA'] || sale['DATA_VENDA'] || sale['Data da Venda'] || sale['data_venda'] || sale.dataVenda || sale['DATA'] || sale['Data'] || sale.dataHora || '',
       vendedor: sale['VENDEDOR'] || sale.vendedor || '',
-      loja_unidade: sale['UNIDADE'] || sale['CIDADE'] || sale.unidade || 'Central',
+      loja_unidade: unit,
       valor_total: sale['TOTAL VENDA'] || sale['VALOR TOTAL'] || sale.valorTotal || '0,00',
       valor_entrada: sale['VALOR ENTRADA'] || sale.valorEntrada || '0,00',
       saldo_restante: sale['RESTANTE'] || sale.restante || '0,00',
@@ -146,6 +160,8 @@ export const buildCashHistoryXml = (movements = [], options = {}) => {
     periodo = 'Geral'
   } = options;
 
+  const cleanMovements = (movements || []).filter(m => m && typeof m === 'object');
+
   const metadata = {
     sistema: 'Yasmin Ótica ERP & PDV',
     tipo: 'Histórico e Movimentações de Caixa',
@@ -153,15 +169,20 @@ export const buildCashHistoryXml = (movements = [], options = {}) => {
     loja: loja,
     operador: operador,
     periodo: periodo,
-    total_movimentacoes: movements.length
+    total_movimentacoes: cleanMovements.length
   };
 
-  const formattedRows = movements.map((mov, idx) => {
+  const formattedRows = cleanMovements.map((mov, idx) => {
+    let unit = mov.unidade || mov.CIDADE || 'Central';
+    if (unit.toUpperCase() === 'CAJATI') unit = 'Cajati';
+    else if (unit.toUpperCase() === 'REGISTRO') unit = 'Registro';
+    else if (unit.toUpperCase() === 'JACUPIRANGA') unit = 'Jacupiranga';
+
     return {
       numero: idx + 1,
       id_movimento: mov.id || '',
       data_hora: mov.dataHora || mov.DATA || '',
-      unidade: mov.unidade || mov.CIDADE || 'Central',
+      unidade: unit,
       operador: mov.operador || mov.VENDEDOR || '',
       tipo_operacao: mov.tipo || '',
       valor: mov.valor || 0,
@@ -239,9 +260,31 @@ export const buildFinancialSummaryXml = (receberRows = [], pagarRows = [], fluxo
     periodo = 'Geral'
   } = options;
 
+  // 🛡️ Filtra registros nulos, vazios ou duplicatas fantasmas sem cliente/fornecedor
+  const cleanReceber = (receberRows || []).filter(r => {
+    if (!r || typeof r !== 'object') return false;
+    const client = String(r.CLIENTE || r.cliente || r['Nome Completo'] || r.NOME || '').trim();
+    const v = typeof r.VALOR === 'number' ? r.VALOR : parseFloat(String(r.VALOR || r.valor || 0).replace(/\./g, '').replace(',', '.')) || 0;
+    return Boolean(client && client !== '---' && client !== 'undefined' && client !== 'null' && v >= 0);
+  });
+
+  const cleanPagar = (pagarRows || []).filter(p => {
+    if (!p || typeof p !== 'object') return false;
+    const desc = String(p.DESCRICAO || p.FORNECEDOR || p.descricao || p.fornecedor || p.FAVORECIDO || p.CATEGORIA || '').trim();
+    const v = typeof p.VALOR === 'number' ? p.VALOR : parseFloat(String(p.VALOR || p.valor || 0).replace(/\./g, '').replace(',', '.')) || 0;
+    return Boolean(desc || v > 0);
+  });
+
+  const cleanFluxo = (fluxoRows || []).filter(m => {
+    if (!m || typeof m !== 'object') return false;
+    const tipo = String(m.tipo || m.TIPO || '').trim();
+    const v = typeof m.valor === 'number' ? m.valor : parseFloat(String(m.valor || 0).replace(/\./g, '').replace(',', '.')) || 0;
+    return Boolean(tipo || v > 0);
+  });
+
   let totalReceberPendente = 0;
   let totalReceberPago = 0;
-  (receberRows || []).forEach(r => {
+  cleanReceber.forEach(r => {
     const v = typeof r.VALOR === 'number' ? r.VALOR : parseFloat(String(r.VALOR || r.valor || 0).replace(/\./g, '').replace(',', '.')) || 0;
     const st = String(r.STATUS || r.status || '').toLowerCase();
     if (st.includes('pago') || st.includes('recebido')) {
@@ -253,7 +296,7 @@ export const buildFinancialSummaryXml = (receberRows = [], pagarRows = [], fluxo
 
   let totalPagarPendente = 0;
   let totalPagarPago = 0;
-  (pagarRows || []).forEach(p => {
+  cleanPagar.forEach(p => {
     const v = typeof p.VALOR === 'number' ? p.VALOR : parseFloat(String(p.VALOR || p.valor || 0).replace(/\./g, '').replace(',', '.')) || 0;
     const st = String(p.STATUS || p.status || '').toLowerCase();
     if (st.includes('pago') || st.includes('liquidado')) {
@@ -269,16 +312,16 @@ export const buildFinancialSummaryXml = (receberRows = [], pagarRows = [], fluxo
     gerado_em: new Date().toISOString(),
     unidade: unidade,
     periodo: periodo,
-    total_duplicatas_receber: (receberRows || []).length,
-    total_contas_pagar: (pagarRows || []).length,
-    total_movimentacoes_caixa: (fluxoRows || []).length,
+    total_duplicatas_receber: cleanReceber.length,
+    total_contas_pagar: cleanPagar.length,
+    total_movimentacoes_caixa: cleanFluxo.length,
     total_receber_pendente: totalReceberPendente.toFixed(2),
     total_receber_pago: totalReceberPago.toFixed(2),
     total_pagar_pendente: totalPagarPendente.toFixed(2),
     total_pagar_pago: totalPagarPago.toFixed(2)
   };
 
-  const formattedReceber = (receberRows || []).map((r, idx) => ({
+  const formattedReceber = cleanReceber.map((r, idx) => ({
     numero: idx + 1,
     id_duplicata: r.id || '',
     cliente_nome: r.CLIENTE || r.cliente || r['Nome Completo'] || '',
@@ -292,7 +335,7 @@ export const buildFinancialSummaryXml = (receberRows = [], pagarRows = [], fluxo
     loja_unidade: r.UNIDADE || r.CIDADE || r.unidade || 'Central'
   }));
 
-  const formattedPagar = (pagarRows || []).map((p, idx) => ({
+  const formattedPagar = cleanPagar.map((p, idx) => ({
     numero: idx + 1,
     id_conta: p.id || '',
     descricao_fornecedor: p.DESCRICAO || p.FORNECEDOR || p.descricao || p.fornecedor || '',
@@ -304,7 +347,7 @@ export const buildFinancialSummaryXml = (receberRows = [], pagarRows = [], fluxo
     loja_unidade: p.UNIDADE || p.CIDADE || p.unidade || 'Central'
   }));
 
-  const formattedFluxo = (fluxoRows || []).map((m, idx) => ({
+  const formattedFluxo = cleanFluxo.map((m, idx) => ({
     numero: idx + 1,
     id_movimento: m.id || '',
     data_hora: m.dataHora || m.DATA || '',

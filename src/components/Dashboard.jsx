@@ -875,14 +875,22 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
 
   // Exportação do Histórico de Vendas em formato nativo Excel (.xlsx) compatível com Excel Online
   const handleExportSalesExcel = () => {
-    if (!vendasRows || vendasRows.length === 0) {
+    const cleanVendas = (vendasRows || []).filter(v => {
+      if (!v || typeof v !== 'object') return false;
+      const client = String(v['CLIENTE'] || v['Nome Completo'] || v.cliente || v['NOME'] || v['NOME DO CLIENTE'] || '').trim();
+      const os = String(v['OS DA VENDA'] || v['OS'] || v['VENDA_OS'] || v.osNumero || '').trim();
+      const tot = cleanVal(v['VALOR TOTAL'] || v['VALOR DO ORÇAMENTO'] || v['VALOR DA VENDA'] || v.VALOR || 0);
+      return Boolean(client || (os && os !== '—') || tot > 0);
+    });
+
+    if (cleanVendas.length === 0) {
       alert('Nenhuma venda encontrada para exportar.');
       return;
     }
     const todayStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
     const filename = `Historico_Vendas_${selectedCity}_${todayStr}.xlsx`;
 
-    const formattedRows = vendasRows.map((v, i) => ({
+    const formattedRows = cleanVendas.map((v, i) => ({
       'Nº': i + 1,
       'Data da Venda': v['DATA DA VENDA'] || v['DATA  DA VENDA'] || v['DATA_VENDA'] || v.dataHora || v.DATA || '',
       'OS da Venda': v['OS DA VENDA'] || v.OS || v.osNumero || '',
@@ -920,12 +928,20 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
 
   // Exportação do Histórico de Vendas em formato XML estruturado
   const handleExportSalesXML = () => {
-    if (!vendasRows || vendasRows.length === 0) {
+    const cleanVendas = (vendasRows || []).filter(v => {
+      if (!v || typeof v !== 'object') return false;
+      const client = String(v['CLIENTE'] || v['Nome Completo'] || v.cliente || v['NOME'] || v['NOME DO CLIENTE'] || '').trim();
+      const os = String(v['OS DA VENDA'] || v['OS'] || v['VENDA_OS'] || v.osNumero || '').trim();
+      const tot = cleanVal(v['VALOR TOTAL'] || v['VALOR DO ORÇAMENTO'] || v['VALOR DA VENDA'] || v.VALOR || 0);
+      return Boolean(client || (os && os !== '—') || tot > 0);
+    });
+
+    if (cleanVendas.length === 0) {
       alert('Nenhuma venda encontrada para exportar.');
       return;
     }
     const todayStr = new Date().toISOString().slice(0, 10);
-    const xmlContent = buildSalesHistoryXml(vendasRows, {
+    const xmlContent = buildSalesHistoryXml(cleanVendas, {
       loja: selectedCity,
       periodo: 'Histórico Completo'
     });

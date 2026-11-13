@@ -401,19 +401,29 @@ const OSManagement = ({
     const rawSale = editingOrder.raw || editingOrder;
     const sheetName = data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING';
 
-    // 1. Limpeza de duplicatas pendentes em CONTAS_RECEBER vinculadas a esta OS para reconfirmação limpa
+    // 1. Sincronização segura de duplicatas em CONTAS_RECEBER vinculadas a esta OS
     const oldOSNum = String(editingOrder.osNumber || rawSale['OS DA VENDA'] || rawSale['OS'] || rawSale['VENDA_OS'] || '').trim();
+    const newOSNum = String(finalizedRow['OS DA VENDA'] || finalizedRow['OS'] || finalizedRow.numeroOS || '').trim();
     const receberList = data?.['CONTAS_RECEBER'] || [];
-    if (oldOSNum && oldOSNum !== '—' && Array.isArray(receberList) && receberList.length > 0 && onDeleteRow) {
+
+    // Se o número da OS foi alterado, propaga o novo número para todas as duplicatas existentes para não perder a dívida real
+    if (oldOSNum && newOSNum && oldOSNum !== '—' && oldOSNum.toLowerCase() !== newOSNum.toLowerCase() && Array.isArray(receberList) && onUpdateRow) {
       const targetOS = oldOSNum.toLowerCase();
-      const pendingInvoices = receberList.filter(inv => {
-        return isMatchingOS(inv, targetOS) && inv.STATUS !== 'Recebido' && inv.STATUS !== 'Pago';
-      });
-      for (const inv of pendingInvoices) {
+      const linkedInvoices = receberList.filter(inv => isMatchingOS(inv, targetOS));
+      for (const inv of linkedInvoices) {
         try {
-          await onDeleteRow('CONTAS_RECEBER', inv);
-        } catch (delErr) {
-          console.warn('Aviso ao remover duplicata pendente da OS antiga:', delErr);
+          const updatedInv = {
+            ...inv,
+            OS: newOSNum,
+            'OS DA VENDA': newOSNum,
+            VENDA_OS: newOSNum,
+            osNumero: newOSNum,
+            DESCRICAO: String(inv.DESCRICAO || '').replace(new RegExp(oldOSNum, 'gi'), newOSNum),
+            DOCUMENTO: String(inv.DOCUMENTO || '').replace(new RegExp(oldOSNum, 'gi'), newOSNum)
+          };
+          await onUpdateRow('CONTAS_RECEBER', inv, updatedInv);
+        } catch (updateErr) {
+          console.warn('Aviso ao sincronizar novo número de OS no Contas a Receber:', updateErr);
         }
       }
     }

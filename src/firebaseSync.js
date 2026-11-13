@@ -1304,9 +1304,9 @@ export const isSameClient = (clientA, clientB) => {
   const idA = extractClientId(clientA);
   const idB = extractClientId(clientB);
 
-  // 1. Se AMBOS possuem ID de cliente identificado e idêntico:
-  if (idA && idB && idA.toLowerCase() === idB.toLowerCase()) {
-    return true;
+  // 1. Se AMBOS possuem ID de cliente identificado:
+  if (idA && idB) {
+    return idA.toLowerCase() === idB.toLowerCase();
   }
 
   // 2. Compara por CPF/CNPJ único (mínimo 7 dígitos)

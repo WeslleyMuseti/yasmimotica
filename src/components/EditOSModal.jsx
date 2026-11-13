@@ -272,7 +272,7 @@ const EditOSModal = ({
 
       setFormData({
         numeroOS: numOS,
-        status: 'Aguardando Confirmação',
+        status: osData['STATUS_OS'] || osData['SITUAÇÃO'] || 'No Laboratório',
         pacienteNome: rawPaciente,
         armacao: osData['ARMAÇÃO'] || osData['Armação'] || osData['PRODUTO'] || '',
         lente: osData['LENTE'] || osData['Lente'] || '',
@@ -665,11 +665,11 @@ const EditOSModal = ({
       'osNumero': finalNumeroOS,
       'os': finalNumeroOS,
       'allLinkedOS': updatedLinkedOS,
-      // Reconfirmação Obrigatória do Financeiro (Semáforo Azul)
-      'STATUS_OS': 'Aguardando Confirmação',
-      'SITUAÇÃO': 'Aguardando Confirmação',
-      'PAGAMENTO_CONFERIDO': 'Não',
-      'DUPLICATAS_GERADAS': osData.isSecondaryOS ? true : false,
+      // Preserva o status e conferência existentes para não invalidar boletos e duplicatas ativas
+      'STATUS_OS': osData['STATUS_OS'] || osData['SITUAÇÃO'] || 'No Laboratório',
+      'SITUAÇÃO': osData['SITUAÇÃO'] || osData['STATUS_OS'] || 'No Laboratório',
+      'PAGAMENTO_CONFERIDO': osData['PAGAMENTO_CONFERIDO'] ?? 'Sim',
+      'DUPLICATAS_GERADAS': osData['DUPLICATAS_GERADAS'] !== undefined ? osData['DUPLICATAS_GERADAS'] : true,
       'isSecondaryOS': Boolean(osData.isSecondaryOS),
       'isMultiOS': Boolean(osData.isMultiOS),
       'saleId': osData.saleId || osData.parentSaleId || '',
