@@ -44,7 +44,8 @@ const COLLECTIONS = [
   'USUARIOS',
   'FLUXO_CAIXA',
   'TRANSFERENCIAS_ESTOQUE',
-  'VOUCHERS'
+  'VOUCHERS',
+  'COMUNICADOS_SISTEMA'
 ];
 
 // ──────────────────────────────────────────────────────────────────

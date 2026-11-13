@@ -54,6 +54,19 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // 6. Comunicados e Transmissões em Tempo Real (Broadcast Central)
+    match /COMUNICADOS_SISTEMA/{msgId} {
+      allow read, write: if true;
+    }
+
+    // 7. Catálogo de Acessórios e Metadados do Manifesto
+    match /CAD_ACESSORIOS/{itemId} {
+      allow read, write: if true;
+    }
+    match /_METADATA/{metaId} {
+      allow read, write: if true;
+    }
+
     // Bloqueia qualquer outro documento não especificado por padrão
     match /{document=**} {
       allow read, write: if false;

@@ -12,7 +12,8 @@ import {
   MapPin, 
   KeyRound,
   Eye,
-  ChevronRight
+  ChevronRight,
+  Megaphone
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -24,7 +25,10 @@ const NavigationDrawer = ({
   currentUser,
   onLogout,
   isConfigured,
-  onOpenChangePassword
+  onOpenChangePassword,
+  onOpenAdminBroadcast,
+  onOpenBroadcastHistory,
+  unreadBroadcastCount = 0
 }) => {
   // Fecha com a tecla ESC
   useEffect(() => {
@@ -115,6 +119,30 @@ const NavigationDrawer = ({
           textColor: 'text-indigo-400',
           bgActive: 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white font-black shadow-lg shadow-indigo-500/25',
           visible: isAdmin
+        }
+      ]
+    },
+    {
+      title: 'Comunicação ao Vivo',
+      items: [
+        {
+          id: 'broadcast-action',
+          label: isAdmin ? 'Transmitir Comunicado' : 'Mural de Avisos',
+          description: isAdmin ? 'Aparece no meio da tela de todos os terminais' : 'Ver comunicados enviados pela Diretoria',
+          icon: Megaphone,
+          color: 'purple',
+          gradient: 'from-purple-500 to-pink-600',
+          textColor: 'text-purple-400',
+          bgActive: 'bg-gradient-to-r from-purple-500 to-pink-600 text-white font-black shadow-lg shadow-purple-500/25',
+          visible: true,
+          badge: unreadBroadcastCount > 0 ? unreadBroadcastCount : null,
+          onClick: () => {
+            if (isAdmin && onOpenAdminBroadcast) {
+              onOpenAdminBroadcast();
+            } else if (onOpenBroadcastHistory) {
+              onOpenBroadcastHistory();
+            }
+          }
         }
       ]
     },
@@ -264,7 +292,11 @@ const NavigationDrawer = ({
                           <button
                             key={item.id}
                             onClick={() => {
-                              onNavigate(item.id);
+                              if (item.onClick) {
+                                item.onClick();
+                              } else {
+                                onNavigate(item.id);
+                              }
                               onClose();
                             }}
                             className={`w-full group flex items-center justify-between p-3 rounded-2xl transition-all text-left ${
@@ -295,9 +327,16 @@ const NavigationDrawer = ({
                               </div>
                             </div>
 
-                            <ChevronRight size={14} className={`shrink-0 transition-transform ${
-                              isActive ? 'translate-x-0.5' : 'text-slate-600 group-hover:text-slate-400 group-hover:translate-x-0.5'
-                            }`} />
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {item.badge && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse shadow">
+                                  {item.badge}
+                                </span>
+                              )}
+                              <ChevronRight size={14} className={`transition-transform ${
+                                isActive ? 'translate-x-0.5' : 'text-slate-600 group-hover:text-slate-400 group-hover:translate-x-0.5'
+                              }`} />
+                            </div>
                           </button>
                         );
                       })}

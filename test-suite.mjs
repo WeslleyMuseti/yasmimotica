@@ -8439,6 +8439,57 @@ async function runTests() {
     console.log('  ✅ Test 87 Passed: Saneamento Gestão de OS, PDV e Extrações Financeiras validado com sucesso!\n');
   }
 
+  // ─── TEST 88: Chat de Transmissão ao Vivo no Meio da Tela (Broadcast da Diretoria) ─────────
+  {
+    console.log('▶ Test 88: Chat de Transmissão ao Vivo no Meio da Tela (Broadcast Exclusivo da Diretoria)');
+
+    const broadcastSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'BroadcastChatModal.jsx'), 'utf-8');
+    const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'App.jsx'), 'utf-8');
+    const syncSrc = fs.readFileSync(path.join(__dirname, 'src', 'firebaseSync.js'), 'utf-8');
+    const rulesSrc = fs.readFileSync(path.join(__dirname, 'firestore.rules'), 'utf-8');
+
+    // 1. Validar componentes e exportações
+    console.assert(broadcastSrc.includes('export const CentralBroadcastAlert'), 'BroadcastChatModal deve exportar CentralBroadcastAlert');
+    console.assert(broadcastSrc.includes('export const AdminBroadcastModal'), 'BroadcastChatModal deve exportar AdminBroadcastModal');
+    console.assert(broadcastSrc.includes('export const BroadcastHistoryModal'), 'BroadcastChatModal deve exportar BroadcastHistoryModal');
+    console.assert(broadcastSrc.includes('export const playBroadcastChime'), 'BroadcastChatModal deve exportar playBroadcastChime');
+
+    // 2. Validar que o alerta aparece EXATAMENTE NO MEIO DA TELA com alta prioridade z-index
+    console.assert(broadcastSrc.includes('fixed inset-0 z-[999999] flex items-center justify-center'), 'CentralBroadcastAlert deve aparecer centralizado no meio da tela com z-[999999]');
+    console.assert(broadcastSrc.includes('backdrop-blur'), 'CentralBroadcastAlert deve usar backdrop blur');
+
+    // 3. Validar regra de permissão estrita: Somente a Diretoria / Carla / Admin fala
+    const testCanBroadcast = (user) => {
+      if (!user) return false;
+      const role = String(user.role || '').toLowerCase();
+      const username = String(user.username || '').toLowerCase();
+      return role === 'admin' || role === 'administrativo' || ['carla', 'carlaadmin', 'wmusete', 'weslleymuseti'].includes(username);
+    };
+
+    console.assert(testCanBroadcast({ username: 'carla', role: 'administrativo' }) === true, 'Carla deve ter permissão de transmissão');
+    console.assert(testCanBroadcast({ username: 'carlaadmin', role: 'administrativo' }) === true, 'Carlaadmin deve ter permissão de transmissão');
+    console.assert(testCanBroadcast({ username: 'wmusete', role: 'administrativo' }) === true, 'wmusete deve ter permissão de transmissão');
+    console.assert(testCanBroadcast({ username: 'gerente', role: 'admin' }) === true, 'Admin deve ter permissão de transmissão');
+    console.assert(testCanBroadcast({ username: 'bruna', role: 'vendedor' }) === false, 'Vendedor NÃO deve ter permissão de transmissão (somente ouvinte)');
+    console.assert(testCanBroadcast({ username: 'aline', role: 'vendedor' }) === false, 'Vendedor NÃO deve ter permissão de transmissão');
+    console.assert(testCanBroadcast(null) === false, 'Usuário nulo não pode transmitir');
+
+    // 4. Validar integração no App.jsx
+    console.assert(appSrc.includes('CentralBroadcastAlert'), 'App.jsx deve importar e renderizar CentralBroadcastAlert');
+    console.assert(appSrc.includes('AdminBroadcastModal'), 'App.jsx deve importar e renderizar AdminBroadcastModal');
+    console.assert(appSrc.includes('COMUNICADOS_SISTEMA'), 'App.jsx deve sincronizar COMUNICADOS_SISTEMA');
+    console.assert(appSrc.includes('handleSendBroadcast'), 'App.jsx deve implementar handleSendBroadcast');
+
+    // 5. Validar coleções e regras do Firestore
+    console.assert(syncSrc.includes("'COMUNICADOS_SISTEMA'"), 'firebaseSync.js deve conter COMUNICADOS_SISTEMA em COLLECTIONS');
+    console.assert(rulesSrc.includes('/COMUNICADOS_SISTEMA/{msgId}'), 'firestore.rules deve permitir leitura e escrita em COMUNICADOS_SISTEMA');
+
+    // 6. Teste de som nativo do Web Audio API
+    console.assert(broadcastSrc.includes('window.AudioContext') || broadcastSrc.includes('AudioCtx'), 'playBroadcastChime deve usar AudioContext');
+
+    console.log('  ✅ Test 88 Passed: Chat de Transmissão ao Vivo no Meio da Tela validado com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

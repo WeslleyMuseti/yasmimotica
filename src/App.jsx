@@ -12,12 +12,18 @@ import ErpOptica from './components/ErpOptica';
 import OSManagement from './components/OSManagement';
 import POSRegister from './components/POSRegister';
 import LoadingScreen from './components/LoadingScreen';
-import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package, UserCog, ClipboardList, LogOut, ShoppingCart, Menu, Wifi, WifiOff, KeyRound, Building } from 'lucide-react';
+import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package, UserCog, ClipboardList, LogOut, ShoppingCart, Menu, Wifi, WifiOff, KeyRound, Building, Megaphone, Bell } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import FirebaseSetupScreen from './components/FirebaseSetupScreen';
 import NavigationDrawer from './components/NavigationDrawer';
 import ChangePasswordModal from './components/ChangePasswordModal';
+import { 
+  CentralBroadcastAlert, 
+  AdminBroadcastModal, 
+  BroadcastHistoryModal 
+} from './components/BroadcastChatModal';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { isConfigured, db } from './firebase';
 import { 
   subscribeToCollections, 
@@ -176,7 +182,8 @@ function App() {
       'CONTAS_PAGAR': [],
       'CONTAS_RECEBER': [],
       'VOUCHERS': JSON.parse(localStorage.getItem('YASMIN_VOUCHERS') || '[]'),
-      'FLUXO_CAIXA': JSON.parse(localStorage.getItem('YASMIN_FLUXO_CAIXA') || '[]')
+      'FLUXO_CAIXA': JSON.parse(localStorage.getItem('YASMIN_FLUXO_CAIXA') || '[]'),
+      'COMUNICADOS_SISTEMA': []
     };
     try {
       const backup = loadOfflineSnapshot();
@@ -192,7 +199,8 @@ function App() {
           'CONTAS_PAGAR': backup['CONTAS_PAGAR'] || [],
           'CONTAS_RECEBER': backup['CONTAS_RECEBER'] || [],
           'VOUCHERS': backup['VOUCHERS'] || JSON.parse(localStorage.getItem('YASMIN_VOUCHERS') || '[]'),
-          'FLUXO_CAIXA': backup['FLUXO_CAIXA'] || JSON.parse(localStorage.getItem('YASMIN_FLUXO_CAIXA') || '[]')
+          'FLUXO_CAIXA': backup['FLUXO_CAIXA'] || JSON.parse(localStorage.getItem('YASMIN_FLUXO_CAIXA') || '[]'),
+          'COMUNICADOS_SISTEMA': backup['COMUNICADOS_SISTEMA'] || []
         };
       }
     } catch {}
@@ -202,6 +210,28 @@ function App() {
   const [view, setView] = useState('login'); // login, loading, dashboard, syncing, clients, erp, admin
   const [currentUser, setCurrentUser] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  // 📢 Estados de Transmissão ao Vivo e Mural de Comunicados no Centro da Tela
+  const [activeCenterBroadcast, setActiveCenterBroadcast] = useState(null);
+  const [isAdminBroadcastOpen, setIsAdminBroadcastOpen] = useState(false);
+  const [isBroadcastHistoryOpen, setIsBroadcastHistoryOpen] = useState(false);
+
+  // Permissão estrita: Somente a Diretoria / Carla / Administrador fala no broadcast
+  const canBroadcast = useMemo(() => {
+    if (!currentUser) return false;
+    const role = String(currentUser.role || '').toLowerCase();
+    const username = String(currentUser.username || '').toLowerCase();
+    return role === 'admin' || role === 'administrativo' || ['carla', 'carlaadmin', 'wmusete', 'weslleymuseti'].includes(username);
+  }, [currentUser]);
+
+  const unreadBroadcastCount = useMemo(() => {
+    const list = (data?.['COMUNICADOS_SISTEMA'] || []).filter(m => m.ativo !== false);
+    let seen = [];
+    try {
+      seen = JSON.parse(localStorage.getItem('YASMIN_SEEN_BROADCASTS') || '[]');
+    } catch (e) {}
+    return list.filter(m => !seen.includes(m.id)).length;
+  }, [data?.['COMUNICADOS_SISTEMA']]);
   const [users, setUsers] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('users'));
@@ -856,6 +886,98 @@ function App() {
     return () => unsubscribe();
   }, [currentUser?.username, currentUser?.role]);
 
+  // 📢 Sincronização em Tempo Real de Comunicados ao Vivo (Transmissão no Meio da Tela para Todos)
+  useEffect(() => {
+    if (!currentUser || !db || !isConfigured) return;
+
+    let unsub = null;
+    try {
+      const colRef = collection(db, 'COMUNICADOS_SISTEMA');
+      unsub = onSnapshot(colRef, (snap) => {
+        const list = [];
+        snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+        list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+        setData(prev => ({
+          ...prev,
+          'COMUNICADOS_SISTEMA': list
+        }));
+
+        const activeList = list.filter(m => m.ativo !== false);
+        if (activeList.length > 0) {
+          const latest = activeList[0];
+          let seen = [];
+          try {
+            seen = JSON.parse(localStorage.getItem('YASMIN_SEEN_BROADCASTS') || '[]');
+          } catch (e) {}
+
+          const isRecent = latest.timestamp && (Date.now() - latest.timestamp) < (24 * 60 * 60 * 1000);
+          if (!seen.includes(latest.id) && isRecent) {
+            setActiveCenterBroadcast(latest);
+          }
+        }
+      }, (err) => {
+        console.warn('[Broadcast] Aviso ao escutar comunicados:', err);
+      });
+    } catch (err) {
+      console.warn('[Broadcast] Erro ao iniciar listener:', err);
+    }
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [currentUser?.username, currentUser?.role]);
+
+  const handleSendBroadcast = async (payload) => {
+    await saveDocument('COMUNICADOS_SISTEMA', payload, payload.id);
+    try {
+      const seen = JSON.parse(localStorage.getItem('YASMIN_SEEN_BROADCASTS') || '[]');
+      if (!seen.includes(payload.id)) {
+        seen.push(payload.id);
+        localStorage.setItem('YASMIN_SEEN_BROADCASTS', JSON.stringify(seen));
+      }
+    } catch (e) {}
+    setActiveCenterBroadcast(payload);
+  };
+
+  const handleDeleteBroadcast = async (id) => {
+    if (deleteDocument) {
+      await deleteDocument('COMUNICADOS_SISTEMA', id);
+    }
+    if (activeCenterBroadcast?.id === id) {
+      setActiveCenterBroadcast(null);
+    }
+  };
+
+  const handleRebroadcast = async (item) => {
+    const now = new Date();
+    const updated = {
+      ...item,
+      timestamp: Date.now(),
+      dataHora: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    };
+    try {
+      let seen = JSON.parse(localStorage.getItem('YASMIN_SEEN_BROADCASTS') || '[]');
+      seen = seen.filter(i => i !== item.id);
+      localStorage.setItem('YASMIN_SEEN_BROADCASTS', JSON.stringify(seen));
+    } catch (e) {}
+    await saveDocument('COMUNICADOS_SISTEMA', updated, item.id);
+    setActiveCenterBroadcast(updated);
+  };
+
+  const handleDismissCenterBroadcast = () => {
+    if (activeCenterBroadcast?.id) {
+      try {
+        const seen = JSON.parse(localStorage.getItem('YASMIN_SEEN_BROADCASTS') || '[]');
+        if (!seen.includes(activeCenterBroadcast.id)) {
+          seen.push(activeCenterBroadcast.id);
+          localStorage.setItem('YASMIN_SEEN_BROADCASTS', JSON.stringify(seen));
+        }
+      } catch (e) {}
+    }
+    setActiveCenterBroadcast(null);
+  };
+
   const handleUpdateUserPassword = async (username, newHash) => {
     const cleanUser = String(username).toLowerCase().trim();
     const existing = (users || []).find(u => u.username?.toLowerCase().trim() === cleanUser);
@@ -919,6 +1041,9 @@ function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setActiveCenterBroadcast(null);
+    setIsAdminBroadcastOpen(false);
+    setIsBroadcastHistoryOpen(false);
     setData({
       'CLIENTES_CADASTRADOS': [],
       'Registro_Vendas': [],
@@ -928,7 +1053,8 @@ function App() {
       'CONTAS_PAGAR': [],
       'CONTAS_RECEBER': [],
       'VOUCHERS': [],
-      'FLUXO_CAIXA': []
+      'FLUXO_CAIXA': [],
+      'COMUNICADOS_SISTEMA': []
     });
     setIsDrawerOpen(false);
     setView('login');
@@ -1470,6 +1596,34 @@ function App() {
               </button>
             )}
 
+            {/* Botão de Transmissão ao Vivo (Visível somente para Administrador / Carla) */}
+            {canBroadcast && (
+              <button
+                type="button"
+                onClick={() => setIsAdminBroadcastOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-xs font-black bg-gradient-to-r from-purple-600 via-pink-600 to-rose-600 hover:from-purple-500 hover:to-pink-500 text-white border border-purple-400/40 transition-all shadow-md shadow-purple-600/30 active:scale-95 shrink-0 cursor-pointer"
+                title="Transmitir comunicado ao vivo que aparece no meio da tela de todos"
+              >
+                <Megaphone size={14} className="animate-pulse shrink-0" />
+                <span className="hidden md:inline">Transmitir Aviso</span>
+              </button>
+            )}
+
+            {/* Mural de Avisos da Diretoria (Para todos os usuários) */}
+            <button
+              type="button"
+              onClick={() => setIsBroadcastHistoryOpen(true)}
+              className="relative p-1.5 sm:p-2 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 rounded-xl transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer"
+              title="Mural de Avisos da Diretoria"
+            >
+              <Bell size={15} className="sm:w-4 sm:h-4" />
+              {unreadBroadcastCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center animate-bounce shadow">
+                  {unreadBroadcastCount}
+                </span>
+              )}
+            </button>
+
             {/* Chip do Usuário Logado (abre o menu lateral) */}
             <button
               onClick={() => setIsDrawerOpen(true)}
@@ -1602,6 +1756,9 @@ function App() {
         onLogout={handleLogout}
         isConfigured={isConfigured}
         onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+        onOpenAdminBroadcast={() => setIsAdminBroadcastOpen(true)}
+        onOpenBroadcastHistory={() => setIsBroadcastHistoryOpen(true)}
+        unreadBroadcastCount={unreadBroadcastCount}
       />
 
       {/* Modal Universal de Alteração de Senha */}
@@ -1741,6 +1898,38 @@ function App() {
         COLUMN_LABELS={COLUMN_LABELS}
         sheetName={addingRowData?.sheetName}
       />
+
+      {/* 🚨 MODAL CENTRAL: Aparece no MEIO DA TELA de todo mundo que estiver logado */}
+      {activeCenterBroadcast && (
+        <CentralBroadcastAlert
+          broadcast={activeCenterBroadcast}
+          onDismiss={handleDismissCenterBroadcast}
+        />
+      )}
+
+      {/* 👑 MODAL DE TRANSMISSÃO: Onde somente o Admin / Carla fala */}
+      {isAdminBroadcastOpen && (
+        <AdminBroadcastModal
+          isOpen={isAdminBroadcastOpen}
+          onClose={() => setIsAdminBroadcastOpen(false)}
+          currentUser={currentUser}
+          onSendBroadcast={handleSendBroadcast}
+          broadcastHistory={data?.['COMUNICADOS_SISTEMA'] || []}
+          onDeleteBroadcast={handleDeleteBroadcast}
+          onRebroadcast={handleRebroadcast}
+        />
+      )}
+
+      {/* 📜 MURAL DE AVISOS: Consulta de comunicados por qualquer usuário */}
+      {isBroadcastHistoryOpen && (
+        <BroadcastHistoryModal
+          isOpen={isBroadcastHistoryOpen}
+          onClose={() => setIsBroadcastHistoryOpen(false)}
+          broadcastHistory={data?.['COMUNICADOS_SISTEMA'] || []}
+          onOpenAdminBroadcast={() => setIsAdminBroadcastOpen(true)}
+          canBroadcast={canBroadcast}
+        />
+      )}
     </div>
   );
 }
