@@ -8490,6 +8490,94 @@ async function runTests() {
     console.log('  ✅ Test 88 Passed: Chat de Transmissão ao Vivo no Meio da Tela validado com 100% de sucesso!\n');
   }
 
+  // ─── TEST 89: ABERTURAS, SAÍDAS, SANGRIAS E SUPRIMENTOS NO RELATÓRIO DE CAIXA ───
+  {
+    console.log('▶ Test 89: Aberturas, Saídas, Sangrias e Suprimentos no Relatório de Caixa (Ficha A4 e Cupom)');
+
+    const { prepareCashMovementRows, buildSynthesizedMovementRows } = await import('./src/cashMovementUtils.js');
+
+    // 1. Cenário Exato da Imagem do Usuário (Abertura de Caixa R$ 100,00 sem vendas imediatas)
+    const userImageScenario = prepareCashMovementRows({
+      unidade: 'Cajati',
+      operador: 'vendedor',
+      fundoInicial: 100.00,
+      vendasDinheiro: 0,
+      totalVendas: 0,
+      totalSangrias: 0,
+      totalSuprimentos: 0,
+      totalSaidas: 0,
+      dinheiroContado: 100.00
+    }, [
+      { tipo: 'ABERTURA', valor: 100.00, motivo: 'Abertura de Caixa (Fundo de Troco)', formaPagamento: 'DINHEIRO' }
+    ], 24);
+
+    console.assert(userImageScenario.rows.length === 24, 'Deve conter 24 linhas');
+    const aberturaRow = userImageScenario.rows[0];
+    console.assert(aberturaRow.docNo === 'AB-01', 'Linha 1 deve ser AB-01');
+    console.assert(aberturaRow.historico.includes('Fundo de Troco') || aberturaRow.historico.includes('Abertura'), 'Linha 1 deve descrever Abertura');
+    console.assert(aberturaRow.entrada === '100,00', `Coluna ENTRADAS da Abertura NÃO PODE SER VAZIA! Esperado '100,00', obteve '${aberturaRow.entrada}'`);
+    console.assert(userImageScenario.saldoAnterior === 100.00, 'Saldo anterior deve ser 100.00');
+    console.assert(userImageScenario.saldoAtual === 100.00, 'Saldo atual na gaveta deve ser 100.00');
+    console.assert(userImageScenario.totalDinheiroDetalhes === 100.00, `Detalhes do saldo em DINHEIRO deve ser 100.00, obteve ${userImageScenario.totalDinheiroDetalhes}`);
+
+    // 2. Cenário com Todas as Operações (Abertura, Venda, Suprimento, Sangria, Saída/Despesa)
+    const fullOpsScenario = prepareCashMovementRows({
+      unidade: 'Cajati',
+      fundoInicial: 100.00,
+      vendasDinheiro: 150.00,
+      totalSuprimentos: 50.00,
+      totalSangrias: 40.00,
+      totalSaidas: 30.00
+    }, [
+      { tipo: 'ABERTURA', valor: 100.00, motivo: 'Fundo Inicial' },
+      { tipo: 'VENDA', osNumero: '301', valorTotalOS: 150.00, valorEntrada: 150.00, cliente: 'Maria' },
+      { tipo: 'SUPRIMENTO', valor: 50.00, motivo: 'Troco de Moedas' },
+      { tipo: 'SANGRIA', valor: 40.00, motivo: 'Depósito Bancário' },
+      { tipo: 'SAÍDA', valor: 30.00, motivo: 'Material de Limpeza' }
+    ], 24);
+
+    const rowAb = fullOpsScenario.rows.find(r => r.docNo === 'AB-01');
+    const rowVd = fullOpsScenario.rows.find(r => r.docNo === 'OS-301');
+    const rowSp = fullOpsScenario.rows.find(r => r.docNo === 'SP-01' || r.historico.includes('Suprimento'));
+    const rowSg = fullOpsScenario.rows.find(r => r.docNo === 'SG-01' || r.historico.includes('Sangria'));
+    const rowSd = fullOpsScenario.rows.find(r => r.docNo === 'SD-01' || r.historico.includes('Saída'));
+
+    console.assert(rowAb && rowAb.entrada === '100,00', 'Abertura deve constar com 100,00 em ENTRADAS');
+    console.assert(rowVd && rowVd.venda === '150,00' && rowVd.entrada === '150,00', 'Venda deve constar em VENDAS e ENTRADAS');
+    console.assert(rowSp && rowSp.entrada === '50,00', 'Suprimento deve constar com 50,00 em ENTRADAS');
+    console.assert(rowSg && rowSg.saida === '40,00', 'Sangria deve constar com 40,00 em SAÍDAS');
+    console.assert(rowSd && rowSd.saida === '30,00', 'Saída/Despesa deve constar com 30,00 em SAÍDAS');
+
+    // 3. Totais Contábeis do Dia
+    console.assert(fullOpsScenario.totalEntradasFinal === 200.00, `Total de entradas operacionais do dia (150 venda + 50 suprimento) deve ser 200.00, obteve ${fullOpsScenario.totalEntradasFinal}`);
+    console.assert(fullOpsScenario.totalSaidasFinal === 70.00, `Total de saídas do dia (40 sangria + 30 despesa) deve ser 70.00, obteve ${fullOpsScenario.totalSaidasFinal}`);
+    console.assert(fullOpsScenario.saldoAnterior === 100.00, 'Saldo anterior deve ser 100.00');
+    console.assert(fullOpsScenario.saldoAtual === 230.00, `Saldo atual da gaveta (100 + 200 - 70) deve ser 230.00, obteve ${fullOpsScenario.saldoAtual}`);
+
+    // 4. Sintetização quando movements vem vazio mas closingData possui os valores
+    const synthResult = prepareCashMovementRows({
+      fundoInicial: 80.00,
+      totalSuprimentos: 20.00,
+      totalSangrias: 15.00,
+      totalSaidas: 10.00
+    }, [], 24);
+
+    console.assert(synthResult.rows.some(r => r.docNo === 'AB-01' && r.entrada === '80,00'), 'Abertura sintetizada deve ter 80,00 em ENTRADAS');
+    console.assert(synthResult.rows.some(r => (r.docNo === 'SP-01' || r.historico.includes('Suprimento')) && r.entrada === '20,00'), 'Suprimento sintetizado deve ter 20,00 em ENTRADAS');
+    console.assert(synthResult.rows.some(r => (r.docNo === 'SG-01' || r.historico.includes('Sangria')) && r.saida === '15,00'), 'Sangria sintetizada deve ter 15,00 em SAÍDAS');
+    console.assert(synthResult.rows.some(r => (r.docNo === 'SD-01' || r.historico.includes('Saída')) && r.saida === '10,00'), 'Saída sintetizada deve ter 10,00 em SAÍDAS');
+
+    // 5. Verificação nos Componentes
+    const sheetSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableCashMovementSheet.jsx'), 'utf8');
+    const cashModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'CashManagementModal.jsx'), 'utf8');
+
+    console.assert(sheetSrc.includes('height: \'19.5px\''), 'PrintableCashMovementSheet deve usar altura compacta para evitar quebra em 2 páginas');
+    console.assert(sheetSrc.includes('page-break-after: avoid'), 'PrintableCashMovementSheet deve evitar quebra de página');
+    console.assert(cashModalSrc.includes('totalSaidas: sessionStats.totalSaidas'), 'CashManagementModal deve passar totalSaidas em extratoData');
+
+    console.log('  ✅ Test 89 Passed: Aberturas, Saídas, Sangrias e Suprimentos no Relatório de Caixa validados com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

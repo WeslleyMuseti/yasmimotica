@@ -94,7 +94,7 @@ export const PrintableCashMovementSheet = ({
       <style>{`
         @page {
           size: A4 portrait;
-          margin: 6mm 7mm 6mm 7mm;
+          margin: 5mm 6mm 5mm 6mm;
         }
         @media print {
           html, body {
@@ -122,6 +122,9 @@ export const PrintableCashMovementSheet = ({
             padding: 0 !important;
             display: block !important;
             z-index: 9999999 !important;
+            page-break-after: avoid !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
           .avoid-break {
             page-break-inside: avoid !important;
@@ -132,11 +135,14 @@ export const PrintableCashMovementSheet = ({
 
       {/* ─── MOLDURA EXTERNA DO FORMULÁRIO CONTÁBIL ─── */}
       <div
+        className="avoid-break"
         style={{
           border: '1.5px solid #000000',
           width: '100%',
           boxSizing: 'border-box',
-          backgroundColor: '#ffffff'
+          backgroundColor: '#ffffff',
+          pageBreakInside: 'avoid',
+          breakInside: 'avoid'
         }}
       >
         {/* ─── 1. CABEÇALHO SUPERIOR ─── */}
@@ -347,7 +353,7 @@ export const PrintableCashMovementSheet = ({
               <tr
                 key={idx}
                 style={{
-                  height: '21px',
+                  height: '19.5px',
                   borderBottom: '1px solid #000000',
                   backgroundColor: idx % 2 === 0 ? '#ffffff' : '#fafafa'
                 }}

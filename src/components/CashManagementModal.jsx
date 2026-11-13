@@ -291,9 +291,18 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
               {/* 3. Conferência da Gaveta Física (Espécie) */}
               <div className="border-b border-black pb-1 mb-1 space-y-0.5">
                 <p className="font-black text-[9px] uppercase tracking-wider text-gray-800">3. Conferência da Gaveta Física (Espécie):</p>
-                <div className="flex justify-between"><span>(+) Fundo Inicial:</span> <span>R$ {formatCurrency(data.fundoInicial)}</span></div>
-                <div className="flex justify-between"><span>(+) Entradas em Espécie:</span> <span>R$ {formatCurrency(data.totalEntradasEspecie || (parseCurrency(data.vendasDinheiro) + parseCurrency(data.totalRecebimentosDinheiro) + parseCurrency(data.totalSuprimentos)))}</span></div>
-                <div className="flex justify-between"><span>(-) Sangrias / Despesas:</span> <span>-R$ {formatCurrency(data.totalSangrias)}</span></div>
+                <div className="flex justify-between"><span>(+) Fundo Inicial (Abertura):</span> <span>R$ {formatCurrency(data.fundoInicial)}</span></div>
+                <div className="flex justify-between"><span>(+) Vendas em Espécie:</span> <span>R$ {formatCurrency(data.vendasDinheiro)}</span></div>
+                {parseCurrency(data.totalRecebimentosDinheiro) > 0 && (
+                  <div className="flex justify-between"><span>(+) Recebimento Carnê:</span> <span>R$ {formatCurrency(data.totalRecebimentosDinheiro)}</span></div>
+                )}
+                {parseCurrency(data.totalSuprimentos) > 0 && (
+                  <div className="flex justify-between text-sky-800"><span>(+) Suprimentos / Troco Extra:</span> <span>+R$ {formatCurrency(data.totalSuprimentos)}</span></div>
+                )}
+                <div className="flex justify-between"><span>(-) Sangrias de Caixa:</span> <span>-R$ {formatCurrency(data.totalSangrias)}</span></div>
+                {parseCurrency(data.totalSaidas) > 0 && (
+                  <div className="flex justify-between text-rose-800"><span>(-) Saídas / Despesas:</span> <span>-R$ {formatCurrency(data.totalSaidas)}</span></div>
+                )}
                 <div className="flex justify-between font-black text-[11px] border-t border-gray-400 pt-0.5 mt-0.5">
                   <span>GAVETA ATUAL:</span>
                   <span>R$ {formatCurrency(data.dinheiroEsperado)}</span>
@@ -918,8 +927,10 @@ const CashManagementModal = ({
       totalEntradasEspecie: sessionStats.totalEntradasEspecie,
       totalVendas: sessionStats.totalVendas,
       totalSangrias: sessionStats.totalSangrias,
+      totalSaidas: sessionStats.totalSaidas,
       totalSuprimentos: sessionStats.totalSuprimentos,
-      dinheiroEsperado: sessionStats.dinheiroEsperado
+      dinheiroEsperado: sessionStats.dinheiroEsperado,
+      movements: sessionStats.movimentacoesCombinadas || sessionStats.listaMovimentos
     };
 
     setPdfReportData(null);

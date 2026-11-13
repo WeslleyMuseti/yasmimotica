@@ -63,7 +63,7 @@ export const buildSynthesizedMovementRows = (closingData = {}) => {
       docNo: 'AB-01',
       valor: fundoInicial,
       formaPagamento: 'DINHEIRO',
-      motivo: 'Abertura de Caixa (Fundo de Troco)',
+      motivo: 'Fundo de Troco / Abertura de Caixa',
       cliente: 'Fundo de Troco Inicial'
     });
   }
@@ -193,6 +193,19 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
       }
     }
 
+    // Se não houver abertura lançada mas fundoInicial > 0 no fechamento
+    const hasAbertura = effectiveMovements.some(m => String(m?.tipo || m?.TIPO || '').toUpperCase().trim() === 'ABERTURA');
+    if (!hasAbertura && parseMovementNum(closingData.fundoInicial) > 0) {
+      effectiveMovements.unshift({
+        tipo: 'ABERTURA',
+        docNo: 'AB-01',
+        valor: parseMovementNum(closingData.fundoInicial),
+        formaPagamento: 'DINHEIRO',
+        motivo: 'Fundo de Troco / Abertura de Caixa',
+        cliente: 'Fundo de Troco Inicial'
+      });
+    }
+
     // Se não houver sangria lançada mas totalSangrias > 0 no fechamento
     const hasSangria = effectiveMovements.some(m => String(m?.tipo || m?.TIPO || '').toUpperCase().trim() === 'SANGRIA');
     if (!hasSangria && parseMovementNum(closingData.totalSangrias) > 0) {
@@ -215,6 +228,20 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
       });
     }
 
+    // Se não houver saída lançada mas totalSaidas > 0 no fechamento
+    const hasSaida = effectiveMovements.some(m => {
+      const t = String(m?.tipo || m?.TIPO || '').toUpperCase().trim();
+      return t === 'SAÍDA' || t === 'SAIDA' || t === 'DESPESA' || t === 'PAGAMENTO';
+    });
+    if (!hasSaida && parseMovementNum(closingData.totalSaidas) > 0) {
+      effectiveMovements.push({
+        tipo: 'SAÍDA',
+        docNo: `SD-${String(effectiveMovements.length + 1).padStart(2, '0')}`,
+        valor: parseMovementNum(closingData.totalSaidas),
+        motivo: 'Saída / Despesa: Pagamento de Caixa'
+      });
+    }
+
     // Se não houver recebimento lançado mas totalRecebimentosDinheiro > 0 no fechamento
     const hasRecebimento = effectiveMovements.some(m => String(m?.tipo || m?.TIPO || '').toUpperCase().trim() === 'RECEBIMENTO');
     if (!hasRecebimento && parseMovementNum(closingData.totalRecebimentosDinheiro) > 0) {
@@ -229,8 +256,12 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     }
   }
 
-  // 🕒 Ordenação cronológica estrita por data e horário (do primeiro lançamento do dia até o mais recente)
+  // 🕒 Ordenação cronológica estrita por data e horário, com ABERTURA prioritária no topo
   effectiveMovements.sort((a, b) => {
+    const ta = String(a?.tipo || a?.TIPO || '').toUpperCase().trim();
+    const tb = String(b?.tipo || b?.TIPO || '').toUpperCase().trim();
+    if (ta === 'ABERTURA' && tb !== 'ABERTURA') return -1;
+    if (tb === 'ABERTURA' && ta !== 'ABERTURA') return 1;
     const da = parseItemDate(a)?.getTime() || (typeof a.timestamp === 'number' ? a.timestamp : 0);
     const db = parseItemDate(b)?.getTime() || (typeof b.timestamp === 'number' ? b.timestamp : 0);
     return da - db;
@@ -311,16 +342,18 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     let docNo = '';
     if (m.docNo) {
       docNo = m.docNo;
+    } else if (isAbertura) {
+      docNo = 'AB-01';
     } else if (osRaw) {
       docNo = `OS-${String(osRaw).replace(/^#|^os[-_ ]?/i, '').trim()}`;
-    } else if (isSaida) {
+    } else if (tipo === 'SANGRIA') {
       docNo = `SG-${String(idx + 1).padStart(2, '0')}`;
+    } else if (tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'DESPESA' || tipo === 'PAGAMENTO') {
+      docNo = `SD-${String(idx + 1).padStart(2, '0')}`;
     } else if (isSuprimento) {
       docNo = `SP-${String(idx + 1).padStart(2, '0')}`;
     } else if (isRecebimento) {
       docNo = `RC-${String(idx + 1).padStart(2, '0')}`;
-    } else if (isAbertura) {
-      docNo = 'AB-01';
     } else if (m.id) {
       const idClean = String(m.id).replace(/\D/g, '');
       docNo = idClean ? `DOC-${idClean.slice(-4)}` : `DOC-${idx + 1}`;
@@ -338,11 +371,13 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     } else if (isRecebimento) {
       historico = `Recebimento Parcela ${cliente ? `- ${cliente}` : ''}${forma ? ` (${forma})` : ''}`.trim();
     } else if (tipo === 'SANGRIA') {
-      historico = `Sangria: ${motivo || 'Retirada de Caixa'}`;
+      historico = motivo ? (String(motivo).startsWith('Sangria') ? motivo : `Sangria: ${motivo}`) : 'Sangria de Caixa / Recolhimento';
+    } else if (tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'DESPESA' || tipo === 'PAGAMENTO') {
+      historico = motivo ? (String(motivo).startsWith('Saída') ? motivo : `Saída / Despesa: ${motivo}`) : 'Saída / Despesa de Caixa';
     } else if (isSuprimento) {
-      historico = `Suprimento: ${motivo || 'Entrada de Troco Adicional'}`;
+      historico = motivo ? (String(motivo).startsWith('Suprimento') ? motivo : `Suprimento: ${motivo}`) : 'Suprimento / Reforço de Troco';
     } else if (isAbertura) {
-      historico = `Fundo de Troco / Abertura de Caixa`;
+      historico = motivo || 'Fundo de Troco / Abertura de Caixa';
     } else {
       historico = `${motivo || cliente || 'Movimentação Diversa'}${forma ? ` (${forma})` : ''}`;
     }
@@ -372,7 +407,9 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
       entrada = displayValor;
       totalEntradasCalculadas += displayValor;
     } else if (isAbertura) {
-      // Fundo inicial é SALDO ANTERIOR (não soma nas entradas do dia para evitar duplicidade contábil)
+      // 🌟 Fundo inicial consta como ENTRADA na linha de Abertura de Caixa
+      const fundoVal = displayValor > 0 ? displayValor : parseMovementNum(closingData.fundoInicial);
+      entrada = fundoVal;
     } else {
       entrada = displayValor;
       totalEntradasCalculadas += displayValor;
@@ -451,7 +488,9 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
 
   const totalDinheiroDetalhes = (dinheiroEntradasCalculadas > 0 && vendasDinheiro === 0)
     ? dinheiroEntradasCalculadas
-    : (vendasDinheiro + totalRecebimentosDinheiro + suprimentosEfetivos);
+    : (vendasDinheiro === 0 && totalRecebimentosDinheiro === 0 && suprimentosEfetivos === 0 && fundoInicial > 0)
+      ? fundoInicial
+      : (vendasDinheiro + totalRecebimentosDinheiro + suprimentosEfetivos);
 
   const totalChequesPixDetalhes = vendasPix;
   const totalDebitoDetalhes = vendasDebito;
