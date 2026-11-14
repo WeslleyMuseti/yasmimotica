@@ -8888,6 +8888,36 @@ async function runTests() {
     console.log('  ✅ Test 93 Passed: Visibilidade de Abel Gonçalves & Responsável Financeiro validada com 100% de sucesso!\n');
   }
 
+  // ==========================================
+  // TEST 94: Conexão e Módulo de Consulta ao Arquivo Histórico Legado (Hostinger MySQL)
+  // ==========================================
+  console.log('▶ Test 94: Conexão e Módulo de Consulta ao Arquivo Histórico Legado (Hostinger MySQL)');
+  {
+    const phpApiSrc = fs.readFileSync(path.join(__dirname, 'public', 'api', 'consulta_historico.php'), 'utf8');
+    const historicoViewSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'HistoricoLegadoView.jsx'), 'utf8');
+    const drawerSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'NavigationDrawer.jsx'), 'utf8');
+    const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'App.jsx'), 'utf8');
+
+    // 1. Verificação da API PHP de Conexão com o Banco MySQL
+    console.assert(phpApiSrc.includes('u854247320_yasminotica'), 'API PHP deve conectar ao banco u854247320_yasminotica');
+    console.assert(phpApiSrc.includes('u854247320_carla'), 'API PHP deve usar o usuário u854247320_carla');
+    console.assert(phpApiSrc.includes('tb_vendas_legado'), 'API PHP deve consultar tb_vendas_legado');
+    console.assert(phpApiSrc.includes('tb_parcelas_legado'), 'API PHP deve consultar tb_parcelas_legado');
+
+    // 2. Verificação do Componente HistoricoLegadoView.jsx
+    console.assert(historicoViewSrc.includes('Arquivo Histórico Legado'), 'HistoricoLegadoView deve ter título do arquivo histórico');
+    console.assert(historicoViewSrc.includes('/api/consulta_historico.php'), 'HistoricoLegadoView deve chamar o endpoint de consulta');
+    console.assert(historicoViewSrc.includes('32.204'), 'HistoricoLegadoView deve referenciar os 32.204 registros legados');
+
+    // 3. Verificação do Menu Lateral e Navegação
+    console.assert(drawerSrc.includes('historico-legado'), 'NavigationDrawer deve conter o item historico-legado');
+    console.assert(drawerSrc.includes('Arquivo Histórico (MySQL)'), 'NavigationDrawer deve exibir o rótulo amigável');
+    console.assert(appSrc.includes('HistoricoLegadoView'), 'App.jsx deve importar e renderizar HistoricoLegadoView');
+    console.assert(appSrc.includes('view === \'historico-legado\''), 'App.jsx deve rotear a view historico-legado');
+
+    console.log('  ✅ Test 94 Passed: Conexão e Módulo do Arquivo Histórico Legado validados com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

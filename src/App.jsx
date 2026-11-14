@@ -12,7 +12,8 @@ import ErpOptica from './components/ErpOptica';
 import OSManagement from './components/OSManagement';
 import POSRegister from './components/POSRegister';
 import LoadingScreen from './components/LoadingScreen';
-import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package, UserCog, ClipboardList, LogOut, ShoppingCart, Menu, Wifi, WifiOff, KeyRound, Building, Megaphone, Bell } from 'lucide-react';
+import HistoricoLegadoView from './components/HistoricoLegadoView';
+import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package, UserCog, ClipboardList, LogOut, ShoppingCart, Menu, Wifi, WifiOff, KeyRound, Building, Megaphone, Bell, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import FirebaseSetupScreen from './components/FirebaseSetupScreen';
@@ -1553,10 +1554,27 @@ function App() {
                 <UserCog size={13} /> Administração
               </span>
             )}
+            {view === 'historico-legado' && (
+              <span className="text-xs font-black text-violet-400 flex items-center gap-1.5">
+                <Database size={13} /> Arquivo Histórico (MySQL)
+              </span>
+            )}
           </div>
 
           {/* Lado Direito: Ações Rápidas + Avatar do Usuário + Sair */}
           <div className="flex items-center gap-1 sm:gap-2 md:gap-2.5 shrink-0">
+            {/* Quick Action: Arquivo Histórico (MySQL) */}
+            {view !== 'historico-legado' && (
+              <button
+                onClick={() => setView('historico-legado')}
+                className="hidden lg:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-xs font-black bg-violet-500/15 hover:bg-violet-500/25 text-violet-400 border border-violet-500/30 transition-all shadow-sm active:scale-95"
+                title="Consultar Arquivo Histórico Legado (32.204 registros no MySQL)"
+              >
+                <Database size={14} />
+                <span>Arquivo Histórico</span>
+              </button>
+            )}
+
             {/* Quick Action: Caixa (PDV) */}
             {view !== 'pos' && (
               <button
@@ -1843,6 +1861,11 @@ function App() {
               onUpdateRow={handleRowUpdate}
               onDeleteRow={handleDeleteRow}
               onClearFinancialAndOS={handleClearFinancialAndOSHistory}
+              onBack={() => setView(currentUser?.role === 'vendedor' ? 'pos' : 'dashboard')}
+            />
+          ) : view === 'historico-legado' ? (
+            <HistoricoLegadoView
+              currentUser={currentUser}
               onBack={() => setView(currentUser?.role === 'vendedor' ? 'pos' : 'dashboard')}
             />
           ) : (

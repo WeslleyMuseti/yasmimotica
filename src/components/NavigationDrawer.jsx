@@ -13,7 +13,8 @@ import {
   KeyRound,
   Eye,
   ChevronRight,
-  Megaphone
+  Megaphone,
+  Database
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -119,6 +120,17 @@ const NavigationDrawer = ({
           textColor: 'text-indigo-400',
           bgActive: 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white font-black shadow-lg shadow-indigo-500/25',
           visible: isAdmin
+        },
+        {
+          id: 'historico-legado',
+          label: 'Arquivo Histórico (MySQL)',
+          description: 'Consulta de vendas, parcelas e graus de anos anteriores (32.000+ registros)',
+          icon: Database,
+          color: 'violet',
+          gradient: 'from-violet-500 to-indigo-600',
+          textColor: 'text-violet-400',
+          bgActive: 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white font-black shadow-lg shadow-violet-500/25',
+          visible: true
         }
       ]
     },
