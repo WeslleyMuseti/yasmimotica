@@ -14,10 +14,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-$host = 'localhost';
-$db   = 'u854247320_yasminotica';
-$user = 'u854247320_carla';
-$pass = 'Pme929498!';
+// Carrega credenciais do arquivo de configuração isolado
+if (file_exists(__DIR__ . '/config_db.php')) {
+    require_once __DIR__ . '/config_db.php';
+}
+
+$host = defined('DB_HOST') ? DB_HOST : (getenv('DB_HOST') ?: 'localhost');
+$db   = defined('DB_NAME') ? DB_NAME : (getenv('DB_NAME') ?: 'u854247320_yasminotica');
+$user = defined('DB_USER') ? DB_USER : (getenv('DB_USER') ?: 'u854247320_carla');
+$pass = defined('DB_PASS') ? DB_PASS : (getenv('DB_PASS') ?: '');
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";

@@ -37,3 +37,8 @@ public/*.csv
 *.tar.gz
 patch*.cjs
 
+# Credenciais e scripts sensíveis de banco de dados
+*config_db.php
+*.sql
+generate_sql.mjs
+
