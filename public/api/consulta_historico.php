@@ -197,10 +197,19 @@ try {
 
     // 5. Busca em Marketing & Pós-Vendas
     if ($tipo === 'todas' || $tipo === 'marketing') {
+        $hasInsta = false;
+        try {
+            $c = $pdo->query("SHOW COLUMNS FROM `tb_marketing_legado` LIKE 'instagram'");
+            $hasInsta = ($c->rowCount() > 0);
+        } catch (\Exception $e) {}
+
         $sqlMkt = "SELECT * FROM `tb_marketing_legado` WHERE 
             `nome_cliente` LIKE :q 
             OR `os` LIKE :q";
         
+        if ($hasInsta) {
+            $sqlMkt .= " OR `instagram` LIKE :q";
+        }
         if ($isNumericSearch) {
             $sqlMkt .= " OR `telefone` LIKE :num";
         }

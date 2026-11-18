@@ -438,6 +438,102 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
                 </div>
               </div>
             )}
+
+            {/* 3. SEÇÃO DE VOUCHERS & INDICAÇÕES */}
+            {(activeTab === 'todas' || activeTab === 'vouchers') && results.vouchers.length > 0 && (
+              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                <div className="px-5 py-3.5 bg-slate-800/60 border-b border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-amber-400" />
+                    <h3 className="text-sm font-black text-white uppercase tracking-wider">Vouchers & Campanhas ({results.vouchers.length})</h3>
+                  </div>
+                  <span className="text-[11px] font-bold text-slate-400">Tabela tb_vouchers_legado</span>
+                </div>
+
+                <div className="divide-y divide-slate-800/80">
+                  {results.vouchers.map((v, idx) => (
+                    <div key={v.id || idx} className="p-4 hover:bg-slate-800/30 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300 font-mono font-black text-xs">
+                            🎟️ {v.codigo_voucher || 'S/ COD'}
+                          </span>
+                          {v.os && (
+                            <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono font-bold text-xs">
+                              OS #{v.os}
+                            </span>
+                          )}
+                          {v.instagram && (
+                            <span className="px-2 py-0.5 rounded bg-pink-500/10 border border-pink-500/20 text-pink-300 font-bold text-xs">
+                              @{v.instagram.replace(/^@/, '')}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-xs text-slate-400 flex items-center gap-3 flex-wrap">
+                          {v.data_compra && <span><strong className="text-slate-300">Data Compra:</strong> {v.data_compra}</span>}
+                          {v.cidade && <span><strong className="text-slate-300">Cidade:</strong> {v.cidade}</span>}
+                          {v.mes && <span><strong className="text-slate-300">Período:</strong> {v.mes}/{v.ano}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 4. SEÇÃO DE MARKETING & PÓS-VENDA */}
+            {(activeTab === 'todas' || activeTab === 'marketing') && results.marketing.length > 0 && (
+              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                <div className="px-5 py-3.5 bg-slate-800/60 border-b border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-pink-400" />
+                    <h3 className="text-sm font-black text-white uppercase tracking-wider">Marketing & Pós-Venda ({results.marketing.length})</h3>
+                  </div>
+                  <span className="text-[11px] font-bold text-slate-400">Tabela tb_marketing_legado</span>
+                </div>
+
+                <div className="divide-y divide-slate-800/80">
+                  {results.marketing.map((m, idx) => (
+                    <div key={m.id || idx} className="p-4 hover:bg-slate-800/30 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {m.os && (
+                            <span className="px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 font-mono font-black text-xs">
+                              OS #{m.os}
+                            </span>
+                          )}
+                          <span className="text-sm font-black text-white">{m.nome_cliente || 'Cliente'}</span>
+                          {m.instagram && (
+                            <span className="px-2 py-0.5 rounded bg-pink-500/10 border border-pink-500/20 text-pink-300 font-bold text-xs">
+                              @{m.instagram.replace(/^@/, '')}
+                            </span>
+                          )}
+                          {m.tipo_pos_venda && (
+                            <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] font-bold">
+                              {m.tipo_pos_venda}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-xs text-slate-400 flex items-center gap-3 flex-wrap">
+                          {m.telefone && (
+                            <span className="text-emerald-400 font-mono flex items-center gap-1">
+                              <Phone className="w-3 h-3" /> {m.telefone}
+                            </span>
+                          )}
+                          {m.data_venda && <span><strong className="text-slate-300">Data:</strong> {m.data_venda}</span>}
+                          {m.cidade && <span><strong className="text-slate-300">Cidade:</strong> {m.cidade}</span>}
+                          {m.vendedor && <span><strong className="text-slate-300">Vendedor:</strong> {m.vendedor}</span>}
+                          {m.medico && <span><strong className="text-slate-300">Médico:</strong> {m.medico}</span>}
+                          {m.obs_pos_venda && <span><strong className="text-amber-300">Obs:</strong> {m.obs_pos_venda}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

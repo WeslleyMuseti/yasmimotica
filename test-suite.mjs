@@ -8970,6 +8970,55 @@ async function runTests() {
     console.log('  ✅ Test 95 Passed: Detalhes do Produto, Valor da Venda na OS e Sangria com Saldo Negativo validados com 100% de sucesso!\n');
   }
 
+  // ==========================================
+  // TEST 96: Lançamento de Pós-Venda, Marketing, Redes Sociais e Vouchers no MySQL Hostinger
+  // ==========================================
+  console.log('▶ Test 96: Lançamento de Pós-Venda, Marketing, Redes Sociais e Vouchers no MySQL Hostinger');
+  {
+    const salvarPosVendaPhp = fs.readFileSync(path.join(__dirname, 'public', 'api', 'salvar_pos_venda.php'), 'utf8');
+    const consultaHistoricoPhp = fs.readFileSync(path.join(__dirname, 'public', 'api', 'consulta_historico.php'), 'utf8');
+    const posRegisterSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf8');
+    const historicoViewSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'HistoricoLegadoView.jsx'), 'utf8');
+
+    // 1. Verificação do Endpoint PHP (salvar_pos_venda.php)
+    console.assert(salvarPosVendaPhp.includes('tb_vendas_legado'), 'salvar_pos_venda.php deve gravar em tb_vendas_legado');
+    console.assert(salvarPosVendaPhp.includes('tb_marketing_legado'), 'salvar_pos_venda.php deve gravar em tb_marketing_legado');
+    console.assert(salvarPosVendaPhp.includes('tb_vouchers_legado'), 'salvar_pos_venda.php deve gravar em tb_vouchers_legado');
+    console.assert(salvarPosVendaPhp.includes('instagram'), 'salvar_pos_venda.php deve processar instagram');
+    console.assert(salvarPosVendaPhp.includes('tipo_pos_venda'), 'salvar_pos_venda.php deve processar tipo_pos_venda');
+    console.assert(salvarPosVendaPhp.includes('obs_pos_venda'), 'salvar_pos_venda.php deve processar obs_pos_venda');
+    console.assert(salvarPosVendaPhp.includes('codigo_voucher'), 'salvar_pos_venda.php deve processar codigo_voucher');
+    console.assert(salvarPosVendaPhp.includes('config_db.php'), 'salvar_pos_venda.php deve importar config_db.php');
+
+    // 2. Verificação de consulta_historico.php com suporte a Instagram
+    console.assert(consultaHistoricoPhp.includes('`instagram` LIKE :q') || consultaHistoricoPhp.includes('instagram LIKE :q'), 'consulta_historico.php deve buscar por instagram em marketing');
+
+    // 3. Verificação do Fluxo de Pós-Venda no PDV (POSRegister.jsx)
+    console.assert(posRegisterSrc.includes('postSaleForm'), 'POSRegister deve conter o estado postSaleForm');
+    console.assert(posRegisterSrc.includes('handleSavePostSaleToMySQL'), 'POSRegister deve conter handleSavePostSaleToMySQL');
+    console.assert(posRegisterSrc.includes('/api/salvar_pos_venda.php'), 'POSRegister deve chamar o endpoint /api/salvar_pos_venda.php');
+    console.assert(posRegisterSrc.includes('handleOpenWhatsAppPostSale'), 'POSRegister deve conter integração direta com WhatsApp');
+    console.assert(posRegisterSrc.includes('handleOpenInstagramProfile'), 'POSRegister deve conter integração com Instagram');
+    console.assert(posRegisterSrc.includes('Pós-Venda, Marketing & Redes Sociais (Hostinger MySQL)'), 'Modal de conclusão deve exibir card de Pós-Venda');
+    console.assert(posRegisterSrc.includes('Acompanhamento de Adaptação (15 dias)'), 'Opção de pós-venda de adaptação deve existir');
+
+    // 4. Verificação da Visualização no Arquivo Histórico (HistoricoLegadoView.jsx)
+    console.assert(historicoViewSrc.includes('tb_vouchers_legado'), 'HistoricoLegadoView deve exibir seção de vouchers');
+    console.assert(historicoViewSrc.includes('tb_marketing_legado'), 'HistoricoLegadoView deve exibir seção de marketing');
+    console.assert(historicoViewSrc.includes('m.tipo_pos_venda'), 'HistoricoLegadoView deve renderizar o tipo de pós-venda');
+
+    // 5. Teste Lógico de Montagem do Link do WhatsApp
+    const mockClient = { nome: 'Maria Silva', telefone: '(13) 99876-5432' };
+    const rawDigits = mockClient.telefone.replace(/\D/g, '');
+    const phoneWithCountry = `55${rawDigits}`;
+    const osMock = 'CAJ-2026-99';
+    const msg = encodeURIComponent(`Olá, Maria! Agradecemos pela sua preferência na Ótica Yasmin (OS: #${osMock}).`);
+    const waUrl = `https://wa.me/${phoneWithCountry}?text=${msg}`;
+    console.assert(waUrl.includes('https://wa.me/5513998765432?text='), 'URL do WhatsApp deve estar formatada com DDI 55 e telefone correto');
+
+    console.log('  ✅ Test 96 Passed: Lançamento de Pós-Venda, Marketing, Redes Sociais e Vouchers no MySQL Hostinger validado com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

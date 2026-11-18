@@ -19,6 +19,7 @@ import PrintableCashMovementSheet from './PrintableCashMovementSheet';
 import { PrintableLabelModal } from './PrintableLabel';
 import { decrementStockAtomically, isSameClient } from '../firebaseSync';
 import { resolveOSUnit } from '../reparcelamentoUtils';
+import { InstagramIcon, WhatsAppIcon } from './SocialMediaButtons';
 
 const cleanVal = (v) => {
   if (v === null || v === undefined || v === '') return 0;
@@ -166,6 +167,41 @@ const POSRegister = ({
   const [completedSale, setCompletedSale] = useState(null);
   const [savedClientForOS, setSavedClientForOS] = useState(null);
   const [isFinalizingSale, setIsFinalizingSale] = useState(false);
+  const [postSaleForm, setPostSaleForm] = useState({
+    os: '',
+    cliente: '',
+    telefone: '',
+    instagram: '',
+    facebook: '',
+    tiktok: '',
+    tipoPosVenda: 'Acompanhamento de Adaptação (15 dias)',
+    voucher: '',
+    obsPosVenda: '',
+    syncStatus: 'idle',
+    syncMessage: ''
+  });
+
+  useEffect(() => {
+    if (completedSale) {
+      const activeClient = savedClientForOS || selectedClient || {};
+      const resolvedOS = completedSale['OS DA VENDA'] || completedSale.numeroOS || completedSale.OS || completedSale.VENDA_OS || (completedSale.id ? String(completedSale.id).replace(/\D/g, '').slice(-6) : '');
+      const rawInsta = activeClient['Instagram'] || activeClient['instagram'] || activeClient['INSTAGRAM'] || '';
+      const cleanInsta = rawInsta ? (rawInsta.startsWith('@') ? rawInsta : `@${rawInsta}`) : '';
+
+      setPostSaleForm(prev => ({
+        ...prev,
+        os: resolvedOS || prev.os || '',
+        cliente: completedSale.CLIENTE || activeClient['Nome Completo'] || activeClient['NOME'] || prev.cliente || '',
+        telefone: activeClient['WhatsApp'] || activeClient['TELEFONE'] || completedSale.TELEFONE || prev.telefone || '',
+        instagram: prev.instagram || cleanInsta,
+        facebook: prev.facebook || activeClient['Facebook'] || activeClient['facebook'] || '',
+        tiktok: prev.tiktok || activeClient['TikTok'] || activeClient['tiktok'] || '',
+        tipoPosVenda: prev.tipoPosVenda || 'Acompanhamento de Adaptação (15 dias)',
+        voucher: prev.voucher || completedSale.voucher || activeClient['VOUCHER'] || '',
+        obsPosVenda: prev.obsPosVenda || ''
+      }));
+    }
+  }, [completedSale, savedClientForOS, selectedClient]);
 
   // Modal de Geração de OS
   const [isOSModalOpen, setIsOSModalOpen] = useState(false);
@@ -2414,6 +2450,103 @@ const POSRegister = ({
     }, 350);
   };
 
+  const handleSavePostSaleToMySQL = async () => {
+    if (!completedSale) return;
+    setPostSaleForm(prev => ({ ...prev, syncStatus: 'saving', syncMessage: 'Sincronizando com MySQL Hostinger...' }));
+
+    const resolvedOS = postSaleForm.os || completedSale['OS DA VENDA'] || completedSale.numeroOS || completedSale.OS || completedSale.VENDA_OS || String(Date.now()).slice(-6);
+    const activeClient = savedClientForOS || selectedClient || {};
+
+    const payload = {
+      os: resolvedOS,
+      cliente: postSaleForm.cliente || completedSale.CLIENTE || activeClient['Nome Completo'] || 'Cliente',
+      telefone: postSaleForm.telefone || activeClient['WhatsApp'] || activeClient['TELEFONE'] || completedSale.TELEFONE || '',
+      responsavel: activeClient['Responsável'] || activeClient['RESPONSAVEL'] || 'S/RESPONSAVEL',
+      telefone_responsavel: activeClient['Telefone Responsável'] || activeClient['TELEFONE_RESPONSAVEL'] || postSaleForm.telefone || '',
+      loja: completedSale.CIDADE || completedSale.cidade || activeClient['Cidade'] || selectedPOSCity || 'CAJATI',
+      vendedora: completedSale.vendedor || currentUser?.username || 'CAIXA',
+      data_venda: completedSale.dataVenda || completedSale['DATA  DA VENDA'] || new Date().toLocaleDateString('pt-BR'),
+      lente: completedSale.LENTE || activeClient['Marca de Lente'] || '',
+      armacao: completedSale.ARMAÇÃO || activeClient['Modelo de Armação'] || '',
+      dioptria: completedSale.DIOPTRIA || '',
+      medico: completedSale.MEDICO || activeClient['Médico'] || '',
+      valor_armacao: '',
+      valor_lente: '',
+      valor_produto: String(completedSale.valorTotal || completedSale['VALOR TOTAL'] || '0,00'),
+      valor_entrada: String(completedSale.valorEntrada || completedSale['VALOR ENTRADA'] || '0,00'),
+      n_parcelas: String(completedSale.parcelas?.length || '1'),
+      rg: activeClient['RG'] || '',
+      cpf: activeClient['CPF'] || activeClient['CPF / CNPJ'] || '',
+      data_nascimento: activeClient['Data de Nascimento'] || '',
+      idade: activeClient['Idade'] || '',
+      instagram: postSaleForm.instagram,
+      facebook: postSaleForm.facebook,
+      tiktok: postSaleForm.tiktok,
+      codigo_voucher: postSaleForm.voucher,
+      tipo_pos_venda: postSaleForm.tipoPosVenda,
+      obs_pos_venda: postSaleForm.obsPosVenda
+    };
+
+    try {
+      const resp = await fetch('/api/salvar_pos_venda.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      const res = await resp.json();
+      if (res && res.success) {
+        setPostSaleForm(prev => ({
+          ...prev,
+          syncStatus: 'saved',
+          syncMessage: 'Gravado com sucesso no MySQL (Vendas, Marketing e Vouchers)!'
+        }));
+
+        if (onUpdateRow && activeClient && activeClient.id) {
+          const updatedClient = {
+            ...activeClient,
+            'WhatsApp': postSaleForm.telefone || activeClient['WhatsApp'],
+            'TELEFONE': postSaleForm.telefone || activeClient['TELEFONE'],
+            'Instagram': postSaleForm.instagram || activeClient['Instagram'],
+            'Facebook': postSaleForm.facebook || activeClient['Facebook'],
+            'TikTok': postSaleForm.tiktok || activeClient['TikTok']
+          };
+          onUpdateRow('CAD_CLIENTES', activeClient, updatedClient).catch(() => {});
+        }
+      } else {
+        setPostSaleForm(prev => ({
+          ...prev,
+          syncStatus: 'error',
+          syncMessage: res?.error || 'Erro ao sincronizar com o banco MySQL.'
+        }));
+      }
+    } catch (err) {
+      setPostSaleForm(prev => ({
+        ...prev,
+        syncStatus: 'error',
+        syncMessage: 'Falha na requisição ao servidor Hostinger: ' + (err.message || 'Sem conexão')
+      }));
+    }
+  };
+
+  const handleOpenWhatsAppPostSale = () => {
+    const rawPhone = String(postSaleForm.telefone || '').replace(/\D/g, '');
+    if (!rawPhone) return;
+    const phoneWithCountry = rawPhone.length <= 11 ? `55${rawPhone}` : rawPhone;
+    const clientName = (postSaleForm.cliente || 'Cliente').split(' ')[0];
+    const osNum = postSaleForm.os || completedSale?.['OS DA VENDA'] || completedSale?.numeroOS || '';
+    const osMsg = osNum ? ` (OS: #${osNum})` : '';
+    const msg = encodeURIComponent(`Olá, ${clientName}! Agradecemos pela sua preferência na Ótica Yasmin${osMsg}. Seus óculos estão sendo preparados com todo cuidado e carinho. Qualquer dúvida, conte conosco! 👓✨`);
+    window.open(`https://wa.me/${phoneWithCountry}?text=${msg}`, '_blank');
+  };
+
+  const handleOpenInstagramProfile = () => {
+    let handle = String(postSaleForm.instagram || '').trim().replace(/^@+/, '');
+    if (!handle) return;
+    window.open(`https://instagram.com/${encodeURIComponent(handle)}`, '_blank');
+  };
+
   const handleResetForNewSale = () => {
     setCompletedSale(null);
     setSavedClientForOS(null);
@@ -2428,6 +2561,19 @@ const POSRegister = ({
     setDiscountInput('');
     setDiscountType('VALOR');
     setPaymentInputVal('');
+    setPostSaleForm({
+      os: '',
+      cliente: '',
+      telefone: '',
+      instagram: '',
+      facebook: '',
+      tiktok: '',
+      tipoPosVenda: 'Acompanhamento de Adaptação (15 dias)',
+      voucher: '',
+      obsPosVenda: '',
+      syncStatus: 'idle',
+      syncMessage: ''
+    });
   };
 
   return (
@@ -3935,9 +4081,9 @@ const POSRegister = ({
       {/* ─── MODAL DE SUCESSO & IMPRESSÃO ─────────────────────────── */}
       {completedSale && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-8 max-w-md w-full shadow-2xl text-center space-y-6">
-            <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20 animate-bounce">
-              <CheckCircle2 size={36} />
+          <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-6 md:p-8 max-w-xl w-full max-h-[92vh] overflow-y-auto erp-scroll shadow-2xl text-center space-y-5">
+            <div className="w-14 h-14 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20 animate-bounce">
+              <CheckCircle2 size={32} />
             </div>
 
             <div>
@@ -3951,6 +4097,186 @@ const POSRegister = ({
                 {completedSale.pagamentosLista && completedSale.pagamentosLista.map((p, idx) => (
                   <p key={idx} className="text-slate-300">• {p.texto}</p>
                 ))}
+              </div>
+            </div>
+
+            {/* ─── BLOCO DE PÓS-VENDA, MARKETING & REDES SOCIAIS (HOSTINGER MYSQL) ─── */}
+            <div className="bg-slate-950/90 border border-indigo-500/30 rounded-2xl p-4 text-left space-y-3 shadow-inner">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={16} className="text-amber-400" />
+                  <span className="text-xs font-black uppercase text-indigo-300 tracking-wide">
+                    📱 Pós-Venda, Marketing & Redes Sociais (Hostinger MySQL)
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  OS: <strong className="text-white">{postSaleForm.os || completedSale?.['OS DA VENDA'] || completedSale?.numeroOS || 'A Definir'}</strong>
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Nome do Cliente</label>
+                  <input
+                    type="text"
+                    value={postSaleForm.cliente}
+                    onChange={(e) => setPostSaleForm(prev => ({ ...prev, cliente: e.target.value }))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    placeholder="Nome do cliente"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">WhatsApp / Telefone</label>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={postSaleForm.telefone}
+                      onChange={(e) => setPostSaleForm(prev => ({ ...prev, telefone: e.target.value }))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                      placeholder="(00) 00000-0000"
+                    />
+                    {postSaleForm.telefone && (
+                      <button
+                        type="button"
+                        onClick={handleOpenWhatsAppPostSale}
+                        title="Chamar cliente no WhatsApp"
+                        className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg flex items-center justify-center transition-colors shadow shrink-0"
+                      >
+                        <WhatsAppIcon size={14} className="text-white" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Instagram (@)</label>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={postSaleForm.instagram}
+                      onChange={(e) => setPostSaleForm(prev => ({ ...prev, instagram: e.target.value }))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-pink-500 font-mono"
+                      placeholder="@perfil.cliente"
+                    />
+                    {postSaleForm.instagram && (
+                      <button
+                        type="button"
+                        onClick={handleOpenInstagramProfile}
+                        title="Abrir perfil no Instagram"
+                        className="px-2.5 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-lg flex items-center justify-center transition-colors shadow shrink-0"
+                      >
+                        <InstagramIcon size={14} className="text-white" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Código Voucher</label>
+                  <input
+                    type="text"
+                    value={postSaleForm.voucher}
+                    onChange={(e) => setPostSaleForm(prev => ({ ...prev, voucher: e.target.value.toUpperCase() }))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-amber-300 font-mono uppercase focus:outline-none focus:border-amber-500"
+                    placeholder="Ex: PROMO10, VOUCHER50"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Ação de Pós-Venda</label>
+                  <select
+                    value={postSaleForm.tipoPosVenda}
+                    onChange={(e) => setPostSaleForm(prev => ({ ...prev, tipoPosVenda: e.target.value }))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Acompanhamento de Adaptação (15 dias)">Acompanhamento de Adaptação (15 dias)</option>
+                    <option value="Renovação de Receita Anual (1 ano)">Renovação de Receita Anual (1 ano)</option>
+                    <option value="Pesquisa de Satisfação & Feedback">Pesquisa de Satisfação & Feedback</option>
+                    <option value="Entrega de Óculos Concluída">Entrega de Óculos Concluída</option>
+                    <option value="Fidelização / Indicação Amigos">Fidelização / Indicação Amigos</option>
+                    <option value="Outros">Outros</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Outras Redes (Facebook / TikTok)</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <input
+                      type="text"
+                      value={postSaleForm.facebook}
+                      onChange={(e) => setPostSaleForm(prev => ({ ...prev, facebook: e.target.value }))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-blue-500"
+                      placeholder="Facebook"
+                    />
+                    <input
+                      type="text"
+                      value={postSaleForm.tiktok}
+                      onChange={(e) => setPostSaleForm(prev => ({ ...prev, tiktok: e.target.value }))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-teal-500"
+                      placeholder="TikTok"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Observações de Pós-Venda</label>
+                <input
+                  type="text"
+                  value={postSaleForm.obsPosVenda}
+                  onChange={(e) => setPostSaleForm(prev => ({ ...prev, obsPosVenda: e.target.value }))}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  placeholder="Ex: Cliente prefere contato após as 14h; lente multifocal nova"
+                />
+              </div>
+
+              {/* Status da Sincronização */}
+              {postSaleForm.syncStatus === 'saved' && (
+                <div className="bg-emerald-500/15 border border-emerald-500/40 rounded-xl p-2.5 text-xs text-emerald-300 flex items-center gap-2">
+                  <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+                  <span>{postSaleForm.syncMessage}</span>
+                </div>
+              )}
+              {postSaleForm.syncStatus === 'error' && (
+                <div className="bg-rose-500/15 border border-rose-500/40 rounded-xl p-2.5 text-xs text-rose-300 flex items-center gap-2">
+                  <AlertTriangle size={16} className="text-rose-400 shrink-0" />
+                  <span>{postSaleForm.syncMessage}</span>
+                </div>
+              )}
+
+              {/* Botões do Bloco Pós-Venda */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={postSaleForm.syncStatus === 'saving'}
+                  onClick={handleSavePostSaleToMySQL}
+                  className="flex-1 min-w-[200px] py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20 active:scale-95"
+                >
+                  {postSaleForm.syncStatus === 'saving' ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin text-white" />
+                      <span>Gravando no MySQL...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={14} className="text-amber-300" />
+                      <span>Salvar no MySQL (Vendas, Marketing & Voucher)</span>
+                    </>
+                  )}
+                </button>
+
+                {postSaleForm.telefone && (
+                  <button
+                    type="button"
+                    onClick={handleOpenWhatsAppPostSale}
+                    className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow active:scale-95"
+                    title="Enviar mensagem de agradecimento no WhatsApp"
+                  >
+                    <WhatsAppIcon size={14} className="text-white" />
+                    <span>Agradecer no WhatsApp</span>
+                  </button>
+                )}
               </div>
             </div>
 
