@@ -1098,7 +1098,7 @@ export const CashHistoryContent = ({
     });
 
     const totalRecebidosCaixa = totalVendasDinheiro + totalRecebimentosDinheiro + totalPix + totalDebito + totalCredito;
-    const saldoEstimadoGaveta = Math.max(0, (totalAberturas + totalSuprimentos + totalVendasDinheiro + totalRecebimentosDinheiro) - totalSangrias - totalSaidas);
+    const saldoEstimadoGaveta = (totalAberturas + totalSuprimentos + totalVendasDinheiro + totalRecebimentosDinheiro) - totalSangrias - totalSaidas;
 
     return {
       count: filteredMovements.length,

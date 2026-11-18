@@ -27,6 +27,10 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
   const otica = osData.unidade || osData.unit || safeClient['Cidade'] || '';
   const lente = osData.lente || safeClient['Lente'] || safeClient['Marca de Lente'] || '';
   const laboratorio = osData.laboratorio || safeClient['Laboratório'] || '';
+  const tratamento = osData.tratamento || safeClient['Tratamento'] || osData.raw?.['TRATAMENTO'] || '';
+  const material = osData.material || safeClient['MATERIAL'] || osData.raw?.['MATERIAL'] || '';
+  const cor = osData.cor || safeClient['Cor'] || osData.raw?.['COR'] || '';
+  const detalhes = osData.detalhes || osData.raw?.['DETALHES'] || safeClient['DETALHES'] || '';
   const valorEntrada = formatCurrencyPrint(osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? safeClient['VALOR ENTRADA'] ?? safeClient['Valor Entrada']);
   const formaPgto = osData.formasPagamento ? String(osData.formasPagamento).replace(/(?:FORMA DE PAGAMENTO|FORMA_PAGTO|FORMA_PAGAMENTO|MEIO_PAGAMENTO)\s*:\s*/gi, '').split('\n')[0].trim() : '';
   const tipoArmacao = osData.armacao || safeClient['Modelo de Armação'] || '';
@@ -69,9 +73,15 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
           ) : (
             <div><strong className="text-slate-600 block text-[10px] uppercase">Ótica / Loja:</strong> <span className="font-bold text-slate-900">{otica || 'Central'}</span></div>
           )}
-          <div><strong className="text-slate-600 block text-[10px] uppercase">Lente:</strong> <span className="font-bold text-slate-900 uppercase">{lente || 'Não informada'}</span></div>
+          <div><strong className="text-slate-600 block text-[10px] uppercase">Lente & Tratamento:</strong> <span className="font-bold text-slate-900 uppercase">{lente || 'Não informada'}{tratamento ? ` (${tratamento})` : ''}{material ? ` [${material}]` : ''}</span></div>
           <div><strong className="text-slate-600 block text-[10px] uppercase">Laboratório:</strong> <span className="font-bold text-slate-900">{laboratorio || 'Não informado'}</span></div>
         </div>
+        {detalhes && (
+          <div className="mb-3 px-3 py-1.5 bg-amber-50/60 border border-amber-200 rounded text-xs">
+            <strong className="text-[10px] font-black uppercase text-amber-900 mr-1.5">Detalhes / Obs do Produto:</strong>
+            <span className="font-medium text-slate-800">{detalhes}</span>
+          </div>
+        )}
 
         {/* PRESCRIPTION TABLE */}
         <div className="mb-4 border border-slate-300 rounded p-4">
@@ -138,7 +148,7 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
                 <td className="border border-slate-400 py-2 px-3 font-bold text-slate-900 text-sm">OD: {osData.odDnp || osData['OD_DNP'] || '---'}</td>
                 <td className="border border-slate-400 py-3 px-3 bg-slate-50 text-center w-32" rowSpan={2}>
                   <div className="font-black text-[10px] text-slate-600 uppercase">Tipo de Armação</div>
-                  <div className="font-black text-xs mt-1 uppercase text-slate-900">{tipoArmacao || '---'}</div>
+                  <div className="font-black text-xs mt-1 uppercase text-slate-900">{tipoArmacao || '---'}{cor ? ` (Cor: ${cor})` : ''}</div>
                 </td>
               </tr>
               <tr>

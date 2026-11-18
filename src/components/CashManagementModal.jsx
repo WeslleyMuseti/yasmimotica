@@ -104,7 +104,9 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
                 <p className="text-[10px]"><strong>Obs:</strong> {data.detalhes}</p>
               )}
               {data.saldoGavetaApos !== undefined && (
-                <p className="text-[10px] pt-1 border-t border-gray-200"><strong>Saldo na Gaveta Após:</strong> R$ {formatCurrency(data.saldoGavetaApos)}</p>
+                <p className="text-[10px] pt-1 border-t border-gray-200">
+                  <strong>Saldo na Gaveta Após:</strong> {data.saldoGavetaApos < 0 ? `-R$ ${formatCurrency(Math.abs(data.saldoGavetaApos))}` : `R$ ${formatCurrency(data.saldoGavetaApos)}`}
+                </p>
               )}
             </div>
 
@@ -142,7 +144,9 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
               <p className="text-[10px]"><strong>Data e Horário:</strong> {opDateTimeFormatted}</p>
               <p className="text-[10px]"><strong>Origem / Motivo:</strong> {data.motivo || 'Fundo de Troco Adicional'}</p>
               {data.saldoGavetaApos !== undefined && (
-                <p className="text-[10px] pt-1 border-t border-gray-200"><strong>Saldo da Gaveta Atualizado:</strong> R$ {formatCurrency(data.saldoGavetaApos)}</p>
+                <p className="text-[10px] pt-1 border-t border-gray-200">
+                  <strong>Saldo da Gaveta Atualizado:</strong> {data.saldoGavetaApos < 0 ? `-R$ ${formatCurrency(Math.abs(data.saldoGavetaApos))}` : `R$ ${formatCurrency(data.saldoGavetaApos)}`}
+                </p>
               )}
             </div>
 
@@ -211,7 +215,7 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
                 
                 <div className="flex justify-between font-bold border-t border-gray-400 pt-0.5 mt-0.5">
                   <span>SALDO FÍSICO ESPERADO:</span>
-                  <span>R$ {formatCurrency(data.dinheiroEsperado)}</span>
+                  <span>{data.dinheiroEsperado < 0 ? `-R$ ${formatCurrency(Math.abs(data.dinheiroEsperado))}` : `R$ ${formatCurrency(data.dinheiroEsperado)}`}</span>
                 </div>
                 <div className="flex justify-between font-black">
                   <span>DINHEIRO CONTADO:</span>
@@ -305,7 +309,7 @@ export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
                 )}
                 <div className="flex justify-between font-black text-[11px] border-t border-gray-400 pt-0.5 mt-0.5">
                   <span>GAVETA ATUAL:</span>
-                  <span>R$ {formatCurrency(data.dinheiroEsperado)}</span>
+                  <span>{data.dinheiroEsperado < 0 ? `-R$ ${formatCurrency(Math.abs(data.dinheiroEsperado))}` : `R$ ${formatCurrency(data.dinheiroEsperado)}`}</span>
                 </div>
               </div>
             </div>
@@ -635,9 +639,9 @@ const CashManagementModal = ({
     // Valores realmente recebidos em caixa (dinheiro, boleto em dinheiro, pix, débito e crédito)
     const totalRecebidosCaixa = vendasDinheiro + totalRecebimentosDinheiro + vendasPix + vendasDebito + vendasCredito;
 
-    // Conferência física da gaveta: Fundo Inicial + Entradas em espécie - Sangrias
+    // Conferência física da gaveta: Fundo Inicial + Entradas em espécie - Sangrias (Permite saldo negativo se sangrias excederem o caixa)
     const totalEntradasEspecie = vendasDinheiro + totalRecebimentosDinheiro + totalSuprimentos;
-    const dinheiroEsperado = Math.max(0, fundoInicial + totalEntradasEspecie - totalSangrias - totalSaidas);
+    const dinheiroEsperado = (fundoInicial + totalEntradasEspecie - totalSangrias - totalSaidas);
 
     // Faturamento geral do turno (recebimentos imediatos + faturado a prazo no boleto)
     const totalFaturadoGeral = totalRecebidosCaixa + finalVendasBoleto;
@@ -695,16 +699,12 @@ const CashManagementModal = ({
     onClose();
   };
 
-  // 2. Sangria de Caixa
+  // 2. Sangria de Caixa (Permite que o saldo passe de zero e fique negativo se necessário)
   const handleSangriaSubmit = (e) => {
     e.preventDefault();
     const val = parseCurrency(sangriaValorInput);
     if (val <= 0) {
       alert('Informe um valor válido para a sangria.');
-      return;
-    }
-    if (val > sessionStats.dinheiroEsperado) {
-      alert(`⚠️ Saldo Insuficiente na Gaveta!\n\nVocê está tentando retirar R$ ${formatCurrency(val)}, mas o saldo físico atual em dinheiro na gaveta é de R$ ${formatCurrency(sessionStats.dinheiroEsperado)}.\n\nNão é permitido realizar uma sangria com valor superior ao dinheiro existente na gaveta.`);
       return;
     }
 
@@ -728,7 +728,7 @@ const CashManagementModal = ({
       DATA_HORA: dtDateTime,
       hora: dtTime,
       HORA: dtTime,
-      saldoGavetaApos: Math.max(0, sessionStats.dinheiroEsperado - val)
+      saldoGavetaApos: sessionStats.dinheiroEsperado - val
     };
 
     onAddSangria(sangriaData);
@@ -1155,14 +1155,21 @@ const CashManagementModal = ({
           {/* ─── MODAL 2: SANGRIA DE CAIXA ──────────────────────────── */}
           {modalType === 'SANGRIA' && (
             <form onSubmit={handleSangriaSubmit} className="space-y-4">
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+              <div className={`border rounded-2xl p-4 flex items-center justify-between ${sessionStats.dinheiroEsperado < 0 ? 'bg-rose-500/10 border-rose-500/30' : 'bg-slate-900/80 border-slate-800'}`}>
                 <div>
                   <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Dinheiro na Gaveta AGORA</span>
-                  <p className="text-xl font-black text-emerald-400">R$ {formatCurrency(sessionStats.dinheiroEsperado)}</p>
+                  <p className={`text-xl font-black font-mono ${sessionStats.dinheiroEsperado < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {sessionStats.dinheiroEsperado < 0 ? `-R$ ${formatCurrency(Math.abs(sessionStats.dinheiroEsperado))}` : `R$ ${formatCurrency(sessionStats.dinheiroEsperado)}`}
+                  </p>
                 </div>
                 <div className="text-right text-[11px] text-slate-400">
                   <p>Fundo: R$ {formatCurrency(sessionStats.fundoInicial)}</p>
                   <p>Vendas (Espécie): R$ {formatCurrency(sessionStats.vendasDinheiro)}</p>
+                  {sessionStats.dinheiroEsperado < 0 && (
+                    <span className="inline-block mt-0.5 text-[9px] font-bold text-rose-300 bg-rose-500/20 px-1.5 py-0.5 rounded">
+                      Saldo Negativo
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -1345,13 +1352,15 @@ const CashManagementModal = ({
               </div>
 
               {/* 3. Conferência da Gaveta Física (Dinheiro em Espécie) */}
-              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 space-y-2">
+              <div className={`border rounded-2xl p-4 space-y-2 ${sessionStats.dinheiroEsperado < 0 ? 'bg-rose-500/10 border-rose-500/30' : 'bg-emerald-500/10 border-emerald-500/20'}`}>
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-300">3. Saldo Físico Esperado na Gaveta (Espécie):</span>
-                  <span className="text-lg font-black text-emerald-300">R$ {formatCurrency(sessionStats.dinheiroEsperado)}</span>
+                  <span className={`text-lg font-black font-mono ${sessionStats.dinheiroEsperado < 0 ? 'text-rose-400' : 'text-emerald-300'}`}>
+                    {sessionStats.dinheiroEsperado < 0 ? `-R$ ${formatCurrency(Math.abs(sessionStats.dinheiroEsperado))}` : `R$ ${formatCurrency(sessionStats.dinheiroEsperado)}`}
+                  </span>
                 </div>
                 <p className="text-[10px] text-slate-400 font-mono">
-                  Fundo Inicial (R$ {formatCurrency(sessionStats.fundoInicial)}) + Entradas em Espécie (R$ {formatCurrency(sessionStats.totalEntradasEspecie)}) - Sangrias (R$ {formatCurrency(sessionStats.totalSangrias)}) = R$ {formatCurrency(sessionStats.dinheiroEsperado)}
+                  Fundo Inicial (R$ {formatCurrency(sessionStats.fundoInicial)}) + Entradas em Espécie (R$ {formatCurrency(sessionStats.totalEntradasEspecie)}) - Sangrias (R$ {formatCurrency(sessionStats.totalSangrias)}) = {sessionStats.dinheiroEsperado < 0 ? `-R$ ${formatCurrency(Math.abs(sessionStats.dinheiroEsperado))}` : `R$ ${formatCurrency(sessionStats.dinheiroEsperado)}`}
                 </p>
               </div>
 
@@ -1456,9 +1465,11 @@ const CashManagementModal = ({
           {modalType === 'EXTRATO' && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                <div className={`p-3 rounded-xl border ${sessionStats.dinheiroEsperado < 0 ? 'bg-rose-500/10 border-rose-500/30' : 'bg-white/5 border-white/5'}`}>
                   <span className="text-[10px] text-slate-400 font-bold uppercase">Gaveta Atual</span>
-                  <p className="text-base font-black text-emerald-400">R$ {formatCurrency(sessionStats.dinheiroEsperado)}</p>
+                  <p className={`text-base font-black font-mono ${sessionStats.dinheiroEsperado < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {sessionStats.dinheiroEsperado < 0 ? `-R$ ${formatCurrency(Math.abs(sessionStats.dinheiroEsperado))}` : `R$ ${formatCurrency(sessionStats.dinheiroEsperado)}`}
+                  </p>
                 </div>
                 <div className="bg-white/5 p-3 rounded-xl border border-white/5">
                   <span className="text-[10px] text-slate-400 font-bold uppercase">Total Vendas</span>

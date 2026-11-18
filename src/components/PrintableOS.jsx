@@ -175,76 +175,150 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
 
   // ─── PADRÃO DE ITENS DO PEDIDO (PRODUTOS & SERVIÇOS) ─────────────
   const orderItems = useMemo(() => {
+    const totalSaleNum = parseCurrencyPrint(displayTotal);
+    const valArmacao = parseCurrencyPrint(osData.valorArmacao || osData.raw?.['VALOR ARMAÇÃO'] || osData.raw?.['VALOR_ARMACAO'] || osData.raw?.valorArmacao || safeClient['VALOR ARMAÇÃO'] || 0);
+    const valLente = parseCurrencyPrint(osData.valorLente || osData.raw?.['VALOR LENTE'] || osData.raw?.['VALOR_LENTE'] || osData.raw?.valorLente || safeClient['VALOR LENTE'] || 0);
+
+    const generalDetails = osData.detalhes || osData.detalhesProduto || osData.raw?.['DETALHES'] || osData.raw?.['detalhes'] || osData.raw?.['DETALHE DO PRODUTO'] || osData.raw?.['DETALHES DO PRODUTO'] || osData.raw?.['DETALHES_PRODUTO'] || safeClient['DETALHES'] || safeClient['DETALHE DO PRODUTO'] || safeClient['DETALHES DO PRODUTO'] || safeClient['DETALHES_PRODUTO'] || '';
+
     // 1. Se houver array de itens explícito vindo do PDV ou OS
     const rawItens = osData.itens || safeClient.itens || (osData.raw && osData.raw.itens) || [];
     if (Array.isArray(rawItens) && rawItens.length > 0) {
-      return rawItens.map(item => {
+      const mapped = rawItens.map(item => {
         let tipo = 'Produto';
         if (item.type === 'armacoes') tipo = 'Armação';
         else if (item.type === 'lentes') tipo = 'Lente Oftálmica';
         else if (item.type === 'brindes') tipo = 'Brinde / Cortesia';
         else if (item.type === 'avulso') tipo = 'Serviço / Avulso';
 
+        const extraDetails = [];
+        if (item.detalhes) extraDetails.push(item.detalhes);
+        if (item.cor && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.cor).toLowerCase()))) {
+          extraDetails.push(`Cor: ${item.cor}`);
+        }
+        if (item.tratamento && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.tratamento).toLowerCase()))) {
+          extraDetails.push(`Tratamento: ${item.tratamento}`);
+        }
+        if (item.material && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.material).toLowerCase()))) {
+          extraDetails.push(`Material: ${item.material}`);
+        }
+        if (item.ref && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.ref).toLowerCase()))) {
+          extraDetails.push(`Ref: ${item.ref}`);
+        }
+        if (item.observacoes && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.observacoes).toLowerCase()))) {
+          extraDetails.push(item.observacoes);
+        }
+        if (extraDetails.length === 0 && generalDetails) {
+          extraDetails.push(generalDetails);
+        }
+
         const precoUnit = parseCurrencyPrint(item.preco || item.valor || 0);
         const qtd = Number(item.qtd) || 1;
+        const total = qtd * precoUnit;
         return {
           tipo,
           nome: item.nome || item.descricao || 'Produto do Pedido',
-          detalhes: item.detalhes || '',
+          detalhes: extraDetails.join(' | '),
           qtd,
           precoUnit,
-          total: qtd * precoUnit
+          total
         };
       });
+
+      // Se só houver 1 item e ele não tiver preço explícito, atribui o valor total da venda ao produto
+      if (mapped.length === 1 && mapped[0].total === 0 && totalSaleNum > 0) {
+        mapped[0].precoUnit = totalSaleNum;
+        mapped[0].total = totalSaleNum;
+      }
+      return mapped;
     }
 
     // 2. Monta a partir dos campos estruturados de Armação e Lente
     const items = [];
-    const armacaoNome = osData.armacao || safeClient['Armação'] || safeClient['Modelo de Armação'];
+    const armacaoNome = osData.armacao || osData.raw?.['ARMAÇÃO'] || osData.raw?.['ARMACAO'] || safeClient['Armação'] || safeClient['Modelo de Armação'];
     if (armacaoNome && armacaoNome !== 'Não informada') {
       const extra = [];
-      if (safeClient['Cor']) extra.push(`Cor: ${safeClient['Cor']}`);
-      if (safeClient['REFERENCIA_SKU']) extra.push(`Ref: ${safeClient['REFERENCIA_SKU']}`);
+      const cor = osData.cor || osData.raw?.['COR'] || osData.raw?.['Cor'] || safeClient['Cor'] || safeClient['COR'];
+      if (cor) extra.push(`Cor: ${cor}`);
+      const ref = osData.referenciaSku || osData.raw?.['REFERENCIA_SKU'] || osData.raw?.['CODIGO'] || safeClient['REFERENCIA_SKU'] || safeClient['CODIGO'];
+      if (ref) extra.push(`Ref: ${ref}`);
+      const detArm = osData.detalhesArmacao || osData.raw?.['DETALHES_ARMACAO'];
+      if (detArm) extra.push(detArm);
+      if (generalDetails && (!osData.lente && !safeClient['Lente'] && !safeClient['Marca de Lente'])) {
+        extra.push(generalDetails);
+      }
       items.push({
         tipo: 'Armação',
         nome: armacaoNome,
         detalhes: extra.join(' | '),
         qtd: 1,
-        precoUnit: null,
-        total: null
+        precoUnit: valArmacao > 0 ? valArmacao : null,
+        total: valArmacao > 0 ? valArmacao : null
       });
     }
 
-    const lenteNome = osData.lente || safeClient['Lente'] || safeClient['Marca de Lente'];
+    const lenteNome = osData.lente || osData.raw?.['LENTE'] || safeClient['Lente'] || safeClient['Marca de Lente'];
     if (lenteNome && lenteNome !== 'Não informada') {
       const extra = [];
-      if (osData.tratamento || safeClient['Tratamento']) extra.push(`Tratamento: ${osData.tratamento || safeClient['Tratamento']}`);
-      if (safeClient['MATERIAL']) extra.push(safeClient['MATERIAL']);
+      const trat = osData.tratamento || osData.raw?.['TRATAMENTO'] || osData.raw?.['Tratamento'] || safeClient['Tratamento'] || safeClient['TRATAMENTO'];
+      if (trat) extra.push(`Tratamento: ${trat}`);
+      const mat = osData.material || osData.raw?.['MATERIAL'] || osData.raw?.['Material'] || safeClient['MATERIAL'] || safeClient['Material'];
+      if (mat) extra.push(`Material: ${mat}`);
+      const tipoL = osData.tipoLente || osData.raw?.['TIPO_LENTE'] || safeClient['TIPO_LENTE'];
+      if (tipoL) extra.push(`Tipo: ${tipoL}`);
+      const detLente = osData.detalhesLente || osData.raw?.['DETALHES_LENTE'];
+      if (detLente) extra.push(detLente);
+      if (generalDetails && !extra.includes(generalDetails)) {
+        extra.push(generalDetails);
+      }
       items.push({
         tipo: 'Lente Oftálmica',
         nome: lenteNome,
         detalhes: extra.join(' | '),
         qtd: 1,
-        precoUnit: null,
-        total: null
+        precoUnit: valLente > 0 ? valLente : null,
+        total: valLente > 0 ? valLente : null
       });
     }
 
     if (items.length === 0 && (osData.produto || safeClient['PRODUTO'])) {
+      const extra = [];
+      if (generalDetails) extra.push(generalDetails);
+      const cor = osData.cor || osData.raw?.['COR'] || osData.raw?.['Cor'] || safeClient['Cor'] || safeClient['COR'];
+      if (cor) extra.push(`Cor: ${cor}`);
+      const trat = osData.tratamento || osData.raw?.['TRATAMENTO'] || osData.raw?.['Tratamento'] || safeClient['Tratamento'] || safeClient['TRATAMENTO'];
+      if (trat) extra.push(`Tratamento: ${trat}`);
+      const mat = osData.material || osData.raw?.['MATERIAL'] || osData.raw?.['Material'] || safeClient['MATERIAL'] || safeClient['Material'];
+      if (mat) extra.push(`Material: ${mat}`);
+
       items.push({
         tipo: 'Óculos Completo',
         nome: osData.produto || safeClient['PRODUTO'],
-        detalhes: '',
+        detalhes: extra.join(' | '),
         qtd: 1,
-        precoUnit: null,
-        total: null
+        precoUnit: totalSaleNum > 0 ? totalSaleNum : null,
+        total: totalSaleNum > 0 ? totalSaleNum : null
       });
     }
 
-    return items;
-  }, [osData, safeClient]);
+    // Se temos 1 item e ele não possui total explícito, atribui o valor da venda
+    if (items.length === 1 && (!items[0].total || items[0].total === 0) && totalSaleNum > 0) {
+      items[0].precoUnit = totalSaleNum;
+      items[0].total = totalSaleNum;
+    } else if (items.length === 2 && (!items[0].total && !items[1].total) && totalSaleNum > 0) {
+      // Pacote completo (Armação + Lente) vendido conjuntamente pelo valor total da venda
+      items[0].precoUnit = 0;
+      items[0].total = 0;
+      items[0].isPacoteIncluso = true;
+      items[1].precoUnit = totalSaleNum;
+      items[1].total = totalSaleNum;
+      items[1].isPacotePrincipal = true;
+    }
 
-  const hasItemPrices = orderItems.some(item => item.total && item.total > 0);
+    return items;
+  }, [osData, safeClient, displayTotal]);
+
+  const hasItemPrices = true; // As colunas de valor do produto/venda sempre são exibidas conforme especificação
 
   // ─── CRONOGRAMA DE PARCELAS DO BOLETO ─────────────────────
   const installmentsList = useMemo(() => {
@@ -591,26 +665,22 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
           <table className="w-full border-collapse border border-slate-300 text-[8.5px]">
             <thead>
               <tr className="bg-slate-100 text-slate-800 uppercase font-black text-[7.5px]">
-                <th className="border border-slate-300 py-0.5 px-1.5 text-left">Item / Descrição do Produto</th>
-                <th className="border border-slate-300 py-0.5 px-1 text-center w-28">Categoria</th>
-                <th className="border border-slate-300 py-0.5 px-1 text-center w-12">Qtd</th>
-                {hasItemPrices ? (
-                  <>
-                    <th className="border border-slate-300 py-0.5 px-1 text-right w-20">Unit. (R$)</th>
-                    <th className="border border-slate-300 py-0.5 px-1.5 text-right w-20">Subtotal</th>
-                  </>
-                ) : (
-                  <th className="border border-slate-300 py-0.5 px-1 text-center w-28">Previsão Entrega</th>
-                )}
+                <th className="border border-slate-300 py-0.5 px-1.5 text-left">Item / Descrição do Produto & Detalhes</th>
+                <th className="border border-slate-300 py-0.5 px-1 text-center w-24">Categoria</th>
+                <th className="border border-slate-300 py-0.5 px-1 text-center w-10">Qtd</th>
+                <th className="border border-slate-300 py-0.5 px-1 text-right w-20">Unit. (R$)</th>
+                <th className="border border-slate-300 py-0.5 px-1.5 text-right w-24">Subtotal / Valor</th>
               </tr>
             </thead>
             <tbody>
               {orderItems.map((item, idx) => (
                 <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"}>
                   <td className="border border-slate-300 py-0.5 px-1.5">
-                    <strong className="text-slate-900 font-bold">{item.nome}</strong>
+                    <strong className="text-slate-900 font-bold text-[8.5px]">{item.nome}</strong>
                     {item.detalhes && (
-                      <span className="text-slate-500 text-[7.5px] block font-medium">{item.detalhes}</span>
+                      <span className="text-slate-600 text-[7.5px] block font-medium mt-0.5 leading-snug">
+                        🔍 {item.detalhes}
+                      </span>
                     )}
                   </td>
                   <td className="border border-slate-300 py-0.5 px-1 text-center text-[7.5px] font-bold text-slate-700 uppercase">
@@ -619,23 +689,37 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
                   <td className="border border-slate-300 py-0.5 px-1 text-center font-bold text-slate-900">
                     {item.qtd}
                   </td>
-                  {hasItemPrices ? (
-                    <>
-                      <td className="border border-slate-300 py-0.5 px-1 text-right text-slate-700">
-                        {item.precoUnit ? formatCurrencyPrint(item.precoUnit) : item.tipo === 'Brinde / Cortesia' ? 'Cortesia' : '—'}
-                      </td>
-                      <td className="border border-slate-300 py-0.5 px-1.5 text-right font-black text-slate-900">
-                        {item.total ? formatCurrencyPrint(item.total) : item.tipo === 'Brinde / Cortesia' ? 'R$ 0,00' : '—'}
-                      </td>
-                    </>
-                  ) : (
-                    <td className="border border-slate-300 py-0.5 px-1 text-center font-bold text-slate-800">
-                      {formatDatePrint(osData.dataEntrega)}
-                    </td>
-                  )}
+                  <td className="border border-slate-300 py-0.5 px-1 text-right text-slate-800 font-mono">
+                    {item.precoUnit && item.precoUnit > 0
+                      ? formatCurrencyPrint(item.precoUnit)
+                      : item.isPacoteIncluso
+                      ? 'Incluso no Combo'
+                      : item.tipo === 'Brinde / Cortesia'
+                      ? 'Cortesia'
+                      : (item.precoUnit === 0 ? 'R$ 0,00' : '—')}
+                  </td>
+                  <td className="border border-slate-300 py-0.5 px-1.5 text-right font-black text-slate-900 font-mono">
+                    {item.total && item.total > 0
+                      ? `R$ ${formatCurrencyPrint(item.total)}`
+                      : item.isPacoteIncluso
+                      ? 'R$ 0,00 (Incluso)'
+                      : item.tipo === 'Brinde / Cortesia'
+                      ? 'R$ 0,00'
+                      : (item.total === 0 ? 'R$ 0,00' : '—')}
+                  </td>
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr className="bg-slate-100/90 font-black text-slate-950 border-t-2 border-slate-300">
+                <td colSpan={3} className="text-right py-1 px-2 border border-slate-300 uppercase text-[8px] tracking-wider text-slate-700">
+                  Valor do Produto / Total da Venda:
+                </td>
+                <td colSpan={2} className="text-right py-1 px-2 border border-slate-300 text-[9px] font-black text-slate-950 font-mono">
+                  R$ {formatCurrencyPrint(displayTotal)}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
 
@@ -660,7 +744,7 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
           <div className="grid grid-cols-3 gap-1.5 mb-1.5">
             <div className="border border-slate-800 p-1 text-center rounded bg-slate-50">
               <p className="uppercase text-[7.5px] font-black text-slate-600">
-                {isSecondary ? 'Cobrança da OS' : 'Valor Total da OS'}
+                {isSecondary ? 'Cobrança da OS' : 'Valor do Produto / Venda'}
               </p>
               <p className="font-black text-xs text-slate-950">
                 {isSecondary ? 'Cobrança Unificada' : `R$ ${formatCurrencyPrint(displayTotal)}`}
@@ -780,8 +864,8 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
           {/* Quadro de Resumo Financeiro do Contrato com Destaque */}
           <div className="mt-2 pt-1.5 border-t-2 border-slate-300 grid grid-cols-3 gap-2 text-center bg-white p-1.5 rounded-md border border-slate-200 shadow-2xs">
             <div className="text-[9px] font-black text-slate-950">
-              <span className="text-slate-500 font-bold block text-[7.5px] uppercase tracking-wider">Total do Pedido</span>
-              <span>Valor Total: R$ {formatCurrencyPrint(osData.valorTotal ?? osData['VALOR TOTAL'] ?? osData['VALOR'] ?? osData.total ?? osData.valor ?? safeClient['VALOR TOTAL'] ?? safeClient['Valor Total'])}</span>
+              <span className="text-slate-500 font-bold block text-[7.5px] uppercase tracking-wider">Valor do Produto / Venda</span>
+              <span>Total: R$ {formatCurrencyPrint(osData.valorTotal ?? osData['VALOR TOTAL'] ?? osData['VALOR DA VENDA'] ?? osData['VALOR'] ?? osData.total ?? osData.valor ?? safeClient['VALOR TOTAL'] ?? safeClient['Valor Total'])}</span>
             </div>
             <div className="text-[9px] font-black text-emerald-800 border-x border-slate-200">
               <span className="text-emerald-700 font-bold block text-[7.5px] uppercase tracking-wider">Entrada / Sinal</span>

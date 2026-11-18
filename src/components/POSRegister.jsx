@@ -290,7 +290,7 @@ const POSRegister = ({
         saldo += v;
       }
     });
-    return Math.max(0, saldo);
+    return saldo; // Permite saldo negativo se sangrias excederem o caixa
   }, [activeSession, cashMovements, selectedPOSCity]);
 
   const handleOpenCash = async (openData) => {
@@ -2539,14 +2539,14 @@ const POSRegister = ({
             {/* Gaveta Dinheiro em Espécie */}
             <div 
               onClick={() => setCashModalState({ isOpen: true, type: 'EXTRATO' })}
-              className="h-10 bg-slate-950/90 hover:bg-black border border-emerald-500/40 hover:border-emerald-400 px-3.5 rounded-xl flex items-center gap-2.5 cursor-pointer transition-all group shadow-sm active:scale-95 whitespace-nowrap shrink-0"
+              className={`h-10 bg-slate-950/90 hover:bg-black border ${liveDrawerCash < 0 ? 'border-rose-500/60 hover:border-rose-400 bg-rose-950/20' : 'border-emerald-500/40 hover:border-emerald-400'} px-3.5 rounded-xl flex items-center gap-2.5 cursor-pointer transition-all group shadow-sm active:scale-95 whitespace-nowrap shrink-0`}
               title="Clique para ver o extrato detalhado do turno"
             >
-              <Wallet size={15} className="text-emerald-400 shrink-0" />
+              <Wallet size={15} className={`${liveDrawerCash < 0 ? 'text-rose-400' : 'text-emerald-400'} shrink-0`} />
               <div className="text-left flex items-baseline gap-1.5">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Gaveta:</span>
-                <span className="text-xs font-black text-emerald-400 font-mono group-hover:text-emerald-300">
-                  {fmtMoeda(liveDrawerCash)}
+                <span className={`text-xs font-black font-mono ${liveDrawerCash < 0 ? 'text-rose-400 group-hover:text-rose-300' : 'text-emerald-400 group-hover:text-emerald-300'}`}>
+                  {liveDrawerCash < 0 ? `-R$ ${Math.abs(liveDrawerCash).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : fmtMoeda(liveDrawerCash)}
                 </span>
               </div>
             </div>

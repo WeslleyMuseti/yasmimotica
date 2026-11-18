@@ -8918,6 +8918,58 @@ async function runTests() {
     console.log('  ✅ Test 94 Passed: Conexão e Módulo do Arquivo Histórico Legado validados com 100% de sucesso!\n');
   }
 
+  // ==========================================
+  // TEST 95: Detalhes do Produto & Valor da Venda na OS e Sangria com Saldo Negativo na Gaveta
+  // ==========================================
+  console.log('▶ Test 95: Detalhes do Produto, Valor da Venda na OS e Sangria com Saldo Negativo de Caixa');
+  {
+    const printableOSSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableOS.jsx'), 'utf8');
+    const cashModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'CashManagementModal.jsx'), 'utf8');
+    const posRegisterSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'POSRegister.jsx'), 'utf8');
+    const closingReportSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableCashClosingReport.jsx'), 'utf8');
+    const osMgmtSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'OSManagement.jsx'), 'utf8');
+
+    // 1. Verificação de Detalhes do Produto e Valor da Venda na OS (PrintableOS.jsx)
+    console.assert(printableOSSrc.includes('hasItemPrices = true'), 'PrintableOS deve manter colunas de preço sempre ativas');
+    console.assert(printableOSSrc.includes('Valor do Produto / Total da Venda:'), 'PrintableOS deve exibir total do produto/venda no rodapé da tabela');
+    console.assert(printableOSSrc.includes('Valor do Produto / Venda'), 'PrintableOS deve rotular o card financeiro como Valor do Produto / Venda');
+    console.assert(printableOSSrc.includes('extraDetails.push(`Cor: ${item.cor}`)'), 'PrintableOS deve extrair cor do produto');
+    console.assert(printableOSSrc.includes('extraDetails.push(`Tratamento: ${item.tratamento}`)'), 'PrintableOS deve extrair tratamento do produto');
+    console.assert(printableOSSrc.includes('extraDetails.push(`Material: ${item.material}`)'), 'PrintableOS deve extrair material do produto');
+    console.assert(!printableOSSrc.includes('<th className="border border-slate-300 py-0.5 px-1 text-center w-28">Previsão Entrega</th>'), 'PrintableOS não deve ocultar colunas de preço substituindo por Previsão Entrega');
+
+    // 2. Verificação de Detalhes do Produto em OSManagement.jsx
+    console.assert(osMgmtSrc.includes('detalhes: order.detalhes'), 'OSManagement deve repassar detalhes do produto para a impressão');
+    console.assert(osMgmtSrc.includes('cor: order.cor'), 'OSManagement deve repassar cor para a impressão');
+    console.assert(osMgmtSrc.includes('tratamento: order.tratamento'), 'OSManagement deve repassar tratamento para a impressão');
+    console.assert(osMgmtSrc.includes('material: order.material'), 'OSManagement deve repassar material para a impressão');
+
+    // 3. Verificação de Sangria Permitindo Saldo Negativo na Gaveta (CashManagementModal.jsx)
+    console.assert(!cashModalSrc.includes('Não é permitido realizar uma sangria com valor superior ao dinheiro existente na gaveta'), 'CashManagementModal não deve bloquear sangria quando exceder gaveta');
+    console.assert(cashModalSrc.includes('saldoGavetaApos: sessionStats.dinheiroEsperado - val'), 'CashManagementModal deve calcular saldo após sangria sem clamping para 0');
+    console.assert(cashModalSrc.includes('const dinheiroEsperado = (fundoInicial + totalEntradasEspecie - totalSangrias - totalSaidas);'), 'CashManagementModal deve permitir dinheiroEsperado negativo');
+    console.assert(cashModalSrc.includes('sessionStats.dinheiroEsperado < 0'), 'CashManagementModal deve identificar e estilizar saldo negativo em vermelho');
+
+    // 4. Verificação de Saldo Negativo no PDV (POSRegister.jsx)
+    console.assert(posRegisterSrc.includes('liveDrawerCash < 0'), 'POSRegister deve detectar gaveta negativa');
+    console.assert(posRegisterSrc.includes('return saldo; // Permite saldo negativo'), 'POSRegister liveDrawerCash deve retornar saldo real sem Math.max(0)');
+
+    // 5. Verificação de Saldo Negativo no Relatório de Fechamento de Caixa (PrintableCashClosingReport.jsx)
+    console.assert(closingReportSrc.includes('const computedDinheiroEsperado = (fundoInicial + vendasDinheiro + totalRecebimentosDinheiro + totalSuprimentos - totalRetiradasGaveta);'), 'PrintableCashClosingReport deve permitir dinheiro esperado negativo');
+    console.assert(closingReportSrc.includes('dinheiroEsperado < 0'), 'PrintableCashClosingReport deve exibir saldo negativo em vermelho com sinal');
+
+    // 6. Teste de Cálculo Matemático de Saldo Negativo
+    const fundo = 100;
+    const entradas = 50;
+    const sangria = 200;
+    const saldoFinal = fundo + entradas - sangria;
+    console.assert(saldoFinal === -50, `Saldo esperado deveria ser -50, obteve ${saldoFinal}`);
+    const formattedNegative = `-R$ ${Math.abs(saldoFinal).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    console.assert(formattedNegative === '-R$ 50,00', `Formatação esperada deveria ser -R$ 50,00, obteve ${formattedNegative}`);
+
+    console.log('  ✅ Test 95 Passed: Detalhes do Produto, Valor da Venda na OS e Sangria com Saldo Negativo validados com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

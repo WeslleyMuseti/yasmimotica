@@ -729,7 +729,15 @@ const OSManagement = ({
         duplicatasGeradas: sale["DUPLICATAS_GERADAS"] === true,
         pagamentoConferido: sale["PAGAMENTO_CONFERIDO"] === true || sale["PAGAMENTO_CONFERIDO"] === "Sim",
         voucher: sale["VOUCHER"] || sale["voucher"] || sale.raw?.["VOUCHER"] || matchedClient?.["VOUCHER"] || "",
-        descontoVoucher: sale["DESCONTO_VOUCHER"] || sale["descontoVoucher"] || sale.raw?.["DESCONTO_VOUCHER"] || matchedClient?.["DESCONTO_VOUCHER"] || ""
+        descontoVoucher: sale["DESCONTO_VOUCHER"] || sale["descontoVoucher"] || sale.raw?.["DESCONTO_VOUCHER"] || matchedClient?.["DESCONTO_VOUCHER"] || "",
+        itens: sale["itens"] || sale["ITENS"] || (typeof sale["ITENS_JSON"] === 'string' ? JSON.parse(sale["ITENS_JSON"]) : null) || matchedClient?.["itens"] || [],
+        detalhes: sale["DETALHES"] || sale["detalhes"] || sale["DETALHE"] || sale["DETALHE DO PRODUTO"] || sale["DETALHES DO PRODUTO"] || sale["DETALHES_PRODUTO"] || sale["OBS_PRODUTO"] || matchedClient?.["DETALHES"] || "",
+        cor: sale["COR"] || sale["Cor"] || matchedClient?.["Cor"] || "",
+        tratamento: sale["TRATAMENTO"] || sale["Tratamento"] || matchedClient?.["Tratamento"] || "",
+        material: sale["MATERIAL"] || sale["Material"] || matchedClient?.["MATERIAL"] || "",
+        referenciaSku: sale["REFERENCIA_SKU"] || sale["referenciaSku"] || sale["CODIGO"] || matchedClient?.["REFERENCIA_SKU"] || "",
+        valorArmacao: sale["VALOR ARMAÇÃO"] || sale["VALOR_ARMACAO"] || sale["valorArmacao"] || matchedClient?.["VALOR ARMAÇÃO"] || "",
+        valorLente: sale["VALOR LENTE"] || sale["VALOR_LENTE"] || sale["valorLente"] || matchedClient?.["VALOR LENTE"] || ""
       });
     });
 
@@ -1243,6 +1251,14 @@ const OSManagement = ({
       medico: order.raw["MEDICO"] || "",
       lente: order.lente || order.raw["LENTE"] || order.product,
       armacao: order.armacao || order.raw["ARMAÇÃO"] || "",
+      itens: order.itens || order.raw?.itens || targetClient?.itens || [],
+      detalhes: order.detalhes || order.raw?.["DETALHES"] || order.raw?.["detalhes"] || order.raw?.["DETALHE DO PRODUTO"] || targetClient?.["DETALHES"] || "",
+      cor: order.cor || order.raw?.["COR"] || order.raw?.["Cor"] || targetClient?.["Cor"] || "",
+      tratamento: order.tratamento || order.raw?.["TRATAMENTO"] || order.raw?.["Tratamento"] || targetClient?.["Tratamento"] || "",
+      material: order.material || order.raw?.["MATERIAL"] || order.raw?.["Material"] || targetClient?.["MATERIAL"] || "",
+      referenciaSku: order.referenciaSku || order.raw?.["REFERENCIA_SKU"] || order.raw?.["CODIGO"] || targetClient?.["REFERENCIA_SKU"] || "",
+      valorArmacao: order.valorArmacao || order.raw?.["VALOR ARMAÇÃO"] || order.raw?.["VALOR_ARMACAO"] || "",
+      valorLente: order.valorLente || order.raw?.["VALOR LENTE"] || order.raw?.["VALOR_LENTE"] || "",
       valorTotal: order.valorTotal,
       valorEntrada: order.raw["VALOR ENTRADA"] || "0,00",
       restante: order.raw["RESTANTE"] || "0,00",
@@ -1468,6 +1484,14 @@ const OSManagement = ({
         medico: o.medico || o.raw?.["MEDICO"] || "",
       lente: o.lente || o.raw?.["LENTE"] || o.product,
       armacao: o.armacao || o.raw?.["ARMAÇÃO"] || "",
+      itens: o.itens || o.raw?.itens || orderTargetClient?.itens || [],
+      detalhes: o.detalhes || o.raw?.["DETALHES"] || o.raw?.["detalhes"] || o.raw?.["DETALHE DO PRODUTO"] || orderTargetClient?.["DETALHES"] || "",
+      cor: o.cor || o.raw?.["COR"] || o.raw?.["Cor"] || orderTargetClient?.["Cor"] || "",
+      tratamento: o.tratamento || o.raw?.["TRATAMENTO"] || o.raw?.["Tratamento"] || orderTargetClient?.["Tratamento"] || "",
+      material: o.material || o.raw?.["MATERIAL"] || o.raw?.["Material"] || orderTargetClient?.["MATERIAL"] || "",
+      referenciaSku: o.referenciaSku || o.raw?.["REFERENCIA_SKU"] || o.raw?.["CODIGO"] || orderTargetClient?.["REFERENCIA_SKU"] || "",
+      valorArmacao: o.valorArmacao || o.raw?.["VALOR ARMAÇÃO"] || o.raw?.["VALOR_ARMACAO"] || "",
+      valorLente: o.valorLente || o.raw?.["VALOR LENTE"] || o.raw?.["VALOR_LENTE"] || "",
       valorTotal: o.valorTotal,
       valorEntrada: o.raw?.["VALOR ENTRADA"] || "0,00",
       restante: o.raw?.["RESTANTE"] || "0,00",
@@ -1536,6 +1560,14 @@ const OSManagement = ({
       medico: o.medico || o.raw?.["MEDICO"] || "",
       lente: o.lente || o.raw?.["LENTE"] || o.product,
       armacao: o.armacao || o.raw?.["ARMAÇÃO"] || "",
+      itens: o.itens || o.raw?.itens || orderTargetClient?.itens || [],
+      detalhes: o.detalhes || o.raw?.["DETALHES"] || o.raw?.["detalhes"] || o.raw?.["DETALHE DO PRODUTO"] || orderTargetClient?.["DETALHES"] || "",
+      cor: o.cor || o.raw?.["COR"] || o.raw?.["Cor"] || orderTargetClient?.["Cor"] || "",
+      tratamento: o.tratamento || o.raw?.["TRATAMENTO"] || o.raw?.["Tratamento"] || orderTargetClient?.["Tratamento"] || "",
+      material: o.material || o.raw?.["MATERIAL"] || o.raw?.["Material"] || orderTargetClient?.["MATERIAL"] || "",
+      referenciaSku: o.referenciaSku || o.raw?.["REFERENCIA_SKU"] || o.raw?.["CODIGO"] || orderTargetClient?.["REFERENCIA_SKU"] || "",
+      valorArmacao: o.valorArmacao || o.raw?.["VALOR ARMAÇÃO"] || o.raw?.["VALOR_ARMACAO"] || "",
+      valorLente: o.valorLente || o.raw?.["VALOR LENTE"] || o.raw?.["VALOR_LENTE"] || "",
       valorTotal: o.valorTotal,
       valorEntrada: o.raw?.["VALOR ENTRADA"] || "0,00",
       restante: o.raw?.["RESTANTE"] || "0,00",
@@ -2574,6 +2606,23 @@ const OSManagement = ({
                               {!order.armacao && !order.lente && (
                                 <p className="text-xs font-bold text-slate-200">{order.product}</p>
                               )}
+                              {(order.cor || order.referenciaSku) && (
+                                <p className="text-[10px] text-amber-300/80">
+                                  {order.cor && <span className="mr-1.5 font-medium">Cor: {order.cor}</span>}
+                                  {order.referenciaSku && <span className="text-slate-400">Ref: {order.referenciaSku}</span>}
+                                </p>
+                              )}
+                              {(order.tratamento || order.material) && (
+                                <p className="text-[10px] text-indigo-300/80">
+                                  {order.tratamento && <span className="mr-1.5 font-medium">Trat: {order.tratamento}</span>}
+                                  {order.material && <span className="text-slate-400">Mat: {order.material}</span>}
+                                </p>
+                              )}
+                              {order.detalhes && (
+                                <p className="text-[10px] text-slate-300/90 italic line-clamp-2">
+                                  {order.detalhes}
+                                </p>
+                              )}
                               {order.dioptria && (
                                 <span className="inline-block text-[10px] bg-sky-500/10 text-sky-300 border border-sky-500/20 px-2 py-0.5 rounded font-mono mt-0.5">
                                   {order.dioptria}
@@ -2872,11 +2921,29 @@ const OSManagement = ({
                                     <div>
                                       <span className="text-[10px] font-black uppercase tracking-wider text-amber-400/80 block">Armação</span>
                                       <p className="text-white font-bold">{order.armacao || "Armação própria do cliente"}</p>
+                                      {(order.cor || order.referenciaSku) && (
+                                        <p className="text-[10px] text-amber-300/80 mt-0.5">
+                                          {order.cor && <span className="mr-1.5 font-medium">Cor: {order.cor}</span>}
+                                          {order.referenciaSku && <span className="text-slate-400">Ref: {order.referenciaSku}</span>}
+                                        </p>
+                                      )}
                                     </div>
                                     <div>
                                       <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400/80 block">Lente</span>
                                       <p className="text-indigo-200 font-bold">{order.lente || order.product || "Lente oftálmica"}</p>
+                                      {(order.tratamento || order.material) && (
+                                        <p className="text-[10px] text-indigo-300/80 mt-0.5">
+                                          {order.tratamento && <span className="mr-1.5 font-medium">Trat: {order.tratamento}</span>}
+                                          {order.material && <span className="text-slate-400">Mat: {order.material}</span>}
+                                        </p>
+                                      )}
                                     </div>
+                                    {order.detalhes && (
+                                      <div>
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Detalhes do Produto</span>
+                                        <p className="text-xs text-slate-300 italic">{order.detalhes}</p>
+                                      </div>
+                                    )}
                                     {order.laboratorio && (
                                       <div>
                                         <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400/80 block">Laboratório</span>

@@ -119,7 +119,7 @@ export const buildCashClosingReportSummary = (closingData = {}, movements = [], 
     ? parseReportNum(closingData.totalEntradasEspecie)
     : computedEntradasEspecie;
 
-  const computedDinheiroEsperado = Math.max(0, fundoInicial + vendasDinheiro + totalRecebimentosDinheiro + totalSuprimentos - totalRetiradasGaveta);
+  const computedDinheiroEsperado = (fundoInicial + vendasDinheiro + totalRecebimentosDinheiro + totalSuprimentos - totalRetiradasGaveta);
   const dinheiroEsperado = closingData.dinheiroEsperado !== undefined
     ? parseReportNum(closingData.dinheiroEsperado)
     : computedDinheiroEsperado;
@@ -627,8 +627,8 @@ export const PrintableCashClosingReport = ({
               <span style={{ display: 'block', fontSize: '7.5px', fontWeight: 800, textTransform: 'uppercase', color: '#0f172a' }}>
                 Saldo Físico na Gaveta
               </span>
-              <strong style={{ fontSize: '11px', fontWeight: 900, color: '#0f172a', fontFamily: 'monospace' }}>
-                R$ {formatReportMoney(dinheiroEsperado)}
+              <strong style={{ fontSize: '11px', fontWeight: 900, color: dinheiroEsperado < 0 ? '#b91c1c' : '#0f172a', fontFamily: 'monospace' }}>
+                {dinheiroEsperado < 0 ? `-R$ ${formatReportMoney(Math.abs(dinheiroEsperado))}` : `R$ ${formatReportMoney(dinheiroEsperado)}`}
               </strong>
             </td>
           </tr>
@@ -808,8 +808,8 @@ export const PrintableCashClosingReport = ({
                     <td style={{ padding: '3.5px 8px', fontWeight: 900, color: '#0f172a' }}>
                       (=) SALDO FÍSICO ESPERADO:
                     </td>
-                    <td style={{ padding: '3.5px 8px', textAlign: 'right', fontWeight: 900, color: '#0f172a', fontFamily: 'monospace' }}>
-                      R$ {formatReportMoney(dinheiroEsperado)}
+                    <td style={{ padding: '3.5px 8px', textAlign: 'right', fontWeight: 900, color: dinheiroEsperado < 0 ? '#b91c1c' : '#0f172a', fontFamily: 'monospace' }}>
+                      {dinheiroEsperado < 0 ? `-R$ ${formatReportMoney(Math.abs(dinheiroEsperado))}` : `R$ ${formatReportMoney(dinheiroEsperado)}`}
                     </td>
                   </tr>
                   <tr style={{ borderBottom: '1px solid #94a3b8' }}>
