@@ -14,7 +14,8 @@ import {
   Eye,
   ChevronRight,
   Megaphone,
-  Database
+  Database,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 

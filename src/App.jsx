@@ -13,7 +13,7 @@ import OSManagement from './components/OSManagement';
 import POSRegister from './components/POSRegister';
 import LoadingScreen from './components/LoadingScreen';
 import HistoricoLegadoView from './components/HistoricoLegadoView';
-import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package, UserCog, ClipboardList, LogOut, ShoppingCart, Menu, Wifi, WifiOff, KeyRound, Building, Megaphone, Bell, Database } from 'lucide-react';
+import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package, UserCog, ClipboardList, LogOut, ShoppingCart, Menu, Wifi, WifiOff, KeyRound, Building, Megaphone, Bell, Database, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import FirebaseSetupScreen from './components/FirebaseSetupScreen';
