@@ -1555,23 +1555,23 @@ function App() {
               </span>
             )}
             {view === 'historico-legado' && (
-              <span className="text-xs font-black text-violet-400 flex items-center gap-1.5">
-                <Database size={13} /> Arquivo Histórico (MySQL)
+              <span className="text-xs font-black text-pink-400 flex items-center gap-1.5">
+                <Sparkles size={13} /> Dashboard Marketing
               </span>
             )}
           </div>
 
           {/* Lado Direito: Ações Rápidas + Avatar do Usuário + Sair */}
           <div className="flex items-center gap-1 sm:gap-2 md:gap-2.5 shrink-0">
-            {/* Quick Action: Arquivo Histórico (MySQL) */}
+            {/* Quick Action: Dashboard Marketing */}
             {view !== 'historico-legado' && (
               <button
                 onClick={() => setView('historico-legado')}
-                className="hidden lg:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-xs font-black bg-violet-500/15 hover:bg-violet-500/25 text-violet-400 border border-violet-500/30 transition-all shadow-sm active:scale-95"
-                title="Consultar Arquivo Histórico Legado (32.204 registros no MySQL)"
+                className="hidden lg:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-xs font-black bg-pink-500/15 hover:bg-pink-500/25 text-pink-400 border border-pink-500/30 transition-all shadow-sm active:scale-95"
+                title="Acessar Dashboard Marketing (Vendas, Vouchers e Pós-Venda)"
               >
-                <Database size={14} />
-                <span>Arquivo Histórico</span>
+                <Sparkles size={14} />
+                <span>Dashboard Marketing</span>
               </button>
             )}
 

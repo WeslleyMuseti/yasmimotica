@@ -88,19 +88,58 @@ $tipo = isset($_GET['tipo']) ? trim($_GET['tipo']) : 'todas';
 $limit = isset($_GET['limit']) ? min(100, max(1, (int)$_GET['limit'])) : 50;
 
 if (empty($query)) {
-    echo json_encode([
-        'success' => true,
-        'results' => [
-            'vendas' => [],
-            'parcelas' => [],
-            'vouchers' => [],
-            'estoque' => [],
-            'marketing' => []
-        ],
-        'total' => 0,
-        'message' => 'Digite um termo para pesquisar no arquivo histórico (Nome, CPF, OS, Telefone).'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+    // 🛡️ Retorna os registros mais recentes para alimentar o Dashboard Marketing imediatamente!
+    $results = [
+        'vendas' => [],
+        'parcelas' => [],
+        'vouchers' => [],
+        'estoque' => [],
+        'marketing' => []
+    ];
+    $totalFound = 0;
+
+    try {
+        if ($tipo === 'todas' || $tipo === 'marketing') {
+            $stmt = $pdo->query("SELECT * FROM `tb_marketing_legado` ORDER BY `id` DESC LIMIT $limit");
+            $results['marketing'] = $stmt->fetchAll();
+            $totalFound += count($results['marketing']);
+        }
+        if ($tipo === 'todas' || $tipo === 'vendas') {
+            $stmt = $pdo->query("SELECT * FROM `tb_vendas_legado` ORDER BY `id` DESC LIMIT $limit");
+            $results['vendas'] = $stmt->fetchAll();
+            $totalFound += count($results['vendas']);
+        }
+        if ($tipo === 'todas' || $tipo === 'vouchers') {
+            $stmt = $pdo->query("SELECT * FROM `tb_vouchers_legado` ORDER BY `id` DESC LIMIT $limit");
+            $results['vouchers'] = $stmt->fetchAll();
+            $totalFound += count($results['vouchers']);
+        }
+        if ($tipo === 'todas' || $tipo === 'parcelas') {
+            $stmt = $pdo->query("SELECT * FROM `tb_parcelas_legado` ORDER BY `id` DESC LIMIT $limit");
+            $results['parcelas'] = $stmt->fetchAll();
+            $totalFound += count($results['parcelas']);
+        }
+        if ($tipo === 'todas' || $tipo === 'estoque') {
+            $stmt = $pdo->query("SELECT * FROM `tb_estoque_legado` ORDER BY `id` DESC LIMIT $limit");
+            $results['estoque'] = $stmt->fetchAll();
+            $totalFound += count($results['estoque']);
+        }
+
+        echo json_encode([
+            'success' => true,
+            'query' => '',
+            'total' => $totalFound,
+            'results' => $results,
+            'isRecent' => true
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    } catch (\Exception $e) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Erro ao carregar recentes: ' . $e->getMessage()
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 }
 
 // Limpa pontuação para busca de CPF ou Telefone

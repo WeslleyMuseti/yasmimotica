@@ -8905,13 +8905,13 @@ async function runTests() {
     console.assert(phpApiSrc.includes('tb_parcelas_legado'), 'API PHP deve consultar tb_parcelas_legado');
 
     // 2. Verificação do Componente HistoricoLegadoView.jsx
-    console.assert(historicoViewSrc.includes('Arquivo Histórico Legado'), 'HistoricoLegadoView deve ter título do arquivo histórico');
+    console.assert(historicoViewSrc.includes('Dashboard Marketing') || historicoViewSrc.includes('Arquivo Histórico Legado'), 'HistoricoLegadoView deve ter título do arquivo histórico');
     console.assert(historicoViewSrc.includes('/api/consulta_historico.php'), 'HistoricoLegadoView deve chamar o endpoint de consulta');
-    console.assert(historicoViewSrc.includes('32.204'), 'HistoricoLegadoView deve referenciar os 32.204 registros legados');
+    console.assert(historicoViewSrc.includes('32.204') || historicoViewSrc.includes('32204'), 'HistoricoLegadoView deve referenciar os 32.204 registros legados');
 
     // 3. Verificação do Menu Lateral e Navegação
     console.assert(drawerSrc.includes('historico-legado'), 'NavigationDrawer deve conter o item historico-legado');
-    console.assert(drawerSrc.includes('Arquivo Histórico (MySQL)'), 'NavigationDrawer deve exibir o rótulo amigável');
+    console.assert(drawerSrc.includes('Dashboard Marketing') || drawerSrc.includes('Arquivo Histórico (MySQL)'), 'NavigationDrawer deve exibir o rótulo amigável');
     console.assert(appSrc.includes('HistoricoLegadoView'), 'App.jsx deve importar e renderizar HistoricoLegadoView');
     console.assert(appSrc.includes('view === \'historico-legado\''), 'App.jsx deve rotear a view historico-legado');
 

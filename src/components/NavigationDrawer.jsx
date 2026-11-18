@@ -123,13 +123,13 @@ const NavigationDrawer = ({
         },
         {
           id: 'historico-legado',
-          label: 'Arquivo Histórico (MySQL)',
-          description: 'Consulta de vendas, parcelas e graus de anos anteriores (32.000+ registros)',
-          icon: Database,
-          color: 'violet',
-          gradient: 'from-violet-500 to-indigo-600',
-          textColor: 'text-violet-400',
-          bgActive: 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white font-black shadow-lg shadow-violet-500/25',
+          label: 'Dashboard Marketing',
+          description: 'Marketing, vouchers, redes sociais, pós-venda e histórico',
+          icon: Sparkles,
+          color: 'pink',
+          gradient: 'from-pink-500 to-purple-600',
+          textColor: 'text-pink-400',
+          bgActive: 'bg-gradient-to-r from-pink-500 to-purple-600 text-white font-black shadow-lg shadow-pink-500/25',
           visible: true
         }
       ]
