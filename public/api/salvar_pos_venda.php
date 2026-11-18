@@ -55,6 +55,160 @@ if (!is_array($input)) {
     $input = $_POST;
 }
 
+$action = trim((string)($input['action'] ?? ''));
+$targetTable = trim((string)($input['table'] ?? ''));
+$targetId = (int)($input['id'] ?? 0);
+
+// ─── MODO 1: EDIÇÃO DIRETA DE REGISTRO EXISTENTE NO MYSQL ─────────────────────
+if ($action === 'edit_row' || ($targetId > 0 && !empty($targetTable))) {
+    try {
+        if ($targetTable === 'marketing' || $targetTable === 'tb_marketing_legado') {
+            // Garante colunas de pós-venda
+            try {
+                $c = $pdo->query("SHOW COLUMNS FROM `tb_marketing_legado` LIKE 'instagram'");
+                if ($c->rowCount() === 0) {
+                    $pdo->exec("ALTER TABLE `tb_marketing_legado` ADD COLUMN `instagram` VARCHAR(100) NULL AFTER `telefone`, ADD COLUMN `tipo_pos_venda` VARCHAR(100) NULL AFTER `instagram`, ADD COLUMN `obs_pos_venda` TEXT NULL AFTER `tipo_pos_venda`");
+                }
+            } catch (\Exception $e) {}
+
+            $stmt = $pdo->prepare("UPDATE `tb_marketing_legado` SET 
+                `os` = :os,
+                `nome_cliente` = :nome,
+                `telefone` = :tel,
+                `instagram` = :insta,
+                `cidade` = :cidade,
+                `vendedor` = :vendedor,
+                `medico` = :medico,
+                `idade` = :idade,
+                `data_venda` = :dt,
+                `tipo_pos_venda` = :tipo,
+                `obs_pos_venda` = :obs
+                WHERE `id` = :id");
+            $stmt->execute([
+                ':os' => trim((string)($input['os'] ?? '')),
+                ':nome' => trim((string)($input['nome_cliente'] ?? $input['cliente'] ?? '')),
+                ':tel' => trim((string)($input['telefone'] ?? '')),
+                ':insta' => trim((string)($input['instagram'] ?? '')),
+                ':cidade' => trim((string)($input['cidade'] ?? $input['loja'] ?? '')),
+                ':vendedor' => trim((string)($input['vendedor'] ?? $input['vendedora'] ?? '')),
+                ':medico' => trim((string)($input['medico'] ?? '')),
+                ':idade' => trim((string)($input['idade'] ?? '')),
+                ':dt' => trim((string)($input['data_venda'] ?? '')),
+                ':tipo' => trim((string)($input['tipo_pos_venda'] ?? '')),
+                ':obs' => trim((string)($input['obs_pos_venda'] ?? '')),
+                ':id' => $targetId
+            ]);
+        } else if ($targetTable === 'vendas' || $targetTable === 'tb_vendas_legado') {
+            $stmt = $pdo->prepare("UPDATE `tb_vendas_legado` SET 
+                `os` = :os,
+                `data_venda` = :dt,
+                `cliente` = :cliente,
+                `telefone_cliente` = :tel,
+                `responsavel` = :responsavel,
+                `telefone_responsavel` = :tel_resp,
+                `loja` = :loja,
+                `vendedora` = :vendedora,
+                `armacao` = :armacao,
+                `lente` = :lente,
+                `dioptria` = :dioptria,
+                `medico` = :medico,
+                `valor_armacao` = :v_arm,
+                `valor_lente` = :v_lente,
+                `valor_produto` = :v_prod,
+                `valor_entrada` = :v_ent,
+                `n_parcelas` = :n_parc,
+                `tipo_compra` = :tipo_compra,
+                `rg` = :rg,
+                `cpf` = :cpf,
+                `data_nascimento` = :dt_nasc
+                WHERE `id` = :id");
+            $stmt->execute([
+                ':os' => trim((string)($input['os'] ?? '')),
+                ':dt' => trim((string)($input['data_venda'] ?? '')),
+                ':cliente' => trim((string)($input['cliente'] ?? $input['nome_cliente'] ?? '')),
+                ':tel' => trim((string)($input['telefone_cliente'] ?? $input['telefone'] ?? '')),
+                ':responsavel' => trim((string)($input['responsavel'] ?? '')),
+                ':tel_resp' => trim((string)($input['telefone_responsavel'] ?? '')),
+                ':loja' => trim((string)($input['loja'] ?? $input['cidade'] ?? '')),
+                ':vendedora' => trim((string)($input['vendedora'] ?? $input['vendedor'] ?? '')),
+                ':armacao' => trim((string)($input['armacao'] ?? '')),
+                ':lente' => trim((string)($input['lente'] ?? '')),
+                ':dioptria' => trim((string)($input['dioptria'] ?? '')),
+                ':medico' => trim((string)($input['medico'] ?? '')),
+                ':v_arm' => trim((string)($input['valor_armacao'] ?? '')),
+                ':v_lente' => trim((string)($input['valor_lente'] ?? '')),
+                ':v_prod' => trim((string)($input['valor_produto'] ?? $input['valor_venda'] ?? '')),
+                ':v_ent' => trim((string)($input['valor_entrada'] ?? '')),
+                ':n_parc' => trim((string)($input['n_parcelas'] ?? '')),
+                ':tipo_compra' => trim((string)($input['tipo_compra'] ?? '')),
+                ':rg' => trim((string)($input['rg'] ?? '')),
+                ':cpf' => trim((string)($input['cpf'] ?? '')),
+                ':dt_nasc' => trim((string)($input['data_nascimento'] ?? '')),
+                ':id' => $targetId
+            ]);
+        } else if ($targetTable === 'vouchers' || $targetTable === 'tb_vouchers_legado') {
+            $stmt = $pdo->prepare("UPDATE `tb_vouchers_legado` SET 
+                `codigo_voucher` = :cod,
+                `os` = :os,
+                `instagram` = :insta,
+                `cidade` = :cidade,
+                `data_compra` = :dt,
+                `mes` = :mes,
+                `ano` = :ano
+                WHERE `id` = :id");
+            $stmt->execute([
+                ':cod' => trim((string)($input['codigo_voucher'] ?? '')),
+                ':os' => trim((string)($input['os'] ?? '')),
+                ':insta' => trim((string)($input['instagram'] ?? '')),
+                ':cidade' => trim((string)($input['cidade'] ?? '')),
+                ':dt' => trim((string)($input['data_compra'] ?? $input['data'] ?? '')),
+                ':mes' => trim((string)($input['mes'] ?? '')),
+                ':ano' => trim((string)($input['ano'] ?? '')),
+                ':id' => $targetId
+            ]);
+        } else if ($targetTable === 'parcelas' || $targetTable === 'tb_parcelas_legado') {
+            $stmt = $pdo->prepare("UPDATE `tb_parcelas_legado` SET 
+                `os` = :os,
+                `nome_cliente` = :nome,
+                `parcela` = :parcela,
+                `data_vencimento` = :dt_venc,
+                `valor_parcela` = :v_parc,
+                `status` = :status,
+                `loja` = :loja,
+                `contato` = :contato,
+                `observacoes` = :obs
+                WHERE `id` = :id");
+            $stmt->execute([
+                ':os' => trim((string)($input['os'] ?? '')),
+                ':nome' => trim((string)($input['nome_cliente'] ?? '')),
+                ':parcela' => trim((string)($input['parcela'] ?? '')),
+                ':dt_venc' => trim((string)($input['data_vencimento'] ?? '')),
+                ':v_parc' => trim((string)($input['valor_parcela'] ?? '')),
+                ':status' => trim((string)($input['status'] ?? '')),
+                ':loja' => trim((string)($input['loja'] ?? '')),
+                ':contato' => trim((string)($input['contato'] ?? '')),
+                ':obs' => trim((string)($input['observacoes'] ?? '')),
+                ':id' => $targetId
+            ]);
+        }
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Informações atualizadas com sucesso no MySQL!',
+            'id' => $targetId,
+            'table' => $targetTable
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    } catch (\Exception $e) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Falha ao atualizar registro no MySQL: ' . $e->getMessage()
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+
+// ─── MODO 2: FLUXO DE CHECKOUT / PÓS-VENDA POR OS ────────────────────────────
 $os = trim((string)($input['os'] ?? $input['numeroOS'] ?? $input['VENDA_OS'] ?? $input['osNumber'] ?? ''));
 if (empty($os)) {
     echo json_encode([

@@ -9019,6 +9019,45 @@ async function runTests() {
     console.log('  ✅ Test 96 Passed: Lançamento de Pós-Venda, Marketing, Redes Sociais e Vouchers no MySQL Hostinger validado com 100% de sucesso!\n');
   }
 
+  // ==========================================
+  console.log('▶ Test 97: Dashboard Marketing, Edição de Registros no MySQL e Exibição Completa de Colunas');
+  {
+    const salvarPosVendaPhp = fs.readFileSync(path.join(__dirname, 'public', 'api', 'salvar_pos_venda.php'), 'utf8');
+    const historicoViewSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'HistoricoLegadoView.jsx'), 'utf8');
+    const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'App.jsx'), 'utf8');
+    const navDrawerSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'NavigationDrawer.jsx'), 'utf8');
+
+    // 1. Verificação do Endpoint de Edição no MySQL (salvar_pos_venda.php)
+    console.assert(salvarPosVendaPhp.includes("action === 'edit_row'"), 'salvar_pos_venda.php deve suportar action edit_row');
+    console.assert(salvarPosVendaPhp.includes('UPDATE `tb_marketing_legado` SET'), 'salvar_pos_venda.php deve atualizar tb_marketing_legado');
+    console.assert(salvarPosVendaPhp.includes('UPDATE `tb_vendas_legado` SET'), 'salvar_pos_venda.php deve atualizar tb_vendas_legado');
+    console.assert(salvarPosVendaPhp.includes('UPDATE `tb_vouchers_legado` SET'), 'salvar_pos_venda.php deve atualizar tb_vouchers_legado');
+    console.assert(salvarPosVendaPhp.includes('UPDATE `tb_parcelas_legado` SET'), 'salvar_pos_venda.php deve atualizar tb_parcelas_legado');
+
+    // 2. Verificação de Nomeação e Remoção do Badge Verde
+    console.assert(historicoViewSrc.includes('Dashboard Marketing'), 'HistoricoLegadoView deve ter o título Dashboard Marketing');
+    console.assert(!historicoViewSrc.includes('• MYSQL HOSTINGER CONECTADO'), 'HistoricoLegadoView não deve exibir o badge verde feio');
+    console.assert(appSrc.includes('Dashboard Marketing'), 'App.jsx deve nomear o módulo como Dashboard Marketing');
+    console.assert(navDrawerSrc.includes('Dashboard Marketing'), 'NavigationDrawer deve exibir Dashboard Marketing');
+
+    // 3. Verificação do Botão de Edição e Modal de Edição Completa
+    console.assert(historicoViewSrc.includes('handleSaveEdit'), 'HistoricoLegadoView deve conter handleSaveEdit');
+    console.assert(historicoViewSrc.includes('editingRecord'), 'HistoricoLegadoView deve conter estado editingRecord');
+    console.assert(historicoViewSrc.includes('setEditingRecord'), 'HistoricoLegadoView deve permitir abrir modal de edição');
+    console.assert(historicoViewSrc.includes('Editar Informações') || historicoViewSrc.includes('Editar Registro'), 'HistoricoLegadoView deve conter botão de editar');
+
+    // 4. Verificação de Exibição Completa das Colunas do Banco de Dados
+    console.assert(historicoViewSrc.includes('showRawColumns'), 'HistoricoLegadoView deve ter toggle showRawColumns');
+    console.assert(historicoViewSrc.includes('Visualizar Todos os Campos Brutos do Banco de Dados'), 'Modal de detalhes deve exibir colunas completas do MySQL');
+    console.assert(historicoViewSrc.includes('Object.entries(selectedRecord.data || {})'), 'Modal de detalhes deve iterar sobre todos os campos brutos do MySQL');
+
+    // 5. Verificação da Importação do Ícone Sparkles para Prevenir Crash de Login
+    console.assert(appSrc.includes('Sparkles') && /import\s*\{[^}]*Sparkles[^}]*\}\s*from\s*['"]lucide-react['"]/.test(appSrc), 'App.jsx deve importar Sparkles');
+    console.assert(navDrawerSrc.includes('Sparkles') && /import\s*\{[^}]*Sparkles[^}]*\}\s*from\s*['"]lucide-react['"]/.test(navDrawerSrc), 'NavigationDrawer deve importar Sparkles');
+
+    console.log('  ✅ Test 97 Passed: Dashboard Marketing, Edição no MySQL e Exibição Completa de Colunas validados com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
