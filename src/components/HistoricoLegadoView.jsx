@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Database, 
   Search, 
@@ -11,6 +11,9 @@ import {
   Layers, 
   Users, 
   ChevronRight, 
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
   Clock, 
   Phone, 
   Calendar, 
@@ -42,6 +45,14 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
     estoque: []
   });
   const [totalFound, setTotalFound] = useState(0);
+
+  // Paginação inteligente de 50 em 50 registros
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [perPage] = useState(50);
+  const [jumpPageInput, setJumpPageInput] = useState('');
+  const tableSectionRef = useRef(null);
+
   const [stats, setStats] = useState({
     marketing: 8929,
     vendas: 9325,
@@ -51,6 +62,15 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
     total: 32204,
     connected: true
   });
+
+  const [tabCounts, setTabCounts] = useState({
+    marketing: 8929,
+    vendas: 9325,
+    parcelas: 6954,
+    vouchers: 1898,
+    estoque: 5098,
+    todas: 32204
+  });
   
   // Modais de Detalhes e Edição
   const [selectedRecord, setSelectedRecord] = useState(null); // { type, data }
@@ -59,10 +79,15 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
   const [editStatus, setEditStatus] = useState(null);         // { type: 'success' | 'error', message: '' }
   const [showRawColumns, setShowRawColumns] = useState(false);
 
+  const currentTabTotal = useMemo(() => {
+    if (activeTab === 'todas') return totalFound || tabCounts.todas || stats.total;
+    return tabCounts[activeTab] ?? stats[activeTab] ?? totalFound;
+  }, [activeTab, tabCounts, stats, totalFound]);
+
   // Busca estatísticas iniciais da API e carrega os registros mais recentes automaticamente
   useEffect(() => {
     fetchStats();
-    handleSearch(null, '', 'marketing');
+    handleSearch(null, '', 'marketing', 1);
   }, []);
 
   const fetchStats = async () => {
@@ -71,7 +96,7 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.counts) {
-          setStats({
+          const loadedStats = {
             marketing: data.counts.marketing || 8929,
             vendas: data.counts.vendas || 9325,
             parcelas: data.counts.parcelas || 6954,
@@ -79,7 +104,13 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
             estoque: data.counts.estoque || 5098,
             total: data.totalRegistros || 32204,
             connected: true
-          });
+          };
+          setStats(loadedStats);
+          setTabCounts(prev => ({
+            ...prev,
+            ...data.counts,
+            todas: data.totalRegistros || 32204
+          }));
         }
       }
     } catch (e) {
@@ -87,84 +118,129 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
     }
   };
 
-  const handleSearch = async (e, customQuery = null, customTab = null) => {
+  const handleSearch = async (e, customQuery = null, customTab = null, pageToUse = 1) => {
     if (e) e.preventDefault();
     const query = customQuery !== null ? customQuery : searchTerm.trim();
     const tabToUse = customTab || activeTab;
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/consulta_historico.php?action=search&q=${encodeURIComponent(query)}&tipo=${tabToUse}&limit=80`);
+      const res = await fetch(`/api/consulta_historico.php?action=search&q=${encodeURIComponent(query)}&tipo=${tabToUse}&page=${pageToUse}&limit=50`);
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.results) {
           setResults(data.results);
           setTotalFound(data.total || 0);
+          setCurrentPage(data.page || pageToUse);
+          setTotalPages(data.totalPages || 1);
+          if (data.counts) {
+            setTabCounts(prev => ({ ...prev, ...data.counts }));
+          }
           return;
         }
       }
-      simulateLocalSearch(query);
+      await simulateLocalSearch(query, tabToUse, pageToUse);
     } catch (err) {
-      simulateLocalSearch(query);
+      await simulateLocalSearch(query, tabToUse, pageToUse);
     } finally {
       setLoading(false);
     }
   };
 
-  // Fallback para quando roda no Vite Local (onde PHP não roda diretamente sem apache)
-  const simulateLocalSearch = (query = '') => {
-    const q = query.toLowerCase();
-    const mockMarketing = [
-      { id: 1, os: '22752', data_venda: '10/03/2025', nome_cliente: 'Maria Clara dos Santos', telefone: '(13) 99781-4422', instagram: '@mariaclaras', cidade: 'CAJATI', vendedor: 'EMILLY', medico: 'Dr. Roberto Oftalmo', idade: '38', tipo_pos_venda: 'Acompanhamento de Adaptação (15 dias)', obs_pos_venda: 'Adorou a nova armação, lentes antireflexo' },
-      { id: 2, os: '22750', data_venda: '09/03/2025', nome_cliente: 'João Carlos Silveira', telefone: '(13) 99655-1190', instagram: '@joaosilveira_opt', cidade: 'REGISTRO', vendedor: 'CAMILA', medico: 'Dra. Patricia', idade: '52', tipo_pos_venda: 'Renovação de Receita Anual (1 ano)', obs_pos_venda: 'Cliente antigo da loja de Registro' },
-      { id: 3, os: '22748', data_venda: '08/03/2025', nome_cliente: 'Ana Beatriz Souza', telefone: '(13) 99123-8877', instagram: '@anabsouza', cidade: 'JACUPIRANGA', vendedor: 'LUCAS', medico: 'Dr. Marcelo', idade: '26', tipo_pos_venda: 'Pesquisa de Satisfação & Feedback', obs_pos_venda: 'Voucher PROMO10 aplicado' },
-      { id: 4, os: '22745', data_venda: '07/03/2025', nome_cliente: 'Carlos Eduardo Mendes', telefone: '(13) 99822-3344', instagram: '@cadumendes', cidade: 'CAJATI', vendedor: 'EMILLY', medico: 'Dr. Roberto Oftalmo', idade: '45', tipo_pos_venda: 'Entrega de Óculos Concluída', obs_pos_venda: 'Óculos entregue e ajustado' },
-      { id: 5, os: '22740', data_venda: '05/03/2025', nome_cliente: 'Fernanda Lima Oliveira', telefone: '(13) 99711-5566', instagram: '@ferlima_otica', cidade: 'REGISTRO', vendedor: 'CAMILA', medico: 'Dra. Patricia', idade: '31', tipo_pos_venda: 'Fidelização / Indicação Amigos', obs_pos_venda: 'Indicou a irmã para exame' },
-      { id: 6, os: '22735', data_venda: '03/03/2025', nome_cliente: 'Rodrigo Augusto Silva', telefone: '(13) 99611-2233', instagram: '@rodrigo.augusto', cidade: 'CAJATI', vendedor: 'EMILLY', medico: 'Dr. Marcelo', idade: '60', tipo_pos_venda: 'Acompanhamento de Adaptação (15 dias)', obs_pos_venda: 'Primeiro óculos com grau multifocal' },
-      { id: 7, os: '22730', data_venda: '01/03/2025', nome_cliente: 'Juliana Pires Martins', telefone: '(13) 99888-7744', instagram: '@julianapires', cidade: 'REGISTRO', vendedor: 'CAMILA', medico: 'Dr. Roberto Oftalmo', idade: '29', tipo_pos_venda: 'Renovação de Receita Anual (1 ano)', obs_pos_venda: 'Exame de refração atualizado' }
-    ];
+  // Fallback robusto para quando roda offline ou no Vite Local
+  const simulateLocalSearch = async (query = '', tabToUse = activeTab, pageToUse = 1) => {
+    try {
+      const cacheRes = await fetch('/data/legado_cache.json');
+      if (cacheRes.ok) {
+        const db = await cacheRes.json();
+        const normQ = (query || '').trim().toLowerCase();
+        const digits = normQ.replace(/\D/g, '');
 
-    const mockVendas = [
-      { id: 1, os: '22752', data_venda: '10/03/2025', cliente: 'Maria Clara dos Santos', telefone_cliente: '(13) 99781-4422', responsavel: 'S/RESPONSAVEL', telefone_responsavel: '(13) 99781-4422', loja: 'CAJATI', vendedora: 'EMILLY', armacao: 'Armação Acetato Vogue Preto', lente: 'Cr 1.56 BlueCut Anti-Reflexo', dioptria: 'OD: +1.00 -0.50 90° OE: +1.25', valor_armacao: '250,00', valor_lente: '400,00', valor_produto: '650,00', valor_entrada: '200,00', tipo_compra: 'PARCELADO', n_parcelas: '3', medico: 'Dr. Roberto Oftalmo', cpf: '123.456.789-00', rg: '12.345.678-9', data_nascimento: '15/05/1986' },
-      { id: 2, os: '22750', data_venda: '09/03/2025', cliente: 'João Carlos Silveira', telefone_cliente: '(13) 99655-1190', responsavel: 'S/RESPONSAVEL', telefone_responsavel: '(13) 99655-1190', loja: 'REGISTRO', vendedora: 'CAMILA', armacao: 'Armação Metal Ray-Ban Dourado', lente: 'Multifocal Digital FreeForm', dioptria: 'OD: +2.00 OE: +2.00 AD: +1.50', valor_armacao: '380,00', valor_lente: '600,00', valor_produto: '980,00', valor_entrada: '980,00', tipo_compra: 'A VISTA', n_parcelas: '1', medico: 'Dra. Patricia', cpf: '234.567.890-11', rg: '23.456.789-0', data_nascimento: '20/11/1972' },
-      { id: 3, os: '22748', data_venda: '08/03/2025', cliente: 'Ana Beatriz Souza', telefone_cliente: '(13) 99123-8877', responsavel: 'S/RESPONSAVEL', telefone_responsavel: '(13) 99123-8877', loja: 'JACUPIRANGA', vendedora: 'LUCAS', armacao: 'Armação Solar Clip-on', lente: 'Visão Simples Resina', dioptria: 'OD: -1.75 OE: -2.00', valor_armacao: '200,00', valor_lente: '220,00', valor_produto: '420,00', valor_entrada: '150,00', tipo_compra: 'PARCELADO', n_parcelas: '2', medico: 'Dr. Marcelo', cpf: '345.678.901-22', rg: '34.567.890-1', data_nascimento: '08/02/1998' }
-    ];
+        const filterItem = (item) => {
+          if (!normQ) return true;
+          for (const [k, v] of Object.entries(item)) {
+            if (!v) continue;
+            const str = String(v).toLowerCase();
+            if (str.includes(normQ)) return true;
+            if (digits.length >= 3) {
+              const itemDigits = str.replace(/\D/g, '');
+              if (itemDigits && itemDigits.includes(digits)) return true;
+            }
+          }
+          return false;
+        };
 
-    const mockVouchers = [
-      { id: 1, codigo_voucher: 'PROMO10', os: '22748', instagram: '@anabsouza', cidade: 'JACUPIRANGA', data_compra: '08/03/2025', mes: 'MAR.', ano: '2025' },
-      { id: 2, codigo_voucher: 'YASMINVIP', os: '22750', instagram: '@joaosilveira_opt', cidade: 'REGISTRO', data_compra: '09/03/2025', mes: 'MAR.', ano: '2025' },
-      { id: 3, codigo_voucher: 'AMIGO50', os: '22740', instagram: '@ferlima_otica', cidade: 'REGISTRO', data_compra: '05/03/2025', mes: 'MAR.', ano: '2025' }
-    ];
+        const tables = ['marketing', 'vendas', 'vouchers', 'parcelas', 'estoque'];
+        const filtered = {};
+        const counts = {};
 
-    const mockParcelas = [
-      { id: 1, os: '22752', nome_cliente: 'Maria Clara dos Santos', parcela: '1/3', data_vencimento: '10/04/2025', valor_parcela: '150,00', status: 'Aberto', loja: 'CAJATI', contato: '(13) 99781-4422', observacoes: 'Primeira parcela carnê' },
-      { id: 2, os: '22752', nome_cliente: 'Maria Clara dos Santos', parcela: '2/3', data_vencimento: '10/05/2025', valor_parcela: '150,00', status: 'Aberto', loja: 'CAJATI', contato: '(13) 99781-4422', observacoes: 'Segunda parcela carnê' },
-      { id: 3, os: '22748', nome_cliente: 'Ana Beatriz Souza', parcela: '1/2', data_vencimento: '08/04/2025', valor_parcela: '135,00', status: 'Pago', loja: 'JACUPIRANGA', contato: '(13) 99123-8877', observacoes: 'Pago na loja' }
-    ];
+        for (const t of tables) {
+          if (tabToUse === 'todas' || tabToUse === t) {
+            const list = db[t] || [];
+            filtered[t] = normQ ? list.filter(filterItem) : list;
+            counts[t] = filtered[t].length;
+          } else {
+            filtered[t] = [];
+            counts[t] = (db[t] || []).length;
+          }
+        }
 
-    const filterFn = (item) => {
-      if (!q) return true;
-      return Object.values(item).some(v => String(v).toLowerCase().includes(q));
-    };
+        const activeTotal = tabToUse === 'todas'
+          ? Object.values(counts).reduce((a, b) => a + b, 0)
+          : (counts[tabToUse] || 0);
 
-    const filteredMkt = mockMarketing.filter(filterFn);
-    const filteredVendas = mockVendas.filter(filterFn);
-    const filteredVouchers = mockVouchers.filter(filterFn);
-    const filteredParcelas = mockParcelas.filter(filterFn);
+        const computedTotalPages = Math.max(1, Math.ceil(activeTotal / 50));
+        const offset = (pageToUse - 1) * 50;
 
-    setResults({
-      marketing: filteredMkt,
-      vendas: filteredVendas,
-      vouchers: filteredVouchers,
-      parcelas: filteredParcelas,
-      estoque: []
-    });
-    setTotalFound(filteredMkt.length + filteredVendas.length + filteredVouchers.length + filteredParcelas.length);
+        const resObj = {};
+        for (const t of tables) {
+          if (tabToUse === 'todas' || tabToUse === t) {
+            resObj[t] = filtered[t].slice(offset, offset + 50);
+          } else {
+            resObj[t] = [];
+          }
+        }
+
+        setResults(resObj);
+        setTotalFound(activeTotal);
+        setCurrentPage(pageToUse);
+        setTotalPages(computedTotalPages);
+        setTabCounts(prev => ({ ...prev, ...counts, todas: Object.values(counts).reduce((a, b) => a + b, 0) }));
+        return;
+      }
+    } catch (e) {
+      console.error('Fallback local cache error:', e);
+    }
   };
 
   const handleTabChange = (tabId) => {
     setActiveTab(tabId);
-    handleSearch(null, searchTerm.trim(), tabId);
+    setCurrentPage(1);
+    handleSearch(null, searchTerm.trim(), tabId, 1);
+  };
+
+  const goToPage = (pageNumber) => {
+    if (pageNumber < 1 || pageNumber > totalPages || pageNumber === currentPage) return;
+    setCurrentPage(pageNumber);
+    handleSearch(null, searchTerm.trim(), activeTab, pageNumber);
+    if (tableSectionRef.current) {
+      tableSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const getPageNumbers = (current, total) => {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    const pages = [];
+    if (current <= 4) {
+      pages.push(1, 2, 3, 4, 5, '...', total);
+    } else if (current >= total - 3) {
+      pages.push(1, '...', total - 4, total - 3, total - 2, total - 1, total);
+    } else {
+      pages.push(1, '...', current - 1, current, current + 1, '...', total);
+    }
+    return pages;
   };
 
   // ─── SALVAMENTO DE EDIÇÃO NO BANCO MYSQL HOSTINGER ──────────────────────────
@@ -401,15 +477,15 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
           </button>
         </form>
 
-        {/* Abas de Filtro de Tabela */}
+        {/* Abas de Filtro de Tabela com Contadores Reais Consolidados */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1 scrollbar-none">
           {[
-            { id: 'marketing', label: 'Marketing & Pós-Venda', count: results.marketing.length },
-            { id: 'vendas', label: 'Vendas', count: results.vendas.length },
-            { id: 'vouchers', label: 'Vouchers', count: results.vouchers.length },
-            { id: 'parcelas', label: 'Parcelas / Carnês', count: results.parcelas.length },
-            { id: 'estoque', label: 'Estoque', count: results.estoque.length },
-            { id: 'todas', label: 'Todas as Tabelas', count: totalFound }
+            { id: 'marketing', label: 'Marketing & Pós-Venda', count: tabCounts.marketing ?? stats.marketing },
+            { id: 'vendas', label: 'Vendas', count: tabCounts.vendas ?? stats.vendas },
+            { id: 'vouchers', label: 'Vouchers', count: tabCounts.vouchers ?? stats.vouchers },
+            { id: 'parcelas', label: 'Parcelas / Carnês', count: tabCounts.parcelas ?? stats.parcelas },
+            { id: 'estoque', label: 'Estoque', count: tabCounts.estoque ?? stats.estoque },
+            { id: 'todas', label: 'Todas as Tabelas', count: tabCounts.todas ?? stats.total }
           ].map((tab) => (
             <button
               key={tab.id}
@@ -421,11 +497,11 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
               }`}
             >
               <span>{tab.label}</span>
-              {tab.count > 0 && (
+              {typeof tab.count === 'number' && tab.count > 0 && (
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
                   activeTab === tab.id ? 'bg-white/20 text-white' : 'bg-slate-700 text-slate-300'
                 }`}>
-                  {tab.count}
+                  {tab.count.toLocaleString('pt-BR')}
                 </span>
               )}
             </button>
@@ -434,7 +510,7 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
       </div>
 
       {/* ─── TABELAS DE DADOS COMPLETAS COM BOTÃO DE EDITAR ─── */}
-      <div className="space-y-6">
+      <div ref={tableSectionRef} className="space-y-6">
         {loading ? (
           <div className="p-12 text-center bg-slate-900/60 border border-slate-800 rounded-2xl shadow-xl">
             <RefreshCw className="w-8 h-8 text-pink-500 animate-spin mx-auto mb-3" />
@@ -460,12 +536,19 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
                     <Sparkles className="w-5 h-5 text-pink-400" />
                     <div>
                       <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                        Registros de Marketing & Pós-Venda ({results.marketing.length})
+                        Registros de Marketing & Pós-Venda ({(tabCounts.marketing ?? stats.marketing).toLocaleString('pt-BR')})
                       </h3>
-                      <p className="text-[11px] text-slate-400">Tabela de clientes, redes sociais, vouchers e acompanhamento</p>
+                      <p className="text-[11px] text-slate-400">
+                        Tabela de clientes, redes sociais, vouchers e acompanhamento • Página {currentPage} de {totalPages} (50 por página)
+                      </p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-bold text-slate-400">Tabela tb_marketing_legado</span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-lg bg-pink-500/10 text-pink-400 border border-pink-500/20 text-xs font-mono font-bold">
+                      {Math.min((currentPage - 1) * perPage + 1, tabCounts.marketing ?? stats.marketing)} - {Math.min(currentPage * perPage, tabCounts.marketing ?? stats.marketing)} de {(tabCounts.marketing ?? stats.marketing).toLocaleString('pt-BR')}
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-400">Tabela tb_marketing_legado</span>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto erp-scroll">
@@ -594,12 +677,19 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
                     <ShoppingBag className="w-5 h-5 text-sky-400" />
                     <div>
                       <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                        Vendas Registradas ({results.vendas.length})
+                        Vendas Registradas ({(tabCounts.vendas ?? stats.vendas).toLocaleString('pt-BR')})
                       </h3>
-                      <p className="text-[11px] text-slate-400">Tabela de vendas de óculos, lentes e armações</p>
+                      <p className="text-[11px] text-slate-400">
+                        Tabela de vendas de óculos, lentes e armações • Página {currentPage} de {totalPages} (50 por página)
+                      </p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-bold text-slate-400">Tabela tb_vendas_legado</span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20 text-xs font-mono font-bold">
+                      {Math.min((currentPage - 1) * perPage + 1, tabCounts.vendas ?? stats.vendas)} - {Math.min(currentPage * perPage, tabCounts.vendas ?? stats.vendas)} de {(tabCounts.vendas ?? stats.vendas).toLocaleString('pt-BR')}
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-400">Tabela tb_vendas_legado</span>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto erp-scroll">
@@ -693,12 +783,19 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
                     <Tag className="w-5 h-5 text-amber-400" />
                     <div>
                       <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                        Vouchers & Campanhas ({results.vouchers.length})
+                        Vouchers & Campanhas ({(tabCounts.vouchers ?? stats.vouchers).toLocaleString('pt-BR')})
                       </h3>
-                      <p className="text-[11px] text-slate-400">Cupons promocionais e campanhas vinculadas ao Instagram</p>
+                      <p className="text-[11px] text-slate-400">
+                        Cupons promocionais e campanhas vinculadas ao Instagram • Página {currentPage} de {totalPages} (50 por página)
+                      </p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-bold text-slate-400">Tabela tb_vouchers_legado</span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-mono font-bold">
+                      {Math.min((currentPage - 1) * perPage + 1, tabCounts.vouchers ?? stats.vouchers)} - {Math.min(currentPage * perPage, tabCounts.vouchers ?? stats.vouchers)} de {(tabCounts.vouchers ?? stats.vouchers).toLocaleString('pt-BR')}
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-400">Tabela tb_vouchers_legado</span>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto erp-scroll">
@@ -780,12 +877,19 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
                     <FileText className="w-5 h-5 text-emerald-400" />
                     <div>
                       <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                        Carnês & Parcelas ({results.parcelas.length})
+                        Carnês & Parcelas ({(tabCounts.parcelas ?? stats.parcelas).toLocaleString('pt-BR')})
                       </h3>
-                      <p className="text-[11px] text-slate-400">Parcelas e vencimentos vinculados a carnês</p>
+                      <p className="text-[11px] text-slate-400">
+                        Parcelas e vencimentos vinculados a carnês • Página {currentPage} de {totalPages} (50 por página)
+                      </p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-bold text-slate-400">Tabela tb_parcelas_legado</span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-mono font-bold">
+                      {Math.min((currentPage - 1) * perPage + 1, tabCounts.parcelas ?? stats.parcelas)} - {Math.min(currentPage * perPage, tabCounts.parcelas ?? stats.parcelas)} de {(tabCounts.parcelas ?? stats.parcelas).toLocaleString('pt-BR')}
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-400">Tabela tb_parcelas_legado</span>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto erp-scroll">
@@ -872,11 +976,24 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
             {/* ─── 5. TABELA DE ESTOQUE LEGADO ─── */}
             {(activeTab === 'todas' || activeTab === 'estoque') && results.estoque.length > 0 && (
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-                <div className="px-5 py-4 bg-slate-800/60 border-b border-slate-800 flex items-center gap-2.5">
-                  <Layers className="w-5 h-5 text-indigo-400" />
-                  <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                    Estoque Legado de Lentes ({results.estoque.length})
-                  </h3>
+                <div className="px-5 py-4 bg-slate-800/60 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <Layers className="w-5 h-5 text-indigo-400" />
+                    <div>
+                      <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                        Estoque Legado de Lentes ({(tabCounts.estoque ?? stats.estoque).toLocaleString('pt-BR')})
+                      </h3>
+                      <p className="text-[11px] text-slate-400">
+                        Lentes oftálmicas e dioptrias em estoque • Página {currentPage} de {totalPages} (50 por página)
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-xs font-mono font-bold">
+                      {Math.min((currentPage - 1) * perPage + 1, tabCounts.estoque ?? stats.estoque)} - {Math.min(currentPage * perPage, tabCounts.estoque ?? stats.estoque)} de {(tabCounts.estoque ?? stats.estoque).toLocaleString('pt-BR')}
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-400">Tabela tb_estoque_legado</span>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto erp-scroll">
@@ -904,6 +1021,121 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            )}
+
+            {/* ─── BARRA DE PAGINAÇÃO DE 50 EM 50 REGISTROS ─── */}
+            {totalPages > 1 && (
+              <div className="bg-slate-900/95 border border-slate-800 p-4 rounded-2xl shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 mt-6">
+                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/60 font-mono text-[11px]">
+                    <Database className="w-3.5 h-3.5 text-pink-400" />
+                    <span>
+                      Mostrando <strong className="text-white">{Math.min((currentPage - 1) * perPage + 1, currentTabTotal)}</strong> a <strong className="text-white">{Math.min(currentPage * perPage, currentTabTotal)}</strong> de <strong className="text-white">{currentTabTotal.toLocaleString('pt-BR')}</strong> registros
+                    </span>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg bg-pink-500/10 text-pink-400 border border-pink-500/20 font-bold text-[10px]">
+                    50 por página
+                  </span>
+                  <span className="text-slate-400 text-[11px] font-medium">
+                    Página <strong className="text-white">{currentPage}</strong> de <strong className="text-white">{totalPages}</strong>
+                  </span>
+                </div>
+
+                {/* Controles de Navegação */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    onClick={() => goToPage(1)}
+                    disabled={currentPage <= 1 || loading}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white disabled:opacity-30 disabled:pointer-events-none border border-slate-700 text-xs font-bold transition-all flex items-center gap-1"
+                    title="Primeira página"
+                  >
+                    <ChevronsLeft className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Primeira</span>
+                  </button>
+
+                  <button
+                    onClick={() => goToPage(currentPage - 1)}
+                    disabled={currentPage <= 1 || loading}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white disabled:opacity-30 disabled:pointer-events-none border border-slate-700 text-xs font-bold transition-all flex items-center gap-1"
+                    title="Página anterior"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Anterior</span>
+                  </button>
+
+                  {/* Números das Páginas Inteligentes */}
+                  {getPageNumbers(currentPage, totalPages).map((p, idx) => (
+                    p === '...' ? (
+                      <span key={`dots-${idx}`} className="px-2 text-slate-500 text-xs font-bold select-none">...</span>
+                    ) : (
+                      <button
+                        key={`page-${p}`}
+                        onClick={() => goToPage(p)}
+                        disabled={loading}
+                        className={`min-w-[34px] h-[34px] rounded-xl text-xs font-bold transition-all flex items-center justify-center font-mono ${
+                          currentPage === p
+                            ? 'bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-md shadow-pink-600/30'
+                            : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  ))}
+
+                  <button
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={currentPage >= totalPages || loading}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white disabled:opacity-30 disabled:pointer-events-none border border-slate-700 text-xs font-bold transition-all flex items-center gap-1"
+                    title="Próxima página"
+                  >
+                    <span>Próxima</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    onClick={() => goToPage(totalPages)}
+                    disabled={currentPage >= totalPages || loading}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white disabled:opacity-30 disabled:pointer-events-none border border-slate-700 text-xs font-bold transition-all flex items-center gap-1"
+                    title="Última página"
+                  >
+                    <span className="hidden sm:inline">Última</span>
+                    <ChevronsRight className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Salto Direto de Página */}
+                  {totalPages > 3 && (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const p = parseInt(jumpPageInput, 10);
+                        if (!isNaN(p) && p >= 1 && p <= totalPages) {
+                          goToPage(p);
+                          setJumpPageInput('');
+                        }
+                      }}
+                      className="flex items-center gap-1 ml-2"
+                    >
+                      <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Ir:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max={totalPages}
+                        placeholder={String(currentPage)}
+                        value={jumpPageInput}
+                        onChange={(e) => setJumpPageInput(e.target.value)}
+                        className="w-14 px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-xs font-mono text-center text-white focus:outline-none focus:border-pink-500"
+                      />
+                      <button
+                        type="submit"
+                        className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold"
+                      >
+                        OK
+                      </button>
+                    </form>
+                  )}
                 </div>
               </div>
             )}
