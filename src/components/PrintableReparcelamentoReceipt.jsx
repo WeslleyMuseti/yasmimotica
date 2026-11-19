@@ -22,6 +22,7 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
     unidade = 'Cajati',
     operador = 'Yasmin Ótica',
     clienteNome = 'Cliente',
+    responsavelNome = '',
     clienteCpf = '',
     clienteTelefone = '',
     clienteEndereco = '',
@@ -142,26 +143,30 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
         </div>
       </div>
 
-      {/* ─── DADOS DO PAGADOR / CLIENTE ─── */}
+      {/* ─── DADOS DO PAGADOR & CLIENTE (TITULAR E RESPONSÁVEL SEPARADOS) ─── */}
       <div className="border border-slate-300 rounded-lg p-3.5 mb-5 bg-white">
         <h3 className="text-[10px] font-black uppercase tracking-wider text-slate-700 border-b border-slate-200 pb-1 mb-2">
-          Identificação do Pagador (Cliente)
+          Identificação do Pagador &amp; Cliente
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div className="col-span-2">
-            <span className="text-[10px] font-semibold text-slate-500 block">Nome do Cliente:</span>
+            <span className="text-[10px] font-semibold text-slate-500 block">Nome do Cliente (Titular da OS):</span>
             <span className="font-bold text-slate-900 uppercase">{clienteNome}</span>
+          </div>
+          <div className="col-span-2">
+            <span className="text-[10px] font-semibold text-slate-500 block">Responsável Financeiro / Pagador:</span>
+            <span className="font-bold text-slate-900 uppercase">
+              {responsavelNome && responsavelNome !== 'S/RESPONSAVEL' && responsavelNome.trim() !== ''
+                ? responsavelNome
+                : clienteNome}
+            </span>
           </div>
           <div>
             <span className="text-[10px] font-semibold text-slate-500 block">CPF / CNPJ:</span>
             <span className="font-mono font-bold text-slate-800">{clienteCpf || 'Não informado'}</span>
           </div>
-          <div>
-            <span className="text-[10px] font-semibold text-slate-500 block">Telefone / WhatsApp:</span>
-            <span className="font-mono text-slate-800">{clienteTelefone || 'Não informado'}</span>
-          </div>
           {clienteEndereco && (
-            <div className="col-span-2 sm:col-span-4 mt-1 pt-1 border-t border-slate-100">
+            <div className="col-span-2 sm:col-span-3">
               <span className="text-[10px] font-semibold text-slate-500 block">Endereço Residencial:</span>
               <span className="text-slate-800">{clienteEndereco}</span>
             </div>
@@ -169,12 +174,12 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
         </div>
       </div>
 
-      {/* ─── DETALHES DO PAGAMENTO EFETUADO ─── */}
+      {/* ─── DETALHES DO PAGAMENTO EFETUADO (COM VENCIMENTO E PAGAMENTO LADO A LADO) ─── */}
       <div className="border border-slate-300 rounded-lg p-3.5 mb-5 bg-white">
         <h3 className="text-[10px] font-black uppercase tracking-wider text-slate-700 border-b border-slate-200 pb-1 mb-2">
           Especificação do Título / Parcela Quitada
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
           <div>
             <span className="text-[10px] font-semibold text-slate-500 block">Ordem de Serviço (OS):</span>
             <span className="font-mono font-black text-slate-900">
@@ -182,7 +187,7 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
             </span>
           </div>
           <div>
-            <span className="text-[10px] font-semibold text-slate-500 block">Referência do Pagamento:</span>
+            <span className="text-[10px] font-semibold text-slate-500 block">Referência / Parcela:</span>
             <span className="font-bold text-slate-900">
               {tipoPagamento}
               {numeroParcela && totalParcelas ? ` (${numeroParcela}/${totalParcelas})` : ''}
@@ -193,25 +198,23 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
             <span className="font-bold text-slate-800 uppercase">{meioPagamento}</span>
           </div>
           <div>
-            <span className="text-[10px] font-semibold text-slate-500 block">Data Efetiva da Baixa:</span>
+            <span className="text-[10px] font-semibold text-slate-500 block">Data de Vencimento:</span>
+            <span className="font-mono font-bold text-amber-800">{vencimentoOriginal || dataPagamento}</span>
+          </div>
+          <div>
+            <span className="text-[10px] font-semibold text-slate-500 block">Data de Pagamento (Baixa):</span>
             <span className="font-mono font-bold text-emerald-800">{dataPagamento}</span>
           </div>
-          {vencimentoOriginal && (
-            <div>
-              <span className="text-[10px] font-semibold text-slate-500 block">Vencimento Original:</span>
-              <span className="font-mono text-slate-700">{vencimentoOriginal}</span>
-            </div>
-          )}
           {acordoId && (
-            <div>
-              <span className="text-[10px] font-semibold text-slate-500 block">Código do Acordo:</span>
+            <div className="col-span-2 sm:col-span-5 pt-1 mt-1 border-t border-slate-100">
+              <span className="text-[10px] font-semibold text-slate-500 inline-block mr-2">Código do Acordo:</span>
               <span className="font-mono text-slate-700">{acordoId}</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* ─── DEMONSTRATIVO DE EVOLUÇÃO DA DÍVIDA (SALDO RESTANTE) ─── */}
+      {/* ─── DEMONSTRATIVO DE EVOLUÇÃO DA DÍVIDA (SALDO RESTANTE REAL) ─── */}
       {(saldoRestante !== null || totalAcordo !== null || parcelasRestantes !== null) && (
         <div className="border-2 border-dashed border-slate-300 rounded-xl p-3.5 mb-5 bg-slate-50">
           <h3 className="text-[10px] font-black uppercase tracking-wider text-slate-700 mb-2">
@@ -231,7 +234,9 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
             {saldoRestante !== null && (
               <div className="bg-white p-2 rounded border border-slate-200">
                 <span className="text-[10px] text-slate-500 block font-semibold">Saldo Restante a Quitar:</span>
-                <span className="font-mono font-black text-rose-700">R$ {formatMoney(saldoRestante)}</span>
+                <span className={`font-mono font-black ${saldoRestante > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                  R$ {formatMoney(saldoRestante)} {saldoRestante <= 0 ? '(Quitado)' : ''}
+                </span>
               </div>
             )}
             {parcelasRestantes !== null && (
@@ -249,7 +254,7 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
       {/* ─── DECLARAÇÃO DE QUITAÇÃO E OBSERVAÇÕES ─── */}
       <div className="text-[11px] text-slate-700 mb-6 bg-slate-50 p-3 rounded-lg border border-slate-200">
         <p className="leading-relaxed">
-          Declaramos para os devidos fins de direito que recebemos do(a) Sr(a). <strong>{clienteNome}</strong> a importância supramencionada de <strong>R$ {formatMoney(valorNum)} ({valorExtenso})</strong>, dando-lhe plena, geral e irrevogável quitação do valor específico correspondente à referência acima identificada.
+          Declaramos para os devidos fins de direito que recebemos de <strong>{responsavelNome && responsavelNome !== 'S/RESPONSAVEL' && responsavelNome.trim() !== '' ? `${responsavelNome} (em favor de ${clienteNome})` : clienteNome}</strong> a importância supramencionada de <strong>R$ {formatMoney(valorNum)} ({valorExtenso})</strong>, dando-lhe plena, geral e irrevogável quitação do valor específico correspondente à referência acima identificada.
         </p>
         {observacoes && (
           <p className="mt-2 pt-2 border-t border-slate-200 text-[10px] italic text-slate-600">
@@ -268,8 +273,12 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
 
         <div>
           <div className="border-b border-slate-950 pb-1 mb-1 mx-6"></div>
-          <p className="text-xs font-bold text-slate-900 uppercase">{clienteNome}</p>
-          <p className="text-[10px] text-slate-500">Assinatura do Cliente / Pagador</p>
+          <p className="text-xs font-bold text-slate-900 uppercase">
+            {responsavelNome && responsavelNome !== 'S/RESPONSAVEL' && responsavelNome.trim() !== '' ? responsavelNome : clienteNome}
+          </p>
+          <p className="text-[10px] text-slate-500">
+            {responsavelNome && responsavelNome !== 'S/RESPONSAVEL' && responsavelNome.trim() !== '' ? 'Assinatura do Responsável / Pagador' : 'Assinatura do Cliente / Pagador'}
+          </p>
         </div>
       </div>
 

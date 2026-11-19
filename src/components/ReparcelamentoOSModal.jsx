@@ -442,6 +442,7 @@ const ReparcelamentoOSModal = ({
       unidade: unitInput || defaultUnit,
       operador: currentUser?.username || 'Yasmin Ótica',
       clienteNome: currentClientDetails?.name || clientNameInput || 'Cliente',
+      responsavelNome: currentClientDetails?.responsavel || currentClientDetails?.['Responsável'] || currentClientDetails?.['Nome Responsável'] || '',
       clienteCpf: currentClientDetails?.cpf || clientCpfInput || '',
       clienteTelefone: currentClientDetails?.phone || '',
       clienteEndereco: currentClientDetails?.address || '',

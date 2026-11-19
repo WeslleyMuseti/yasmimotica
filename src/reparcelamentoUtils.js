@@ -938,7 +938,14 @@ export const buildGeneralPaymentReceiptPayload = ({
   clientData = {},
   currentUser = null,
   observacoes = '',
-  saldoRestante = null
+  saldoRestante = null,
+  vencimentoOriginal = '',
+  vencimentoDate = '',
+  responsavelNome = '',
+  tipoPagamento = '',
+  numeroParcela = null,
+  totalParcelas = null,
+  parcelasRestantes = null
 }) => {
   const osClean = String(osNumero || '').replace(/^#/, '').trim();
   const val = parseCurrencyValue(amount);
@@ -950,9 +957,12 @@ export const buildGeneralPaymentReceiptPayload = ({
 
   const resolvedStore = resolveOSUnit({ numeroOS: osClean }, clientData) || clientData?.['Cidade'] || 'Cajati';
   const clientName = clientData?.['Nome Completo'] || clientData?.['NOME'] || clientData?.['Nome'] || 'Cliente';
+  const clientResp = responsavelNome || clientData?.['Responsável'] || clientData?.['RESPONSÁVEL'] || clientData?.['Nome Responsável'] || clientData?.['Responsável Legal'] || clientData?.['RESPONSAVEL'] || clientData?.['responsavel'] || '';
   const clientCpf = clientData?.['CPF / CNPJ'] || clientData?.['CPF'] || '';
   const clientPhone = clientData?.['WhatsApp'] || clientData?.['TELEFONE'] || clientData?.['Telefone'] || '';
   const clientAddress = [clientData?.['Rua'], clientData?.['Número'], clientData?.['Bairro'], clientData?.['Cidade']].filter(Boolean).join(', ');
+
+  const venc = vencimentoOriginal || vencimentoDate || clientData?.['Data Vencimento'] || clientData?.['VENCIMENTO'] || clientData?.['DATA_VENCIMENTO'] || clientData?.['DATA VENCIMENTO'] || '';
 
   const currentDebt = parseCurrencyValue(clientData?.['Valor Devido'] || 0);
   const calculatedRemaining = saldoRestante !== null && saldoRestante !== undefined 
@@ -966,21 +976,22 @@ export const buildGeneralPaymentReceiptPayload = ({
     unidade: resolvedStore,
     operador: currentUser?.username || 'Yasmin Ótica',
     clienteNome: clientName,
+    responsavelNome: clientResp,
     clienteCpf: clientCpf,
     clienteTelefone: clientPhone,
     clienteEndereco: clientAddress,
     osNumero: osClean || 'AVULSO',
     acordoId: '',
-    tipoPagamento: osClean ? `Pagamento Referente à OS #${osClean}` : 'Pagamento de Débito / Mensalidade',
-    numeroParcela: null,
-    totalParcelas: null,
-    vencimentoOriginal: '',
+    tipoPagamento: tipoPagamento || (osClean ? `Pagamento Referente à OS #${osClean}` : 'Pagamento de Débito / Mensalidade'),
+    numeroParcela: numeroParcela,
+    totalParcelas: totalParcelas,
+    vencimentoOriginal: venc || dateStr,
     valorPago: val,
     meioPagamento: paymentMethod || 'Dinheiro',
     totalAcordo: null,
     totalJaPago: null,
     saldoRestante: calculatedRemaining,
-    parcelasRestantes: null,
+    parcelasRestantes: parcelasRestantes,
     observacoes: observacoes || `Pagamento registrado no sistema com sucesso via ${paymentMethod || 'Dinheiro'}.`
   };
 };

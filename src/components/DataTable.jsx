@@ -722,16 +722,40 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                         onClick={() => {
                           const val = parseFloat(String(row.VALOR || row.valor || 0).replace(/R\$\s?/g, '').replace(/\./g, '').replace(',', '.')) || 0;
                           const osNum = String(row.VENDA_OS || row.OS || row['Nº DA OS'] || '').replace(/^#/, '');
-                          const dt = row.DATA_PAGAMENTO || row.DATA_RECEBIMENTO || row.DATA_VENCIMENTO || new Date().toLocaleDateString('pt-BR');
+                          const payDate = row.DATA_PAGAMENTO || row.DATA_RECEBIMENTO || row.DATA_BAIXA || row.DATA || new Date().toLocaleDateString('pt-BR');
+                          const vencDate = row.DATA_VENCIMENTO || row.VENCIMENTO || row['DATA VENCIMENTO'] || row.DATA || '';
+                          const clientName = row.CLIENTE || row.NOME || '';
+                          const clientCpf = row.CLIENTE_CPF || row.CPF || '';
+                          const resp = row.RESPONSAVEL || row.responsavel || row['RESPONSÁVEL'] || row['Responsável'] || row['RESPONSAVEL FINANCEIRO'] || '';
+                          const docRef = row.DOCUMENTO || row.REFERENCIA || (osNum ? `Parcela da OS #${osNum}` : 'Parcela Quitada');
+
+                          // Calcula saldo devedor real restante do cliente entre todas as parcelas em aberto
+                          const pendingRows = (rows || []).filter(r => {
+                            if (r === row || (r.id && r.id === row.id)) return false;
+                            const isMatch = (clientCpf && (r.CLIENTE_CPF === clientCpf || r.CPF === clientCpf)) ||
+                                            (clientName && (r.CLIENTE === clientName || r.NOME === clientName));
+                            const st = String(r.STATUS || r.status || '').toLowerCase();
+                            return isMatch && st !== 'recebido' && st !== 'pago';
+                          });
+                          const realRemainingDebt = pendingRows.reduce((sum, r) => {
+                            const v = parseFloat(String(r.VALOR || r.valor || 0).replace(/R\$\s?/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+                            return sum + v;
+                          }, 0);
+
                           const payload = buildGeneralPaymentReceiptPayload({
                             amount: val,
                             osNumero: osNum,
-                            paymentDate: dt,
+                            paymentDate: payDate,
+                            vencimentoOriginal: vencDate,
                             paymentMethod: row.MEIO_PAGAMENTO || row.FORMA_PAGAMENTO || 'Boleto',
+                            responsavelNome: resp,
+                            tipoPagamento: docRef,
+                            saldoRestante: realRemainingDebt,
+                            parcelasRestantes: pendingRows.length,
                             clientData: {
-                              'Nome Completo': row.CLIENTE || row.NOME || 'Cliente',
-                              'CPF / CNPJ': row.CLIENTE_CPF || row.CPF || '',
-                              'WhatsApp': row.TELEFONE || row['TELEFONE CLIENTE'] || '',
+                              'Nome Completo': clientName || 'Cliente',
+                              'Responsável': resp,
+                              'CPF / CNPJ': clientCpf,
                               'Cidade': row.CIDADE || row.UNIDADE || 'Cajati'
                             },
                             currentUser

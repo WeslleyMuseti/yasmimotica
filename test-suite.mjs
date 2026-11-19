@@ -9058,6 +9058,33 @@ async function runTests() {
     console.log('  ✅ Test 97 Passed: Dashboard Marketing, Edição no MySQL e Exibição Completa de Colunas validados com 100% de sucesso!\n');
   }
 
+  // ==========================================
+  console.log('▶ Test 98: Recibo A4 de Pagamento - Separação Cliente/Responsável, Duas Datas e Saldo Real');
+  {
+    const receiptSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableReparcelamentoReceipt.jsx'), 'utf8');
+    const reparcelamentoUtilsSrc = fs.readFileSync(path.join(__dirname, 'src', 'reparcelamentoUtils.js'), 'utf8');
+    const dataTableSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'DataTable.jsx'), 'utf8');
+
+    // 1. Verificação de Separação de Cliente e Responsável
+    console.assert(receiptSrc.includes('Nome do Cliente (Titular da OS):'), 'Recibo deve identificar o Nome do Cliente (Titular)');
+    console.assert(receiptSrc.includes('Responsável Financeiro / Pagador:'), 'Recibo deve identificar o Responsável Financeiro / Pagador');
+
+    // 2. Verificação de Remoção do Telefone / WhatsApp
+    console.assert(!receiptSrc.includes('Telefone / WhatsApp:'), 'Recibo não deve exibir Telefone / WhatsApp');
+
+    // 3. Verificação de Ambas as Datas (Vencimento e Pagamento)
+    console.assert(receiptSrc.includes('Data de Vencimento:'), 'Recibo deve exibir Data de Vencimento');
+    console.assert(receiptSrc.includes('Data de Pagamento (Baixa):'), 'Recibo deve exibir Data de Pagamento (Baixa)');
+
+    // 4. Verificação de Saldo Restante Real e Construtor de Payload
+    console.assert(reparcelamentoUtilsSrc.includes('responsavelNome ='), 'buildGeneralPaymentReceiptPayload deve aceitar responsavelNome');
+    console.assert(reparcelamentoUtilsSrc.includes('vencimentoOriginal ='), 'buildGeneralPaymentReceiptPayload deve aceitar vencimentoOriginal');
+    console.assert(dataTableSrc.includes('realRemainingDebt'), 'DataTable deve calcular o saldo devedor real restante do cliente');
+    console.assert(dataTableSrc.includes('vencDate'), 'DataTable deve passar a data de vencimento');
+
+    console.log('  ✅ Test 98 Passed: Recibo A4 de Pagamento com Cliente/Responsável, Duas Datas e Saldo Real validado com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
