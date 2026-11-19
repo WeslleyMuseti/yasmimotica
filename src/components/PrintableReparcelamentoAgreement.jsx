@@ -23,6 +23,7 @@ export const PrintableReparcelamentoAgreement = ({ agreementData }) => {
   const {
     osNumero = 'AVULSO',
     clientName = 'Cliente',
+    responsibleName = '',
     clientCpf = '',
     clientRg = '',
     clientPhone = '',
@@ -44,6 +45,11 @@ export const PrintableReparcelamentoAgreement = ({ agreementData }) => {
     schedule = [],
     agreementId = ''
   } = agreementData;
+
+  const respObj = typeof responsible === 'object' && responsible !== null ? responsible : null;
+  const respName = responsibleName || respObj?.name || (typeof responsible === 'string' ? responsible : '') || '';
+  const respCpf = respObj?.cpf || '';
+  const respPhone = respObj?.phone || '';
 
   const safeCity = unit && unit !== 'Central' ? unit : 'Cajati';
   const effectiveAgreementId = agreementId || `REP-${String(osNumero).replace(/^#/, '')}-${Date.now().toString().slice(-6)}`;
@@ -151,11 +157,16 @@ export const PrintableReparcelamentoAgreement = ({ agreementData }) => {
               </p>
             </div>
 
-            {/* DEVEDOR(A) */}
+            {/* DEVEDOR(A) / CLIENTE */}
             <div>
               <p className="text-slate-800 truncate">
-                <strong className="text-slate-950 uppercase">Devedor(a):</strong> {clientName}
+                <strong className="text-slate-950 uppercase">Devedor(a) / Cliente:</strong> {clientName}
               </p>
+              {respName && respName.trim() !== '' && respName !== clientName && (
+                <p className="text-slate-800 truncate">
+                  <strong className="text-slate-950 uppercase">Responsável Legal / Pagador:</strong> {respName}
+                </p>
+              )}
               <p className="text-slate-700">
                 <strong>CPF/CNPJ:</strong> {clientCpf || 'Não informado'}
                 {clientRg && <> &bull; <strong>RG:</strong> {clientRg}</>}
@@ -169,14 +180,14 @@ export const PrintableReparcelamentoAgreement = ({ agreementData }) => {
             </div>
           </div>
 
-          {/* RESPONSÁVEL LEGAL (SE HOUVER) */}
-          {responsible && responsible.name && (
+          {/* RESPONSÁVEL LEGAL / PAGADOR */}
+          {respName && (
             <div className="mt-1 pt-1 border-t border-slate-200 text-[7.5px] text-slate-700 flex items-center justify-between">
               <span>
-                <strong className="text-slate-900 uppercase">Responsável Legal:</strong> {responsible.name}
+                <strong className="text-slate-900 uppercase">Responsável Legal / Pagador:</strong> {respName}
               </span>
-              {responsible.cpf && <span><strong>CPF:</strong> {responsible.cpf}</span>}
-              {responsible.phone && <span><strong>Contato:</strong> {responsible.phone}</span>}
+              {respCpf && <span><strong>CPF:</strong> {respCpf}</span>}
+              {respPhone && <span><strong>Contato:</strong> {respPhone}</span>}
             </div>
           )}
         </div>
@@ -379,27 +390,27 @@ export const PrintableReparcelamentoAgreement = ({ agreementData }) => {
 
           <div className="flex justify-around items-end px-4 gap-4 text-center">
             {/* ASSINATURA CLIENTE / DEVEDOR */}
-            <div className="w-[38%]">
+            <div className={respName ? "w-[30%]" : "w-[38%]"}>
               <div className="border-t-2 border-slate-900 pt-1 uppercase text-[8px] font-black text-slate-900">
-                Assinatura do(a) Devedor(a)
+                Assinatura do(a) Cliente
               </div>
               <p className="text-[7.5px] font-bold text-slate-700 truncate mt-0.5">{clientName}</p>
               <p className="text-[6.5px] text-slate-500 font-mono">CPF: {clientCpf || 'Não informado'}</p>
             </div>
 
-            {/* SE HOUVER RESPONSÁVEL LEGAL */}
-            {responsible && responsible.name && (
-              <div className="w-[32%]">
+            {/* SE HOUVER RESPONSÁVEL LEGAL / PAGADOR */}
+            {respName && (
+              <div className="w-[30%]">
                 <div className="border-t-2 border-slate-900 pt-1 uppercase text-[8px] font-black text-slate-900">
                   Assinatura do Responsável
                 </div>
-                <p className="text-[7.5px] font-bold text-slate-700 truncate mt-0.5">{responsible.name}</p>
-                <p className="text-[6.5px] text-slate-500 font-mono">CPF: {responsible.cpf || 'Não informado'}</p>
+                <p className="text-[7.5px] font-bold text-slate-700 truncate mt-0.5">{respName}</p>
+                <p className="text-[6.5px] text-slate-500 font-mono">{respCpf ? `CPF: ${respCpf}` : 'Responsável Legal / Pagador'}</p>
               </div>
             )}
 
             {/* ASSINATURA CREDORA / YASMIN ÓTICA */}
-            <div className="w-[38%]">
+            <div className={respName ? "w-[30%]" : "w-[38%]"}>
               <div className="border-t-2 border-slate-900 pt-1 uppercase text-[8px] font-black text-slate-900">
                 Yasmin Ótica &bull; Visto da Loja
               </div>

@@ -89,10 +89,12 @@ const ReparcelamentoOSModal = ({
 
       if (!groupsMap.has(key)) {
         const matchedClient = (clientsData || []).find(c => isSameClient(c, row));
+        const resp = row.RESPONSAVEL || row.responsavel || row['RESPONSÁVEL'] || row['Responsável'] || matchedClient?.['Responsável Nome'] || matchedClient?.['Responsável'] || matchedClient?.['Nome Responsável'] || matchedClient?.['RESPONSAVEL'] || '';
         groupsMap.set(key, {
           key,
           osNumber: osNum,
           clientName,
+          responsible: resp,
           clientId: row.CLIENTE_ID || row.cliente_id || matchedClient?.id || '',
           clientCpf: row.CLIENTE_CPF || row.CPF || row.cpf || matchedClient?.['CPF / CNPJ'] || matchedClient?.CPF || '',
           unit: row.CIDADE || row.LOJA || row.UNIDADE || matchedClient?.Cidade || defaultUnit,
@@ -118,6 +120,7 @@ const ReparcelamentoOSModal = ({
   // Parâmetros do acordo / reparcelamento
   const [osInput, setOsInput] = useState('');
   const [clientNameInput, setClientNameInput] = useState('');
+  const [responsibleInput, setResponsibleInput] = useState('');
   const [clientCpfInput, setClientCpfInput] = useState('');
   const [clientIdInput, setClientIdInput] = useState('');
   const [unitInput, setUnitInput] = useState(defaultUnit);
@@ -153,6 +156,7 @@ const ReparcelamentoOSModal = ({
     setDescontoInput('0,00');
     setAcrescimoInput('0,00');
     setObservacoes('');
+    setResponsibleInput('');
     setIncludeAllClientPending(false);
 
     if (initialRow || initialOSNumber || initialClientName) {
@@ -181,8 +185,10 @@ const ReparcelamentoOSModal = ({
       if (initialRow) {
         const cName = resolveInstallmentClientName(initialRow, clientsData, salesData);
         const osNum = extractOSFromRow(initialRow) || '';
+        const resp = initialRow.RESPONSAVEL || initialRow.responsavel || initialRow['RESPONSÁVEL'] || initialRow['Responsável'] || '';
         setOsInput(osNum);
         setClientNameInput(cName);
+        setResponsibleInput(resp);
         setClientCpfInput(initialRow.CLIENTE_CPF || initialRow.CPF || initialClientCpf || '');
         setClientIdInput(initialRow.CLIENTE_ID || initialClientId || '');
         setUnitInput(initialRow.CIDADE || initialRow.LOJA || initialRow.UNIDADE || defaultUnit);
@@ -197,6 +203,7 @@ const ReparcelamentoOSModal = ({
       setSelectedGroupKey('');
       setOsInput('');
       setClientNameInput('');
+      setResponsibleInput('');
       setClientCpfInput('');
       setClientIdInput('');
       setSelectedRowIds(new Set());
@@ -208,6 +215,7 @@ const ReparcelamentoOSModal = ({
     setSelectedGroupKey(grp.key);
     setOsInput(grp.osNumber === 'SEM-OS' ? '' : grp.osNumber);
     setClientNameInput(grp.clientName);
+    setResponsibleInput(grp.responsible || '');
     setClientCpfInput(grp.clientCpf || '');
     setClientIdInput(grp.clientId || '');
     setUnitInput(grp.unit || defaultUnit);
@@ -379,7 +387,7 @@ const ReparcelamentoOSModal = ({
       cep ? `CEP ${cep}` : ''
     ].filter(Boolean);
 
-    const respName = found['Responsável Nome'] || found['Responsável'] || found['RESPONSAVEL'];
+    const respName = responsibleInput || found['Responsável Nome'] || found['Responsável'] || found['Nome Responsável'] || found['RESPONSAVEL'] || '';
     const respCpf = found['Responsável CPF'] || found['RESPONSAVEL_CPF'] || '';
     const respPhone = found['Responsável WhatsApp'] || found['RESPONSAVEL_WHATSAPP'] || '';
 
@@ -391,7 +399,7 @@ const ReparcelamentoOSModal = ({
       address: addressParts.length > 0 ? addressParts.join(' - ') : '',
       responsible: respName ? { name: respName, cpf: respCpf, phone: respPhone } : null
     };
-  }, [clientsData, clientIdInput, clientCpfInput, clientNameInput, unitInput, defaultUnit]);
+  }, [clientsData, clientIdInput, clientCpfInput, clientNameInput, responsibleInput, unitInput, defaultUnit]);
 
   // Construtor do objeto de dados para impressão do Termo de Acordo
   const buildAgreementPayload = () => {
@@ -403,11 +411,12 @@ const ReparcelamentoOSModal = ({
     return {
       osNumero: osInput || 'AVULSO',
       clientName: currentClientDetails?.name || clientNameInput || 'Cliente',
+      responsibleName: responsibleInput || currentClientDetails?.responsible?.name || '',
       clientCpf: currentClientDetails?.cpf || clientCpfInput || '',
       clientRg: currentClientDetails?.rg || '',
       clientPhone: currentClientDetails?.phone || '',
       clientAddress: currentClientDetails?.address || '',
-      responsible: currentClientDetails?.responsible || null,
+      responsible: currentClientDetails?.responsible || (responsibleInput ? { name: responsibleInput, cpf: '', phone: '' } : null),
       unit: unitInput || defaultUnit,
       dataAcordo: dataAcordo || new Date().toISOString().split('T')[0],
       observacoes,
@@ -442,7 +451,7 @@ const ReparcelamentoOSModal = ({
       unidade: unitInput || defaultUnit,
       operador: currentUser?.username || 'Yasmin Ótica',
       clienteNome: currentClientDetails?.name || clientNameInput || 'Cliente',
-      responsavelNome: currentClientDetails?.responsavel || currentClientDetails?.['Responsável'] || currentClientDetails?.['Nome Responsável'] || '',
+      responsavelNome: responsibleInput || currentClientDetails?.responsible?.name || currentClientDetails?.name || clientNameInput || '',
       clienteCpf: currentClientDetails?.cpf || clientCpfInput || '',
       clienteTelefone: currentClientDetails?.phone || '',
       clienteEndereco: currentClientDetails?.address || '',
@@ -514,6 +523,7 @@ const ReparcelamentoOSModal = ({
       const payload = buildReparcelamentoOSPayload({
         osNumber: osInput || 'AVULSO',
         clientName: clientNameInput || 'Cliente',
+        responsibleName: responsibleInput,
         clientId: clientIdInput,
         clientCpf: clientCpfInput,
         unit: unitInput || defaultUnit,
@@ -664,7 +674,12 @@ const ReparcelamentoOSModal = ({
                                 {grp.clientName}
                               </span>
                             </div>
-                            <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-2">
+                            <p className="text-[10px] text-slate-400 mt-1 flex flex-wrap items-center gap-1.5">
+                              {grp.responsible && (
+                                <span className="text-amber-300 font-semibold">
+                                  👤 Resp: {grp.responsible} •
+                                </span>
+                              )}
                               <span>{grp.pendingRows.length} parcela(s) em aberto</span>
                               <span>•</span>
                               <span>📍 {grp.unit}</span>
@@ -721,8 +736,8 @@ const ReparcelamentoOSModal = ({
                   )}
                 </div>
 
-                {/* Campos de Identificação da OS e Cliente */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-slate-900/80 p-3 rounded-xl border border-white/5">
+                {/* Campos de Identificação da OS, Cliente e Responsável */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 bg-slate-900/80 p-3 rounded-xl border border-white/5">
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
                       Nº da OS Referência *
@@ -738,7 +753,7 @@ const ReparcelamentoOSModal = ({
                   </div>
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
-                      Nome do Cliente *
+                      Nome do Cliente (Titular) *
                     </label>
                     <input
                       type="text"
@@ -747,6 +762,19 @@ const ReparcelamentoOSModal = ({
                       onChange={e => setClientNameInput(e.target.value)}
                       placeholder="Nome do Cliente"
                       className="w-full bg-black/50 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold outline-none focus:border-sky-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wider text-amber-300 block mb-1 flex items-center justify-between">
+                      <span>Responsável (Pagador)</span>
+                      <span className="text-[9px] text-slate-400 font-normal">Opcional</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={responsibleInput}
+                      onChange={e => setResponsibleInput(e.target.value)}
+                      placeholder="Nome do Responsável / Pagador"
+                      className="w-full bg-black/50 border border-amber-500/30 rounded-lg px-2.5 py-1.5 text-xs text-amber-200 font-bold outline-none focus:border-amber-400"
                     />
                   </div>
                   <div>

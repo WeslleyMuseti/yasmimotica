@@ -9085,6 +9085,32 @@ async function runTests() {
     console.log('  ✅ Test 98 Passed: Recibo A4 de Pagamento com Cliente/Responsável, Duas Datas e Saldo Real validado com 100% de sucesso!\n');
   }
 
+  // ==========================================
+  console.log('▶ Test 99: Reparcelamento da OS - Exibição do Nome do Cliente e do Responsável Legal');
+  {
+    const reparcelamentoModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'ReparcelamentoOSModal.jsx'), 'utf8');
+    const agreementPrintSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableReparcelamentoAgreement.jsx'), 'utf8');
+    const reparcelamentoUtilsSrc = fs.readFileSync(path.join(__dirname, 'src', 'reparcelamentoUtils.js'), 'utf8');
+
+    // 1. Verificação dos Campos no Modal de Reparcelamento (ReparcelamentoOSModal.jsx)
+    console.assert(reparcelamentoModalSrc.includes('responsibleInput'), 'ReparcelamentoOSModal deve conter o estado responsibleInput');
+    console.assert(reparcelamentoModalSrc.includes('Responsável (Pagador)'), 'ReparcelamentoOSModal deve conter o campo Responsável (Pagador)');
+    console.assert(reparcelamentoModalSrc.includes('Nome do Cliente (Titular)'), 'ReparcelamentoOSModal deve identificar o Cliente Titular');
+    console.assert(reparcelamentoModalSrc.includes('responsibleName: responsibleInput'), 'ReparcelamentoOSModal deve repassar responsibleName para o acordo');
+
+    // 2. Verificação no Termo de Acordo A4 (PrintableReparcelamentoAgreement.jsx)
+    console.assert(agreementPrintSrc.includes('Devedor(a) / Cliente:'), 'Termo de Acordo deve exibir Devedor(a) / Cliente');
+    console.assert(agreementPrintSrc.includes('Responsável Legal / Pagador:'), 'Termo de Acordo deve exibir Responsável Legal / Pagador');
+    console.assert(agreementPrintSrc.includes('Assinatura do(a) Cliente'), 'Termo de Acordo deve conter assinatura do Cliente');
+    console.assert(agreementPrintSrc.includes('Assinatura do Responsável'), 'Termo de Acordo deve conter assinatura do Responsável');
+
+    // 3. Verificação no Construtor de Payload (reparcelamentoUtils.js)
+    console.assert(reparcelamentoUtilsSrc.includes('cleanResponsible'), 'buildReparcelamentoOSPayload deve tratar cleanResponsible');
+    console.assert(reparcelamentoUtilsSrc.includes('RESPONSAVEL: cleanResponsible'), 'buildReparcelamentoOSPayload deve gravar RESPONSAVEL nas novas parcelas');
+
+    console.log('  ✅ Test 99 Passed: Reparcelamento da OS com Cliente e Responsável Legal validado com 100% de sucesso!\n');
+  }
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }

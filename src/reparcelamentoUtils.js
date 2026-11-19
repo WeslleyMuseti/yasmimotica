@@ -539,6 +539,8 @@ export const buildReparcelamentoOSPayload = ({
   osNumber = '',
   osNumero = '',
   clientName = '',
+  responsibleName = '',
+  responsavel = '',
   clientId = '',
   clientCpf = '',
   unit = '',
@@ -561,6 +563,7 @@ export const buildReparcelamentoOSPayload = ({
   const effectiveOS = osNumber || osNumero || '';
   const cleanOS = String(effectiveOS).trim().replace(/^#/, '').toUpperCase() || 'AVULSO';
   const cleanClient = String(clientName || 'Cliente').trim();
+  const cleanResponsible = String(responsibleName || responsavel || '').trim();
   const rawMeio = meioPagamentoParcelas || meioPagamento || 'Boleto';
   const cleanMeio = /carn[eê]|boleto/i.test(String(rawMeio)) ? 'Boleto' : String(rawMeio);
   const effectiveUnit = unit || unidade || 'Central';
@@ -615,6 +618,9 @@ export const buildReparcelamentoOSPayload = ({
       CLIENTE: cleanClient,
       'NOME CLIENTE': cleanClient,
       NOME: cleanClient,
+      RESPONSAVEL: cleanResponsible,
+      'RESPONSÁVEL': cleanResponsible,
+      responsavel: cleanResponsible,
       DESCRICAO: `Entrada de Reparcelamento OS #${cleanOS} (${cleanClient})`,
       DOCUMENTO: `ENTRADA REPARCELAMENTO - OS ${cleanOS}`,
       VENDA_OS: cleanOS,
@@ -671,6 +677,9 @@ export const buildReparcelamentoOSPayload = ({
             CLIENTE: cleanClient,
             'NOME CLIENTE': cleanClient,
             NOME: cleanClient,
+            RESPONSAVEL: cleanResponsible,
+            'RESPONSÁVEL': cleanResponsible,
+            responsavel: cleanResponsible,
             DESCRICAO: `OS #${cleanOS} - Parcela ${num}/${tot} (Reparcelamento)`,
             DOCUMENTO: `BOLETO ${num}/${tot} - OS ${cleanOS} (REPARCELAMENTO)`,
             VENDA_OS: cleanOS,
@@ -703,6 +712,8 @@ export const buildReparcelamentoOSPayload = ({
     osNumber: cleanOS,
     osNumero: cleanOS,
     clientName: cleanClient,
+    responsibleName: cleanResponsible,
+    responsavel: cleanResponsible,
     clientId,
     clientCpf,
     unit: effectiveUnit,
