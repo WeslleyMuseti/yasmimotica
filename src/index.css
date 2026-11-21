@@ -223,6 +223,20 @@ section {
     overflow: hidden !important;
   }
 
+  /* Isolamento restrito: quando imprimindo etiqueta, suprime qualquer outro documento oficial */
+  body.printing-label #print-section,
+  body.printing-label #print-receipt-section,
+  body.printing-label #print-cash-voucher-section,
+  body.printing-label #print-client-profile,
+  body.printing-label #print-cash-closing-report,
+  body.printing-label #print-cash-movement-sheet,
+  body.printing-label #print-reparcelamento-agreement,
+  body.printing-label #printable-reparcelamento-receipt,
+  body.printing-label #print-reparcelamento-receipt {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
   #print-label-section {
     position: absolute !important;
     left: 0 !important;

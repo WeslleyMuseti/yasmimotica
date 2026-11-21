@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Tag, Printer, X, Eye, Check, AlertCircle, Copy, FileText, Glasses, Sparkles, Scissors } from 'lucide-react';
 
 // Tabela Padrão Code 128 (107 símbolos)
@@ -161,7 +161,8 @@ export const SingleLabelGlassesJewelry = ({ item = {}, storeName = 'YASMIN ÓTIC
  * 🏷️ 2. ETIQUETA ADESIVA RETANGULAR 50x30mm
  */
 export const SingleLabel50x30 = ({ item = {}, type = 'armacao', storeName = 'YASMIN ÓTICA' }) => {
-  if (type === 'os' || type === 'envelope_lab' || item.numeroOS || item.osNumber || item.OS) {
+  const isOSEnvelope = type === 'os' || type === 'envelope_lab' || (type !== 'armacao' && type !== 'produto' && Boolean(item.numeroOS || item.osNumber || item.OS || item['OS DA VENDA']));
+  if (isOSEnvelope) {
     const osNum = item.numeroOS || item.osNumber || item.OS || item['OS DA VENDA'] || item['OS da COMPRA'] || item['VENDA_OS'] || '---';
     const client = item.clientName || item['Nome Completo'] || item.NOME || item.CLIENTE || item['NOME DO CLIENTE'] || item.nomeCliente || 'Cliente';
     const paciente = item.pacienteNome || item.PACIENTE || item.NOME_BENEFICIARIO || item.nomePessoa || '';
@@ -343,6 +344,13 @@ export const PrintableLabelModal = ({ isOpen, onClose, data, defaultType = 'hast
   const [labelType, setLabelType] = useState(initialType);
   const [copies, setCopies] = useState(1);
   const [isPrinting, setIsPrinting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setLabelType(initialType);
+      setCopies(1);
+    }
+  }, [isOpen, initialType]);
 
   if (!isOpen || !data) return null;
 

@@ -3,10 +3,12 @@ import { createPortal } from 'react-dom';
 import { X, FileText, Edit2, Printer } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PrintableOS from './PrintableOS';
+import PrintableReceipt from './PrintableReceipt';
 
 const RowDetailsModal = ({ isOpen, onClose, data, onEditClick }) => {
   const [printOSData, setPrintOSData] = useState(null);
   const [printClientData, setPrintClientData] = useState(null);
+  const [printReceiptData, setPrintReceiptData] = useState(null);
 
   const row = data?.row || {};
   const osNum = row['OS'] || row['OS DA VENDA'] || row['OS da COMPRA'] || row['VENDA_OS'];
@@ -100,6 +102,7 @@ const RowDetailsModal = ({ isOpen, onClose, data, onEditClick }) => {
                       else if (row.ITENS_JSON) rowItens = typeof row.ITENS_JSON === 'string' ? JSON.parse(row.ITENS_JSON) : row.ITENS_JSON;
                     } catch (_) { rowItens = []; }
 
+                    setPrintReceiptData(null);
                     setPrintOSData({
                       ...row,
                       raw: row,
@@ -180,11 +183,76 @@ const RowDetailsModal = ({ isOpen, onClose, data, onEditClick }) => {
                       parcelas: rowParcs,
                       PARCELAS_JSON: row.PARCELAS_JSON || JSON.stringify(rowParcs)
                     });
-                    setTimeout(() => window.print(), 300);
+                    setTimeout(() => {
+                      window.print();
+                      setTimeout(() => {
+                        setPrintOSData(null);
+                        setPrintClientData(null);
+                      }, 3000);
+                    }, 300);
                   }}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black bg-indigo-500 hover:bg-indigo-400 text-white transition-all shadow-lg shadow-indigo-500/20"
                 >
                   <Printer size={16} /> Reimprimir OS
+                </button>
+              )}
+              {(row['VALOR TOTAL'] || row['VALOR DA VENDA'] || row['VALOR'] || row['PRODUTO'] || osNum) && (
+                <button
+                  onClick={() => {
+                    setPrintOSData(null);
+                    setPrintClientData(null);
+
+                    const rowOS = row['OS'] || row['OS DA VENDA'] || row['OS da COMPRA'] || row['VENDA_OS'] || '';
+                    const rowPac = row['PACIENTE'] || row['NOME_BENEFICIARIO'] || row['nomePessoa'] || '';
+                    const rowRespN = row['RESPONSAVEL_NOME'] || row['RESPONSAVEL_LEGAL'] || row['Responsável Nome'] || row['Responsável'] || row['responsavelNome'] || '';
+                    const rowRespC = row['RESPONSAVEL_CPF'] || row['Responsável CPF'] || row['responsavelCpf'] || '';
+
+                    let rowItens = [];
+                    try {
+                      if (Array.isArray(row.itens)) rowItens = row.itens;
+                      else if (row.ITENS_JSON) rowItens = typeof row.ITENS_JSON === 'string' ? JSON.parse(row.ITENS_JSON) : row.ITENS_JSON;
+                    } catch (_) { rowItens = []; }
+
+                    let rowParcs = [];
+                    try {
+                      if (Array.isArray(row.parcelas)) rowParcs = row.parcelas;
+                      else if (row.PARCELAS_JSON) rowParcs = typeof row.PARCELAS_JSON === 'string' ? JSON.parse(row.PARCELAS_JSON) : row.PARCELAS_JSON;
+                    } catch (_) { rowParcs = []; }
+
+                    setPrintReceiptData({
+                      ...row,
+                      numeroOS: rowOS,
+                      'OS DA VENDA': rowOS,
+                      OS: rowOS,
+                      VENDA_OS: rowOS,
+                      CLIENTE: row['Nome Completo'] || row['NOME'] || row['CLIENTE'] || 'Cliente',
+                      clientName: row['Nome Completo'] || row['NOME'] || row['CLIENTE'] || 'Cliente',
+                      CPF: row['CPF / CNPJ'] || row['CPF'] || '',
+                      clientCPF: row['CPF / CNPJ'] || row['CPF'] || '',
+                      TELEFONE: row['WhatsApp'] || row['TELEFONE'] || '',
+                      cidade: row['CIDADE'] || row['LOJA'] || row['UNIDADE'] || 'Central',
+                      CIDADE: row['CIDADE'] || row['LOJA'] || row['UNIDADE'] || 'Central',
+                      vendedor: row['VENDEDOR'] || 'Yasmin Ótica',
+                      valorTotal: row['VALOR TOTAL'] || row['VALOR DA VENDA'] || row['VALOR'] || '0,00',
+                      valorEntrada: row['VALOR ENTRADA'] || row['SINAL'] || '0,00',
+                      restante: row['RESTANTE'] || '0,00',
+                      formaPagamento: row['FORMAS_PAGAMENTO'] || row['FORMA_PAGTO'] || row['MEIO_PAGAMENTO'] || '',
+                      pacienteNome: rowPac,
+                      responsavelNome: rowRespN,
+                      responsavelCpf: rowRespC,
+                      itens: rowItens,
+                      parcelas: rowParcs,
+                      produto: row['PRODUTO'] || row['LENTE'] || 'Óculos Completo'
+                    });
+
+                    setTimeout(() => {
+                      window.print();
+                      setTimeout(() => setPrintReceiptData(null), 3000);
+                    }, 300);
+                  }}
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-lg shadow-emerald-600/20"
+                >
+                  <FileText size={16} /> Recibo de Venda
                 </button>
               )}
               {onEditClick && (
@@ -209,6 +277,18 @@ const RowDetailsModal = ({ isOpen, onClose, data, onEditClick }) => {
         {createPortal(modalContent, document.body)}
         {printOSData && printClientData && (
           <PrintableOS clientData={printClientData} osData={printOSData} />
+        )}
+        {printReceiptData && (
+          <PrintableReceipt
+            saleData={printReceiptData}
+            clientData={{
+              'Nome Completo': printReceiptData.clientName || printReceiptData.CLIENTE,
+              'CPF / CNPJ': printReceiptData.clientCPF || printReceiptData.CPF,
+              'WhatsApp': printReceiptData.TELEFONE,
+              'Responsável Nome': printReceiptData.responsavelNome,
+              'Responsável CPF': printReceiptData.responsavelCpf
+            }}
+          />
         )}
       </>
     );

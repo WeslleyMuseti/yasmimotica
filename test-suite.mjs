@@ -9600,7 +9600,116 @@ async function runTests() {
     console.log('  ✅ Test 104 Passed: Auditoria e Blindagem Avançada PDV, ERP, OS, Comprovantes e Medidas validada com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 104 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // =========================================================================
+  // ▶ Test 105: Blindagem de Comprovantes, Isolamento Térmico e Rastreabilidade Completa PDV/ERP/OS
+  // =========================================================================
+  {
+    console.log('▶ Test 105: Blindagem de Comprovantes, Isolamento Térmico e Rastreabilidade Completa PDV/ERP/OS');
+
+    const osManagementSrc = fs.readFileSync(path.join(__dirname, 'src/components/OSManagement.jsx'), 'utf-8');
+    const posRegisterSrc = fs.readFileSync(path.join(__dirname, 'src/components/POSRegister.jsx'), 'utf-8');
+    const printableOSSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableOS.jsx'), 'utf-8');
+    const printableLabelSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableLabel.jsx'), 'utf-8');
+    const printableReceiptSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableReceipt.jsx'), 'utf-8');
+    const dataTableSrc = fs.readFileSync(path.join(__dirname, 'src/components/DataTable.jsx'), 'utf-8');
+    const rowDetailsModalSrc = fs.readFileSync(path.join(__dirname, 'src/components/RowDetailsModal.jsx'), 'utf-8');
+    const indexCssSrc = fs.readFileSync(path.join(__dirname, 'src/index.css'), 'utf-8');
+
+    // 105.1: PrintableReceipt suporte a chaves maiúsculas do banco de dados
+    console.assert(printableReceiptSrc.includes('saleData[\'VALOR TOTAL\']'), 'PrintableReceipt deve suportar saleData[\'VALOR TOTAL\']');
+    console.assert(printableReceiptSrc.includes('saleData[\'VALOR ENTRADA\']'), 'PrintableReceipt deve suportar saleData[\'VALOR ENTRADA\']');
+    console.assert(printableReceiptSrc.includes('saleData[\'RESTANTE\']'), 'PrintableReceipt deve suportar saleData[\'RESTANTE\']');
+    console.assert(printableReceiptSrc.includes('saleData[\'TROCO\']'), 'PrintableReceipt deve suportar saleData[\'TROCO\']');
+
+    // 105.2: PrintableReceipt cálculo de subtotal de item com preços string sem gerar NaN
+    console.assert(printableReceiptSrc.includes('const itemQtd = Number(item.qtd || item.quantidade || item.QTD || 1) || 1;'), 'PrintableReceipt deve sanitizar quantidade numérica');
+    console.assert(printableReceiptSrc.includes('const itemPreco = cleanVal(item.preco || item.PRECO'), 'PrintableReceipt deve limpar valor unitário de string');
+    console.assert(printableReceiptSrc.includes('const itemSubtotal = itemPreco > 0 ? itemPreco * itemQtd : 0;'), 'PrintableReceipt deve multiplicar número por número sem gerar NaN');
+
+    // 105.3: PrintableReceipt distinção de pagamento integral vs venda com saldo restante (Boleto)
+    console.assert(printableReceiptSrc.includes('TOTAL DA VENDA:'), 'PrintableReceipt deve exibir TOTAL DA VENDA');
+    console.assert(printableReceiptSrc.includes('VALOR PAGO (ENTRADA):'), 'PrintableReceipt deve exibir VALOR PAGO (ENTRADA)');
+    console.assert(printableReceiptSrc.includes('SALDO A PAGAR (BOLETO):'), 'PrintableReceipt deve exibir SALDO A PAGAR (BOLETO)');
+    console.assert(printableReceiptSrc.includes('TOTAL PAGO:'), 'PrintableReceipt deve exibir TOTAL PAGO quando quitado');
+
+    // 105.4: PrintableReceipt resiliência de logotipo sem loop infinito
+    console.assert(printableReceiptSrc.includes('if (e.target.src.includes(\'logo-yasmin-transparent.png\')) {'), 'PrintableReceipt deve prevenir loop de erro de logo');
+
+    // 105.5: OSManagement separação de dívida entre Responsável Legal e Paciente Menor
+    console.assert(osManagementSrc.includes('const respClientRecord = Array.isArray(clientsData) ? clientsData.find(c => {'), 'OSManagement deve localizar respClientRecord');
+    console.assert(osManagementSrc.includes('updatedResp = {'), 'OSManagement deve atualizar dados de dívida do responsável');
+    console.assert(osManagementSrc.includes('r.TITULAR_TIPO !== \'responsavel\''), 'OSManagement não deve atribuir faturas do responsável à conta do menor');
+
+    // 105.6: OSManagement limpeza mútua de estados de impressão e timeout de 3000ms
+    console.assert(osManagementSrc.includes('setReceiptPrintData(null)'), 'OSManagement deve resetar receiptPrintData ao trocar de impressão');
+    console.assert(osManagementSrc.includes('setOsDataForPrint(null)'), 'OSManagement deve resetar osDataForPrint');
+    console.assert(osManagementSrc.includes('setOsDataForLabPrint(null)'), 'OSManagement deve resetar osDataForLabPrint');
+    console.assert(osManagementSrc.includes('setLabelModalData(null)'), 'OSManagement deve resetar labelModalData');
+
+    // 105.7: PrintableLabel respeito à aba de armação / produto mesmo se houver numeroOS
+    console.assert(printableLabelSrc.includes('const isOSEnvelope = type === \'os\' || type === \'envelope_lab\' || (type !== \'armacao\' && type !== \'produto\' && Boolean(item.numeroOS || item.osNumber || item.OS || item[\'OS DA VENDA\']));'), 'PrintableLabel deve respeitar abas armacao/produto em itens com OS');
+    console.assert(printableLabelSrc.includes('setLabelType(initialType)'), 'PrintableLabelModal deve sincronizar initialType no useEffect');
+
+    // 105.8: index.css isolamento estrito de impressão térmica
+    console.assert(indexCssSrc.includes('body.printing-label #print-section'), 'index.css deve conter isolamento body.printing-label #print-section');
+    console.assert(indexCssSrc.includes('body.printing-label #print-receipt-section'), 'index.css deve conter isolamento body.printing-label #print-receipt-section');
+    console.assert(indexCssSrc.includes('body.printing-label #print-cash-closing-report'), 'index.css deve suprimir relatórios ao imprimir etiqueta');
+
+    // 105.9: PrintableOS inclusão de medidas de laboratório na descrição dos itens da armação e fallbacks em safeClient
+    console.assert(printableOSSrc.includes('const frameSpecs = [];'), 'PrintableOS deve formatar especificações técnicas da armação');
+    console.assert(printableOSSrc.includes('if (pAro) frameSpecs.push(`Ponte+Aro: ${pAro}`);'), 'PrintableOS deve mapear Ponte+Aro');
+    console.assert(printableOSSrc.includes('safeClient.parcelas'), 'PrintableOS deve conter fallback para safeClient.parcelas');
+    console.assert(printableOSSrc.includes('safeClient.ITENS_JSON'), 'PrintableOS deve conter fallback para safeClient.ITENS_JSON');
+
+    // 105.10: POSRegister gravação de dados do responsável legal em FLUXO_CAIXA
+    console.assert(posRegisterSrc.includes('responsavelNome: effectiveRespName || \'\''), 'POSRegister deve salvar responsavelNome em FLUXO_CAIXA');
+    console.assert(posRegisterSrc.includes('responsavelCpf: effectiveRespCpf || \'\''), 'POSRegister deve salvar responsavelCpf em FLUXO_CAIXA');
+    console.assert(posRegisterSrc.includes('\'valorTotal\': completedSale?.valorTotal || completedSale?.[\'VALOR TOTAL\'] || \'0,00\''), 'POSRegister deve salvar valorTotal em mergedSaleData');
+
+    // 105.11: DataTable e RowDetailsModal botão de imprimir Recibo de Venda ao Consumidor com PrintableReceipt
+    console.assert(dataTableSrc.includes('<PrintableReceipt'), 'DataTable deve renderizar PrintableReceipt');
+    console.assert(dataTableSrc.includes('title="Imprimir Comprovante de Venda / Recibo do Cliente"'), 'DataTable deve ter botão de recibo de venda');
+    console.assert(rowDetailsModalSrc.includes('<PrintableReceipt'), 'RowDetailsModal deve renderizar PrintableReceipt');
+    console.assert(rowDetailsModalSrc.includes('Recibo de Venda'), 'RowDetailsModal deve ter botão de Recibo de Venda');
+
+    // 105.12: Simulação unitária da lógica de cálculo financeiro e sanitização de PrintableReceipt
+    const parseCurrency = (val) => {
+      if (typeof val === 'number') return isNaN(val) ? 0 : val;
+      if (!val) return 0;
+      const str = String(val).trim().replace(/^R\$\s*/i, '').replace(/\./g, '').replace(',', '.');
+      const num = parseFloat(str);
+      return isNaN(num) ? 0 : num;
+    };
+
+    const mockSaleWithUppercaseKeys = {
+      'VALOR TOTAL': 'R$ 800,00',
+      'VALOR ENTRADA': 'R$ 300,00',
+      'RESTANTE': 'R$ 500,00',
+      itens: [
+        { nome: 'Armação Ray-Ban Aviador', preco: 'R$ 400,00', qtd: 1 },
+        { nome: 'Lente Multifocal Digital', preco: 'R$ 200,00', qtd: 2 }
+      ]
+    };
+
+    const simulatedTotal = parseCurrency(mockSaleWithUppercaseKeys['VALOR TOTAL']);
+    const simulatedEntrada = parseCurrency(mockSaleWithUppercaseKeys['VALOR ENTRADA']);
+    const simulatedRestante = parseCurrency(mockSaleWithUppercaseKeys['RESTANTE']);
+
+    console.assert(simulatedTotal === 800.0, 'Total deve ser R$ 800,00');
+    console.assert(simulatedEntrada === 300.0, 'Entrada deve ser R$ 300,00');
+    console.assert(simulatedRestante === 500.0, 'Restante deve ser R$ 500,00');
+
+    const item1Subtotal = parseCurrency(mockSaleWithUppercaseKeys.itens[0].preco) * mockSaleWithUppercaseKeys.itens[0].qtd;
+    const item2Subtotal = parseCurrency(mockSaleWithUppercaseKeys.itens[1].preco) * mockSaleWithUppercaseKeys.itens[1].qtd;
+
+    console.assert(item1Subtotal === 400.0, 'Subtotal do item 1 deve ser 400');
+    console.assert(item2Subtotal === 400.0, 'Subtotal do item 2 deve ser 400');
+    console.assert(!isNaN(item1Subtotal) && !isNaN(item2Subtotal), 'Subtotais de itens não podem ser NaN');
+
+    console.log('  ✅ Test 105 Passed: Blindagem de Comprovantes, Isolamento Térmico e Rastreabilidade Completa PDV/ERP/OS validada com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 105 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

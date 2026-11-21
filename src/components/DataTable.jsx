@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Search, Table2, Edit2, Save, X, ClipboardList, Eye, Trash2, Printer, Tag, AlertTriangle, Paperclip, Upload, FileText, RefreshCw } from 'lucide-react';
 import RowEditModal from './RowEditModal';
 import PrintableOS from './PrintableOS';
+import PrintableReceipt from './PrintableReceipt';
 import PrintableReparcelamentoReceipt from './PrintableReparcelamentoReceipt';
 import { PrintableLabelModal } from './PrintableLabel';
 import ReceiptModal from './ReceiptModal';
@@ -359,6 +360,7 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [printRowData, setPrintRowData] = useState(null);
   const [printClientData, setPrintClientData] = useState(null);
+  const [printReceiptData, setPrintReceiptData] = useState(null);
   const [labelModalItem, setLabelModalItem] = useState(null);
   const [receiptModalRow, setReceiptModalRow] = useState(null);
   const [printReparcelamentoReceiptData, setPrintReparcelamentoReceiptData] = useState(null);
@@ -761,8 +763,15 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                             },
                             currentUser
                           });
+                          setPrintRowData(null);
+                          setPrintClientData(null);
+                          setPrintReceiptData(null);
+                          setLabelModalItem(null);
                           setPrintReparcelamentoReceiptData(payload);
-                          setTimeout(() => window.print(), 250);
+                          setTimeout(() => {
+                            window.print();
+                            setTimeout(() => setPrintReparcelamentoReceiptData(null), 3000);
+                          }, 250);
                         }}
                         className="p-1.5 flex items-center gap-1.5 px-2.5 bg-sky-500/15 text-sky-300 hover:bg-sky-500/25 border border-sky-500/30 rounded-lg transition-all font-black text-xs shadow-sm cursor-pointer"
                         title="Imprimir Recibo Oficial A4 desta Parcela Paga"
@@ -794,6 +803,10 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                             if (Array.isArray(row.itens)) rowItens = row.itens;
                             else if (row.ITENS_JSON) rowItens = typeof row.ITENS_JSON === 'string' ? JSON.parse(row.ITENS_JSON) : row.ITENS_JSON;
                           } catch (_) { rowItens = []; }
+
+                          setPrintReparcelamentoReceiptData(null);
+                          setPrintReceiptData(null);
+                          setLabelModalItem(null);
 
                           setPrintRowData({
                             ...row,
@@ -875,12 +888,81 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                             parcelas: rowParcs,
                             PARCELAS_JSON: row.PARCELAS_JSON || JSON.stringify(rowParcs)
                           });
-                          setTimeout(() => window.print(), 300);
+                          setTimeout(() => {
+                            window.print();
+                            setTimeout(() => {
+                              setPrintRowData(null);
+                              setPrintClientData(null);
+                            }, 3000);
+                          }, 300);
                         }}
                         className="p-1.5 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white rounded-lg transition-colors"
                         title="Reimprimir Ordem de Serviço"
                       >
                         <Printer size={14} />
+                      </button>
+                    )}
+                    {/* Botão Recibo de Venda / Comprovante ao Consumidor (Disponível nas tabelas de vendas) */}
+                    {(['Registro_Vendas', 'BD MARKETING', 'VENDAS'].includes(sheetName) || showPrintOS) && (row['VALOR TOTAL'] || row['VALOR DA VENDA'] || row['VALOR'] || row['PRODUTO']) && (
+                      <button
+                        onClick={() => {
+                          setPrintRowData(null);
+                          setPrintClientData(null);
+                          setPrintReparcelamentoReceiptData(null);
+                          setLabelModalItem(null);
+
+                          const rowRespN = row['RESPONSAVEL_NOME'] || row['RESPONSAVEL_LEGAL'] || row['Responsável Nome'] || row['Responsável'] || row['responsavelNome'] || '';
+                          const rowRespC = row['RESPONSAVEL_CPF'] || row['Responsável CPF'] || row['responsavelCpf'] || '';
+                          const rowPac = row['PACIENTE'] || row['NOME_BENEFICIARIO'] || row['nomePessoa'] || '';
+                          const rowOS = row['OS'] || row['OS DA VENDA'] || row['OS da COMPRA'] || row['VENDA_OS'] || '';
+
+                          let rowItens = [];
+                          try {
+                            if (Array.isArray(row.itens)) rowItens = row.itens;
+                            else if (row.ITENS_JSON) rowItens = typeof row.ITENS_JSON === 'string' ? JSON.parse(row.ITENS_JSON) : row.ITENS_JSON;
+                          } catch (_) { rowItens = []; }
+
+                          let rowParcs = [];
+                          try {
+                            if (Array.isArray(row.parcelas)) rowParcs = row.parcelas;
+                            else if (row.PARCELAS_JSON) rowParcs = typeof row.PARCELAS_JSON === 'string' ? JSON.parse(row.PARCELAS_JSON) : row.PARCELAS_JSON;
+                          } catch (_) { rowParcs = []; }
+
+                          setPrintReceiptData({
+                            ...row,
+                            numeroOS: rowOS,
+                            'OS DA VENDA': rowOS,
+                            OS: rowOS,
+                            VENDA_OS: rowOS,
+                            CLIENTE: row['Nome Completo'] || row['NOME'] || row['CLIENTE'] || 'Cliente',
+                            clientName: row['Nome Completo'] || row['NOME'] || row['CLIENTE'] || 'Cliente',
+                            CPF: row['CPF / CNPJ'] || row['CPF'] || '',
+                            clientCPF: row['CPF / CNPJ'] || row['CPF'] || '',
+                            TELEFONE: row['WhatsApp'] || row['TELEFONE'] || '',
+                            cidade: row['CIDADE'] || row['LOJA'] || row['UNIDADE'] || 'Central',
+                            CIDADE: row['CIDADE'] || row['LOJA'] || row['UNIDADE'] || 'Central',
+                            vendedor: row['VENDEDOR'] || currentUser?.username || 'Yasmin Ótica',
+                            valorTotal: row['VALOR TOTAL'] || row['VALOR DA VENDA'] || row['VALOR'] || '0,00',
+                            valorEntrada: row['VALOR ENTRADA'] || row['SINAL'] || '0,00',
+                            restante: row['RESTANTE'] || '0,00',
+                            formaPagamento: row['FORMAS_PAGAMENTO'] || row['FORMA_PAGTO'] || row['MEIO_PAGAMENTO'] || '',
+                            pacienteNome: rowPac,
+                            responsavelNome: rowRespN,
+                            responsavelCpf: rowRespC,
+                            itens: rowItens,
+                            parcelas: rowParcs,
+                            produto: row['PRODUTO'] || row['LENTE'] || 'Óculos Completo'
+                          });
+
+                          setTimeout(() => {
+                            window.print();
+                            setTimeout(() => setPrintReceiptData(null), 3000);
+                          }, 300);
+                        }}
+                        className="p-1.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-lg transition-colors"
+                        title="Imprimir Comprovante de Venda / Recibo do Cliente"
+                      >
+                        <FileText size={14} />
                       </button>
                     )}
                     {/* Botão Imprimir Etiqueta Térmica 50x30mm (oculto no Dashboard, exibido apenas se showPrintLabel=true) */}
@@ -1229,6 +1311,20 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
       {/* Componente Invisível de Impressão da OS */}
       {printRowData && printClientData && (
         <PrintableOS clientData={printClientData} osData={printRowData} />
+      )}
+
+      {/* Componente Invisível de Impressão do Comprovante de Venda ao Consumidor */}
+      {printReceiptData && (
+        <PrintableReceipt
+          saleData={printReceiptData}
+          clientData={{
+            'Nome Completo': printReceiptData.clientName || printReceiptData.CLIENTE,
+            'CPF / CNPJ': printReceiptData.clientCPF || printReceiptData.CPF,
+            'WhatsApp': printReceiptData.TELEFONE,
+            'Responsável Nome': printReceiptData.responsavelNome,
+            'Responsável CPF': printReceiptData.responsavelCpf
+          }}
+        />
       )}
 
       {/* Modal de Impressão de Etiquetas Térmicas (50x30mm) */}

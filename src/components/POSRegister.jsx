@@ -2045,7 +2045,13 @@ const POSRegister = ({
             detalhes: descricaoItens,
             CLIENTE_ID: clientId,
             CLIENTE_CPF: clientCpf,
-            CPF: clientCpf
+            CPF: clientCpf,
+            responsavelNome: effectiveRespName || '',
+            responsavelCpf: effectiveRespCpf || '',
+            RESPONSAVEL_NOME: effectiveRespName || '',
+            RESPONSAVEL_CPF: effectiveRespCpf || '',
+            'Responsável Nome': effectiveRespName || '',
+            'Responsável CPF': effectiveRespCpf || ''
           }));
 
           try {
@@ -2188,6 +2194,9 @@ const POSRegister = ({
         'alturaVertical': singleData.alturaVertical || singleData.ALTURA_VERTICAL || completedSale?.alturaVertical || '',
         'ponte': singleData.ponte || singleData.PONTE || completedSale?.ponte || '',
         'aro': singleData.aro || singleData.ARO || completedSale?.aro || '',
+        'valorTotal': completedSale?.valorTotal || completedSale?.['VALOR TOTAL'] || '0,00',
+        'valorEntrada': completedSale?.valorEntrada || completedSale?.['VALOR ENTRADA'] || '0,00',
+        'restante': completedSale?.restante || completedSale?.['RESTANTE'] || '0,00',
         'TELEFONE': savedClientForOS['WhatsApp'] || savedClientForOS['TELEFONE'] || completedSale?.TELEFONE || '',
         'CIDADE': resolveOSUnit({ numeroOS: singleData.numeroOS, unidade: singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity }, savedClientForOS) || 'Cajati',
         'LOJA': resolveOSUnit({ numeroOS: singleData.numeroOS, unidade: singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity }, savedClientForOS) || 'Cajati',

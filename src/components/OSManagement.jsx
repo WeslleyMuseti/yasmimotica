@@ -724,29 +724,81 @@ const OSManagement = ({
     }
 
     // 3. Atualizar ficha e saldo devedor do titular em CLIENTES_CADASTRADOS
-    const targetClientRecord = (clientsData || []).find(c => isSameClient(c, finalizedRow)) || editingOrder.clientData;
-    if (targetClientRecord && onUpdateRow) {
-      // Recalcula dívida real em aberto
-      const updatedReceber = data?.['CONTAS_RECEBER'] || [];
-      const clientPendingInvoices = updatedReceber.filter(r => {
-        const isMatch = (targetClientRecord.id && r.CLIENTE_ID === targetClientRecord.id) ||
-                        (titularPagadorCpf && (r.CLIENTE_CPF === titularPagadorCpf || r.CPF === titularPagadorCpf)) ||
-                        (titularPagadorName && (r.CLIENTE === titularPagadorName || r.NOME === titularPagadorName));
-        return isMatch && r.STATUS !== 'Recebido' && r.STATUS !== 'Pago';
-      });
-      const realDebt = clientPendingInvoices.reduce((sum, r) => sum + parseCurrency(r.VALOR), 0);
-      const updatedClient = {
-        ...targetClientRecord,
-        'Valor Devido': formatMoney(realDebt),
-        'Status de Pagamento': realDebt > 0 ? 'Inadimplente' : 'Em dia',
-        ...(isOSRenamed ? {
-          numeroOS: newOSNum,
-          'OS DA VENDA': newOSNum,
-          'OS': newOSNum,
-          'VENDA_OS': newOSNum
-        } : {})
-      };
-      await onUpdateRow('CLIENTES_CADASTRADOS', targetClientRecord, updatedClient).catch(() => {});
+    const updatedReceber = data?.['CONTAS_RECEBER'] || [];
+    const patientClientRecord = (clientsData || []).find(c => isSameClient(c, finalizedRow)) || editingOrder.clientData;
+
+    if (isRespTitular) {
+      // O pagador/devedor legal das parcelas é o Responsável Financeiro
+      const respClientRecord = Array.isArray(clientsData) ? clientsData.find(c => {
+        const cCpf = String(c['CPF / CNPJ'] || c['CPF'] || '').replace(/\D/g, '');
+        const rCpf = String(titularPagadorCpf || '').replace(/\D/g, '');
+        if (rCpf.length >= 7 && cCpf === rCpf) return true;
+        const cName = String(c['Nome Completo'] || c['NOME'] || '').trim().toLowerCase();
+        const rName = String(titularPagadorName || '').trim().toLowerCase();
+        return cName && rName && cName === rName;
+      }) : null;
+
+      if (respClientRecord && onUpdateRow) {
+        const respPendingInvoices = updatedReceber.filter(r => {
+          const isMatch = (respClientRecord.id && r.CLIENTE_ID === respClientRecord.id) ||
+                          (titularPagadorCpf && (r.CLIENTE_CPF === titularPagadorCpf || r.CPF === titularPagadorCpf)) ||
+                          (titularPagadorName && (r.CLIENTE === titularPagadorName || r.NOME === titularPagadorName));
+          return isMatch && r.STATUS !== 'Recebido' && r.STATUS !== 'Pago';
+        });
+        const respDebt = respPendingInvoices.reduce((sum, r) => sum + parseCurrency(r.VALOR), 0);
+        const updatedResp = {
+          ...respClientRecord,
+          'Valor Devido': formatMoney(respDebt),
+          'Status de Pagamento': respDebt > 0 ? 'Inadimplente' : 'Em dia'
+        };
+        await onUpdateRow('CLIENTES_CADASTRADOS', respClientRecord, updatedResp).catch(() => {});
+      }
+
+      // Se o paciente for um cliente cadastrado distinto, atualiza sua dívida real e número da OS
+      if (patientClientRecord && patientClientRecord !== respClientRecord && onUpdateRow) {
+        const patientPendingInvoices = updatedReceber.filter(r => {
+          const isMatch = (patientClientRecord.id && r.CLIENTE_ID === patientClientRecord.id) ||
+                          (patientClientRecord['CPF / CNPJ'] && r.CPF === patientClientRecord['CPF / CNPJ']) ||
+                          (clientName && (r.CLIENTE === clientName || r.PACIENTE === clientName));
+          return isMatch && r.STATUS !== 'Recebido' && r.STATUS !== 'Pago' && r.TITULAR_TIPO !== 'responsavel';
+        });
+        const patientDebt = patientPendingInvoices.reduce((sum, r) => sum + parseCurrency(r.VALOR), 0);
+        const updatedPatient = {
+          ...patientClientRecord,
+          'Valor Devido': formatMoney(patientDebt),
+          'Status de Pagamento': patientDebt > 0 ? 'Inadimplente' : 'Em dia',
+          ...(isOSRenamed ? {
+            numeroOS: newOSNum,
+            'OS DA VENDA': newOSNum,
+            'OS': newOSNum,
+            'VENDA_OS': newOSNum
+          } : {})
+        };
+        await onUpdateRow('CLIENTES_CADASTRADOS', patientClientRecord, updatedPatient).catch(() => {});
+      }
+    } else {
+      // Titular padrão (o próprio cliente)
+      if (patientClientRecord && onUpdateRow) {
+        const clientPendingInvoices = updatedReceber.filter(r => {
+          const isMatch = (patientClientRecord.id && r.CLIENTE_ID === patientClientRecord.id) ||
+                          (titularPagadorCpf && (r.CLIENTE_CPF === titularPagadorCpf || r.CPF === titularPagadorCpf)) ||
+                          (titularPagadorName && (r.CLIENTE === titularPagadorName || r.NOME === titularPagadorName));
+          return isMatch && r.STATUS !== 'Recebido' && r.STATUS !== 'Pago';
+        });
+        const realDebt = clientPendingInvoices.reduce((sum, r) => sum + parseCurrency(r.VALOR), 0);
+        const updatedClient = {
+          ...patientClientRecord,
+          'Valor Devido': formatMoney(realDebt),
+          'Status de Pagamento': realDebt > 0 ? 'Inadimplente' : 'Em dia',
+          ...(isOSRenamed ? {
+            numeroOS: newOSNum,
+            'OS DA VENDA': newOSNum,
+            'OS': newOSNum,
+            'VENDA_OS': newOSNum
+          } : {})
+        };
+        await onUpdateRow('CLIENTES_CADASTRADOS', patientClientRecord, updatedClient).catch(() => {});
+      }
     }
 
     // 4. Salva a linha da OS atualizada
@@ -777,6 +829,14 @@ const OSManagement = ({
   };
 
   const openLabelModal = (order) => {
+    setOsDataForPrint(null);
+    setPrintClient(null);
+    setOsDataForLabPrint(null);
+    setPrintLabClient(null);
+    setReceiptPrintData(null);
+    setLabelModalData(null);
+    setReceiptPrintData(null);
+
     const clientMatch = clientsData.find(c => isSameClient(c, {
       'Nome Completo': order.clientName,
       'WhatsApp': order.clientPhone,
@@ -1759,6 +1819,10 @@ const OSManagement = ({
   const handlePrint = (order) => {
     setOsDataForLabPrint(null);
     setPrintLabClient(null);
+    setReceiptPrintData(null);
+    setLabelModalData(null);
+    setReceiptPrintData(null);
+    setLabelModalData(null);
     const cleanedFP = cleanPaymentMethodForOS(order.raw["FORMAS_PAGAMENTO"] || order.raw["MEIO_PAGAMENTO"] || order.formasPagamento || "");
     const pacienteNomeVal = order.pacienteNome || order.raw?.["PACIENTE"] || order.raw?.["NOME_BENEFICIARIO"] || order.raw?.["CLIENTE_BENEFICIARIO"] || order.raw?.["nomePessoa"] || order.raw?.["beneficiario"] || "";
     
@@ -1881,6 +1945,10 @@ const OSManagement = ({
 
     setTimeout(() => {
       window.print();
+      setTimeout(() => {
+        setOsDataForPrint(null);
+        setPrintClient(null);
+      }, 3000);
     }, 300);
   };
 
@@ -1926,6 +1994,8 @@ const OSManagement = ({
     // Preparar impressão usando updatedRaw
     setOsDataForPrint(null);
     setPrintClient(null);
+    setReceiptPrintData(null);
+    setLabelModalData(null);
     const labPacienteNome = order.pacienteNome || updatedRaw?.['PACIENTE'] || updatedRaw?.['NOME_BENEFICIARIO'] || updatedRaw?.['nomePessoa'] || '';
     const cData = {
       ...updatedRaw,
@@ -1988,6 +2058,10 @@ const OSManagement = ({
 
     setTimeout(() => {
       window.print();
+      setTimeout(() => {
+        setOsDataForLabPrint(null);
+        setPrintLabClient(null);
+      }, 3000);
     }, 300);
   };
 
@@ -2027,6 +2101,8 @@ const OSManagement = ({
     
     setOsDataForLabPrint(null);
     setPrintLabClient(null);
+    setReceiptPrintData(null);
+    setLabelModalData(null);
 
     const primary = ordersToPrint[0];
     const primaryCleanedFP = cleanPaymentMethodForOS(primary.raw?.["FORMAS_PAGAMENTO"] || primary.raw?.["MEIO_PAGAMENTO"] || primary.formasPagamento || "");
@@ -2178,6 +2254,10 @@ const OSManagement = ({
 
     setTimeout(() => {
       window.print();
+      setTimeout(() => {
+        setOsDataForPrint(null);
+        setPrintClient(null);
+      }, 3000);
     }, 300);
   };
 
@@ -2188,6 +2268,8 @@ const OSManagement = ({
 
     setOsDataForPrint(null);
     setPrintClient(null);
+    setReceiptPrintData(null);
+    setLabelModalData(null);
 
     const primary = ordersToPrint[0];
     const targetClient = (clientsData || []).find(c => isSameClient(c, primary.raw || {}))
@@ -2326,11 +2408,21 @@ const OSManagement = ({
 
     setTimeout(() => {
       window.print();
+      setTimeout(() => {
+        setOsDataForLabPrint(null);
+        setPrintLabClient(null);
+      }, 3000);
     }, 300);
   };
 
   // Impressão em lote de etiquetas térmicas de todas as OSs vinculadas
   const handlePrintAllLabels = (order) => {
+    setOsDataForPrint(null);
+    setPrintClient(null);
+    setOsDataForLabPrint(null);
+    setPrintLabClient(null);
+    setReceiptPrintData(null);
+
     const linked = getLinkedOrdersForSale(order);
     const ordersToPrint = linked.length > 0 ? linked : [order];
     const clientMatch = clientsData.find(c => isSameClient(c, {
@@ -2389,6 +2481,9 @@ const OSManagement = ({
     setPrintClient(null);
     setOsDataForLabPrint(null);
     setPrintLabClient(null);
+    setLabelModalData(null);
+    setReceiptPrintData(null);
+    setLabelModalData(null);
 
     const targetClient = (clientsData || []).find(c => isSameClient(c, order.raw || {}))
       || (clientsData || []).find(c => {
@@ -2462,6 +2557,9 @@ const OSManagement = ({
     setReceiptPrintData(receiptPayload);
     setTimeout(() => {
       window.print();
+      setTimeout(() => {
+        setReceiptPrintData(null);
+      }, 3000);
     }, 350);
   };
 

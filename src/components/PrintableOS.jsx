@@ -189,6 +189,20 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
 
     const generalDetails = osData.detalhes || osData.detalhesProduto || osData.raw?.['DETALHES'] || osData.raw?.['detalhes'] || osData.raw?.['DETALHE DO PRODUTO'] || osData.raw?.['DETALHES DO PRODUTO'] || osData.raw?.['DETALHES_PRODUTO'] || safeClient['DETALHES'] || safeClient['DETALHE DO PRODUTO'] || safeClient['DETALHES DO PRODUTO'] || safeClient['DETALHES_PRODUTO'] || '';
 
+    // Medidas técnicas da armação para laboratório
+    const frameSpecs = [];
+    const pAro = osData.ponteAro || osData.PONTE_ARO || osData.raw?.PONTE_ARO || safeClient['PONTE_ARO'] || safeClient['ponteAro'];
+    const dMaior = osData.diagonalMaior || osData.DIAGONAL_MAIOR || osData.raw?.DIAGONAL_MAIOR || safeClient['DIAGONAL_MAIOR'] || safeClient['diagonalMaior'];
+    const aVert = osData.alturaVertical || osData.ALTURA_VERTICAL || osData.raw?.ALTURA_VERTICAL || safeClient['ALTURA_VERTICAL'] || safeClient['alturaVertical'];
+    const pte = osData.ponte || osData.PONTE || osData.raw?.PONTE || safeClient['PONTE'] || safeClient['ponte'];
+    const ar = osData.aro || osData.ARO || osData.raw?.ARO || safeClient['ARO'] || safeClient['aro'];
+    if (pAro) frameSpecs.push(`Ponte+Aro: ${pAro}`);
+    if (dMaior) frameSpecs.push(`Diag. Maior: ${dMaior}`);
+    if (aVert) frameSpecs.push(`Alt. Vert: ${aVert}`);
+    if (pte) frameSpecs.push(`Ponte: ${pte}`);
+    if (ar) frameSpecs.push(`Aro: ${ar}`);
+    const frameSpecsStr = frameSpecs.length > 0 ? `Medidas: ${frameSpecs.join(' | ')}` : '';
+
     // 1. Se houver array de itens explícito vindo do PDV ou OS
     let rawItens = osData.itens || safeClient.itens || (osData.raw && osData.raw.itens) || [];
     if (!Array.isArray(rawItens) || rawItens.length === 0) {
@@ -196,7 +210,12 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
         try { rawItens = JSON.parse(osData.raw.ITENS_JSON); } catch (e) {}
       } else if (typeof osData.ITENS_JSON === 'string') {
         try { rawItens = JSON.parse(osData.ITENS_JSON); } catch (e) {}
+      } else if (typeof safeClient.ITENS_JSON === 'string') {
+        try { rawItens = JSON.parse(safeClient.ITENS_JSON); } catch (e) {}
       }
+    }
+    if (typeof rawItens === 'string' && rawItens.trim().startsWith('[')) {
+      try { rawItens = JSON.parse(rawItens); } catch (e) {}
     }
     if (Array.isArray(rawItens) && rawItens.length > 0) {
       const mapped = rawItens.map(item => {
@@ -226,6 +245,11 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
         }
         if (item.observacoes && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.observacoes).toLowerCase()))) {
           extraDetails.push(item.observacoes);
+        }
+        if ((item.type === 'armacoes' || /arma[cç][aã]o/i.test(item.nome || item.descricao || '')) && frameSpecsStr) {
+          if (!extraDetails.some(d => String(d).includes(frameSpecs[0]))) {
+            extraDetails.push(frameSpecsStr);
+          }
         }
         if (extraDetails.length === 0 && generalDetails) {
           extraDetails.push(generalDetails);
@@ -265,6 +289,7 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
       if (ref) extra.push(`Ref: ${ref}`);
       const detArm = osData.detalhesArmacao || osData.raw?.['DETALHES_ARMACAO'];
       if (detArm) extra.push(detArm);
+      if (frameSpecsStr) extra.push(frameSpecsStr);
       if (generalDetails && (!osData.lente && !safeClient['Lente'] && !safeClient['Marca de Lente'])) {
         extra.push(generalDetails);
       }
@@ -355,11 +380,20 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
     if (!p && osData.raw?.PARCELAS_JSON) {
       try { p = JSON.parse(osData.raw.PARCELAS_JSON); } catch (e) {}
     }
+    if (!p && safeClient.parcelas) {
+      p = safeClient.parcelas;
+      if (typeof p === 'string') {
+        try { p = JSON.parse(p); } catch (e) {}
+      }
+    }
+    if (!p && safeClient.PARCELAS_JSON) {
+      try { p = JSON.parse(safeClient.PARCELAS_JSON); } catch (e) {}
+    }
     if (Array.isArray(p) && p.length > 0) {
       return p;
     }
     return [];
-  }, [osData]);
+  }, [osData, safeClient]);
 
   // ─── RESOLUÇÃO DO MÉTODO DE PAGAMENTO DA ENTRADA E DO RESTANTE ────────
   const { resolvedFormaEntrada, resolvedFormaRestante } = useMemo(() => {

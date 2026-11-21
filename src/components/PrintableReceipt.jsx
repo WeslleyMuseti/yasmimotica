@@ -35,6 +35,51 @@ const PrintableReceipt = ({ saleData, clientData }) => {
       .replace(/(^|[^\p{L}])Carn[eê]s?(?!\p{L})/gui, '$1Boleto');
   };
 
+  const totalVendaNum = cleanVal(
+    saleData.valorTotal ||
+    saleData['VALOR TOTAL'] ||
+    saleData['VALOR DA VENDA'] ||
+    saleData['VALOR_TOTAL'] ||
+    saleData.valor ||
+    saleData['VALOR'] ||
+    saleData.subtotal ||
+    0
+  );
+
+  const subtotalNum = cleanVal(
+    saleData.subtotal ||
+    saleData['SUBTOTAL'] ||
+    (totalVendaNum + cleanVal(saleData.descontoVoucher || saleData['DESCONTO_VOUCHER'] || 0) + cleanVal(saleData.desconto || saleData['DESCONTO'] || 0)) ||
+    totalVendaNum
+  );
+
+  const valorEntradaNum = cleanVal(
+    saleData.valorEntrada ||
+    saleData['VALOR ENTRADA'] ||
+    saleData['SINAL'] ||
+    saleData.sinal ||
+    0
+  );
+
+  const rawRestanteNum = cleanVal(
+    saleData.restante ||
+    saleData['RESTANTE'] ||
+    saleData.saldoRestante ||
+    0
+  );
+
+  const saldoRestanteNum = rawRestanteNum > 0
+    ? rawRestanteNum
+    : (valorEntradaNum > 0 && totalVendaNum > valorEntradaNum ? Math.max(0, totalVendaNum - valorEntradaNum) : 0);
+
+  const trocoTotalNum = cleanVal(
+    saleData.trocoTotal ||
+    saleData['TROCO'] ||
+    saleData['TROCO_TOTAL'] ||
+    saleData.troco ||
+    0
+  );
+
   const receiptDateTimeStr = (() => {
     const raw = saleData.dataHora || saleData.timestamp || saleData.DATA_HORA || saleData['DATA  DA VENDA'] || saleData['DATA DA VENDA'] || saleData.DATA;
     if (!raw) {
@@ -145,8 +190,11 @@ const PrintableReceipt = ({ saleData, clientData }) => {
               alt="Yasmin Ótica" 
               className="h-12 mx-auto mb-2 object-contain filter contrast-125" 
               onError={(e) => {
-                e.target.onerror = null;
-                e.target.src = "/logo-yasmin-transparent.png";
+                if (e.target.src.includes('logo-yasmin-transparent.png')) {
+                  e.target.style.display = 'none';
+                } else {
+                  e.target.src = "/logo-yasmin-transparent.png";
+                }
               }}
             />
             <h1 className="text-sm font-black uppercase tracking-wider">YASMIN ÓTICA</h1>
@@ -225,30 +273,37 @@ const PrintableReceipt = ({ saleData, clientData }) => {
             <p className="font-bold uppercase text-[11px] mb-2">Itens da Compra:</p>
             <div className="space-y-1.5 text-[11px]">
               {effectiveItens && effectiveItens.length > 0 ? (
-                effectiveItens.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-start">
-                    <div className="flex-1 pr-2">
-                      <p className="font-bold">{item.qtd || 1}x {item.nome || item.descricao}</p>
-                      {item.detalhes && <p className="text-[10px] text-gray-600">{item.detalhes}</p>}
-                      {(() => {
-                        const extraSpecs = [
-                          (item.referenciaSku && !String(item.detalhes || '').includes(String(item.referenciaSku))) ? `Ref: ${item.referenciaSku}` : '',
-                          (item.cor && !String(item.detalhes || '').toLowerCase().includes(String(item.cor).toLowerCase())) ? `Cor: ${item.cor}` : '',
-                          (item.material && !String(item.detalhes || '').toLowerCase().includes(String(item.material).toLowerCase())) ? `Material: ${item.material}` : '',
-                          (item.tratamento && !String(item.detalhes || '').toLowerCase().includes(String(item.tratamento).toLowerCase())) ? `Trat: ${item.tratamento}` : ''
-                        ].filter(Boolean).join(' | ');
-                        return extraSpecs ? (
-                          <p className="text-[9.5px] text-gray-600 italic">{extraSpecs}</p>
-                        ) : null;
-                      })()}
+                effectiveItens.map((item, idx) => {
+                  const itemQtd = Number(item.qtd || item.quantidade || item.QTD || 1) || 1;
+                  const itemPreco = cleanVal(item.preco || item.PRECO || item.valor || item.VALOR || item.preco_venda || item.PRECO_VENDA || 0);
+                  const itemSubtotal = itemPreco > 0 ? itemPreco * itemQtd : 0;
+                  const itemNome = item.nome || item.descricao || item.PRODUTO || item.DESCRICAO || 'Produto';
+
+                  return (
+                    <div key={idx} className="flex justify-between items-start">
+                      <div className="flex-1 pr-2">
+                        <p className="font-bold">{itemQtd}x {itemNome}</p>
+                        {item.detalhes && <p className="text-[10px] text-gray-600">{item.detalhes}</p>}
+                        {(() => {
+                          const extraSpecs = [
+                            (item.referenciaSku && !String(item.detalhes || '').includes(String(item.referenciaSku))) ? `Ref: ${item.referenciaSku}` : '',
+                            (item.cor && !String(item.detalhes || '').toLowerCase().includes(String(item.cor).toLowerCase())) ? `Cor: ${item.cor}` : '',
+                            (item.material && !String(item.detalhes || '').toLowerCase().includes(String(item.material).toLowerCase())) ? `Material: ${item.material}` : '',
+                            (item.tratamento && !String(item.detalhes || '').toLowerCase().includes(String(item.tratamento).toLowerCase())) ? `Trat: ${item.tratamento}` : ''
+                          ].filter(Boolean).join(' | ');
+                          return extraSpecs ? (
+                            <p className="text-[9.5px] text-gray-600 italic">{extraSpecs}</p>
+                          ) : null;
+                        })()}
+                      </div>
+                      <p className="font-bold shrink-0">{fmtMoeda(itemSubtotal > 0 ? itemSubtotal : totalVendaNum)}</p>
                     </div>
-                    <p className="font-bold shrink-0">{fmtMoeda((item.preco || 0) * (item.qtd || 1))}</p>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="flex justify-between items-center">
-                  <span>{saleData.produto || saleData.descricao || 'Produtos / Serviços Óticos'}</span>
-                  <span>{fmtMoeda(saleData.valorTotal || saleData.valor)}</span>
+                  <span>{saleData.produto || saleData.PRODUTO || saleData['PRODUTO'] || saleData.descricao || saleData.DESCRICAO || saleData['DESCRICAO'] || 'Produtos / Serviços Óticos'}</span>
+                  <span>{fmtMoeda(totalVendaNum)}</span>
                 </div>
               )}
             </div>
@@ -258,26 +313,44 @@ const PrintableReceipt = ({ saleData, clientData }) => {
           <div className="border-b border-black pb-3 mb-3 text-[11px] space-y-1">
             <div className="flex justify-between">
               <span>Subtotal:</span>
-              <span>{fmtMoeda(saleData.subtotal || saleData.valorTotal || saleData.valor)}</span>
+              <span>{fmtMoeda(subtotalNum)}</span>
             </div>
-            {saleData.descontoVoucher > 0 && (
+            {(saleData.descontoVoucher > 0 || saleData['DESCONTO_VOUCHER'] > 0) && (
               <div className="flex justify-between text-gray-700">
-                <span>Cupom {saleData.voucher?.CODIGO || saleData.voucher?.codigo ? `(${saleData.voucher?.CODIGO || saleData.voucher?.codigo})` : ''}:</span>
-                <span>- {fmtMoeda(saleData.descontoVoucher)}</span>
+                <span>Cupom {saleData.voucher?.CODIGO || saleData.voucher?.codigo || saleData.VOUCHER || saleData.voucher ? `(${saleData.voucher?.CODIGO || saleData.voucher?.codigo || saleData.VOUCHER || saleData.voucher})` : ''}:</span>
+                <span>- {fmtMoeda(saleData.descontoVoucher || saleData['DESCONTO_VOUCHER'])}</span>
               </div>
             )}
-            {saleData.desconto > 0 && (
+            {(saleData.desconto > 0 || saleData['DESCONTO'] > 0) && (
               <div className="flex justify-between text-gray-700">
                 <span>
                   Desconto Extra{saleData.descontoTipo === 'PORCENTAGEM' || saleData.TIPO_DESCONTO === 'PORCENTAGEM' ? ` (${saleData.descontoPercentual || saleData.DESCONTO_PERCENTUAL}%)` : ''}:
                 </span>
-                <span>- {fmtMoeda(saleData.desconto)}</span>
+                <span>- {fmtMoeda(saleData.desconto || saleData['DESCONTO'])}</span>
               </div>
             )}
             <div className="flex justify-between font-black text-sm pt-1 border-t border-dashed border-gray-400">
-              <span>TOTAL PAGO:</span>
-              <span>{fmtMoeda(saleData.valorTotal || saleData.valor)}</span>
+              <span>TOTAL DA VENDA:</span>
+              <span>{fmtMoeda(totalVendaNum)}</span>
             </div>
+
+            {saldoRestanteNum > 0 ? (
+              <>
+                <div className="flex justify-between font-bold text-emerald-800 text-[11px]">
+                  <span>VALOR PAGO (ENTRADA):</span>
+                  <span>{fmtMoeda(valorEntradaNum)}</span>
+                </div>
+                <div className="flex justify-between font-black text-rose-700 text-[11px]">
+                  <span>SALDO A PAGAR (BOLETO):</span>
+                  <span>{fmtMoeda(saldoRestanteNum)}</span>
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-between font-black text-emerald-800 text-[11px]">
+                <span>TOTAL PAGO:</span>
+                <span>{fmtMoeda(totalVendaNum)}</span>
+              </div>
+            )}
 
             {/* Detalhamento dos Pagamentos Lançados */}
             <div className="pt-2 text-[10px] space-y-1">
@@ -295,10 +368,10 @@ const PrintableReceipt = ({ saleData, clientData }) => {
                 <p>{cleanBoletoText(fallbackFormaPagamento) || 'Não informado'}</p>
               )}
 
-              {saleData.trocoTotal > 0 && (
+              {trocoTotalNum > 0 && (
                 <div className="flex justify-between font-bold text-emerald-800 pt-1">
                   <span>Troco Devolvido:</span>
-                  <span>{fmtMoeda(saleData.trocoTotal)}</span>
+                  <span>{fmtMoeda(trocoTotalNum)}</span>
                 </div>
               )}
             </div>
