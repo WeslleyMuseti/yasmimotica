@@ -303,7 +303,14 @@ export const filterInstallmentsByDateRange = (rows = [], filterConfig = {}, refe
     }
 
     // 2. Filtro por intervalo de datas
-    if (minIso || maxIso) {
+    // Se houver busca ativa por cliente/texto/OS, não corta parcelas por períodos predefinidos (ex: Mês Atual),
+    // garantindo que TODAS as parcelas do cliente (passadas e futuras) apareçam na Gestão Financeira.
+    const hasSearch = Boolean(q || qOs);
+    const applyDateFilter = hasSearch
+      ? (effectivePeriod === 'PERSONALIZADO' || effectivePeriod === 'CUSTOM') && Boolean(cleanStart || cleanEnd)
+      : Boolean(minIso || maxIso);
+
+    if (applyDateFilter) {
       const targetIso = getRowTargetDateIso(row);
       if (!targetIso) return false;
       if (minIso && targetIso < minIso) return false;
@@ -316,23 +323,30 @@ export const filterInstallmentsByDateRange = (rows = [], filterConfig = {}, refe
       if (!rowOs.includes(qOs)) return false;
     }
 
-    // 4. Filtro por texto (Cliente direto ou resolvido via cadastro/OS, OS, CPF, Descrição, Fornecedor)
+    // 4. Filtro por texto (Cliente direto ou resolvido via cadastro/OS, Responsável, OS, CPF, Descrição, Fornecedor)
     if (q) {
-      const rawClientStr = String(row.CLIENTE || row.cliente || row.NOME || row['NOME DO CLIENTE'] || '').toLowerCase();
+      const rawClientStr = String(row.CLIENTE || row.cliente || row.NOME || row['NOME DO CLIENTE'] || row['NOME CLIENTE'] || '').toLowerCase();
       const resolvedClientStr =
         (Array.isArray(clientsData) && clientsData.length > 0) || (Array.isArray(salesData) && salesData.length > 0)
           ? resolveInstallmentClientName(row, clientsData, salesData).toLowerCase()
           : '';
+      const respStr = String(row.RESPONSAVEL || row.responsavel || row.NOME_RESPONSAVEL || '').toLowerCase();
       const osStr = extractOSFromRow(row).toLowerCase();
       const descStr = String(row.DESCRICAO || row.descricao || row.DOCUMENTO || row.documento || '').toLowerCase();
       const cpfStr = String(row.CLIENTE_CPF || row.CPF || row.cpf || '').toLowerCase();
+      const cleanCpfDigits = cpfStr.replace(/\D/g, '');
+      const cleanQDigits = q.replace(/\D/g, '');
       const fornStr = String(row.FORNECEDOR || row.fornecedor || '').toLowerCase();
+      const matchesCpf = cleanQDigits.length >= 3 && cleanCpfDigits.includes(cleanQDigits);
+
       if (
         !rawClientStr.includes(q) &&
         !resolvedClientStr.includes(q) &&
+        !respStr.includes(q) &&
         !osStr.includes(q) &&
         !descStr.includes(q) &&
         !cpfStr.includes(q) &&
+        !matchesCpf &&
         !fornStr.includes(q)
       ) {
         return false;

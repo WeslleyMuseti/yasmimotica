@@ -23,6 +23,13 @@ export const OS_STATUS_CONFIG = {
     dotClass: "bg-sky-400 animate-pulse",
     icon: "🔵"
   },
+  "Pendente de Correção": {
+    label: "Pendente de Correção",
+    color: "yellow",
+    badgeClass: "bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.25)]",
+    dotClass: "bg-amber-400 animate-pulse",
+    icon: "🟡"
+  },
   "No Laboratório": {
     label: "No Laboratório",
     color: "red",
@@ -396,6 +403,23 @@ const OSManagement = ({
   // Modal de Edição Completa da OS diretamente na Gestão de OS
   const [editingOrder, setEditingOrder] = useState(null);
 
+  // Filtros Avançados: Datas & Confirmação de OS
+  const [dateFilterPreset, setDateFilterPreset] = useState("ALL"); // 'ALL', 'TODAY', 'WEEK', 'MONTH', 'LAST_MONTH', 'CUSTOM'
+  const [dateFilterStart, setDateFilterStart] = useState("");
+  const [dateFilterEnd, setDateFilterEnd] = useState("");
+  const [dateFilterField, setDateFilterField] = useState("dtVenda"); // 'dtVenda' | 'dtEntrega'
+  const [confirmationFilter, setConfirmationFilter] = useState("ALL"); // 'ALL', 'PENDING', 'CONFIRMED', 'ADJUSTMENT'
+
+  // Modal de Solicitação de Ajuste (Amarelo 🟡) - Admin Only
+  const [adjustmentModalOrder, setAdjustmentModalOrder] = useState(null);
+  const [selectedAdjustmentItems, setSelectedAdjustmentItems] = useState([]);
+  const [adjustmentReasonText, setAdjustmentReasonText] = useState("");
+  const [isSavingAdjustment, setIsSavingAdjustment] = useState(false);
+
+  // Modal de Conferência de Dados do Cliente, Responsável & Documentos
+  const [auditModalOrder, setAuditModalOrder] = useState(null);
+  const [auditImagePreview, setAuditImagePreview] = useState(null);
+
   const handleSaveEditedOS = async (finalizedRow) => {
     if (!editingOrder) return;
     const rawSale = editingOrder.raw || editingOrder;
@@ -534,10 +558,32 @@ const OSManagement = ({
       let status = sale["STATUS_OS"] || sale["SITUAÇÃO"] || "No Laboratório";
       if (status === "Aguardando Confirmação" || status === "Aguardando Confirmação Financeira" || status === "Aguardando Pagamento" || status === "Aguardando Aprovação") {
         status = "Aguardando Confirmação";
+      } else if (status === "Pendente de Correção" || status === "Pendente de Ajuste" || status === "Necessita Ajuste" || status === "Ajuste Necessário") {
+        status = "Pendente de Correção";
       } else if (status === "Pago" || status === "PAGO" || status === "Entregue" || status === "Concluído") {
         status = "Entregue";
       } else if (status === "Pendente" || status === "PENDENTE" || status === "Aberto") {
         status = "No Laboratório";
+      }
+
+      const motivoAjuste = sale["MOTIVO_AJUSTE"] || sale["motivoAjuste"] || "";
+      let itensAjuste = [];
+      try {
+        if (Array.isArray(sale["ITENS_AJUSTE"])) {
+          itensAjuste = sale["ITENS_AJUSTE"];
+        } else if (typeof sale["ITENS_AJUSTE"] === "string" && sale["ITENS_AJUSTE"].startsWith("[")) {
+          itensAjuste = JSON.parse(sale["ITENS_AJUSTE"]);
+        } else if (sale["ITENS_AJUSTE"]) {
+          itensAjuste = [sale["ITENS_AJUSTE"]];
+        }
+      } catch {
+        itensAjuste = sale["ITENS_AJUSTE"] ? [sale["ITENS_AJUSTE"]] : [];
+      }
+      const dataAjuste = sale["DATA_SOLICITACAO_AJUSTE"] || sale["dataAjuste"] || "";
+      const ajustadoPor = sale["SOLICITADO_POR_AJUSTE"] || sale["ajustadoPor"] || "";
+      const corSemaforo = sale["COR_SEMAFORO"] || (status === "Pendente de Correção" ? "Amarelo" : (status === "Aguardando Confirmação" ? "Azul" : (status === "Entregue" ? "Verde" : "Vermelho")));
+      if (corSemaforo === "Amarelo" && (status === "Aguardando Confirmação" || Boolean(motivoAjuste))) {
+        status = "Pendente de Correção";
       }
 
       const dtVenda = sale["DATA  DA VENDA"] || sale["DATA DA VENDA"] || sale["DATA_VENDA"] || sale["Data da Venda"] || sale["dataVenda"] || sale["data_venda"] || sale["DATA"] || sale["Data"] || "";
@@ -728,6 +774,26 @@ const OSManagement = ({
         parcelasJson: sale["PARCELAS_JSON"],
         duplicatasGeradas: sale["DUPLICATAS_GERADAS"] === true,
         pagamentoConferido: sale["PAGAMENTO_CONFERIDO"] === true || sale["PAGAMENTO_CONFERIDO"] === "Sim",
+        motivoAjuste,
+        itensAjuste,
+        dataAjuste,
+        ajustadoPor,
+        corSemaforo,
+        isConfirmed: Boolean(
+          sale["PAGAMENTO_CONFERIDO"] === true || 
+          sale["PAGAMENTO_CONFERIDO"] === "Sim" || 
+          sale["DUPLICATAS_GERADAS"] === true ||
+          (status !== "Aguardando Confirmação" && status !== "Pendente de Correção")
+        ),
+        isPending: Boolean(
+          status === "Aguardando Confirmação" || 
+          (sale["PAGAMENTO_CONFERIDO"] !== true && sale["PAGAMENTO_CONFERIDO"] !== "Sim" && status !== "Entregue" && status !== "Cancelada")
+        ),
+        isAdjustmentPending: Boolean(
+          status === "Pendente de Correção" || 
+          corSemaforo === "Amarelo" || 
+          Boolean(motivoAjuste)
+        ),
         voucher: sale["VOUCHER"] || sale["voucher"] || sale.raw?.["VOUCHER"] || matchedClient?.["VOUCHER"] || "",
         descontoVoucher: sale["DESCONTO_VOUCHER"] || sale["descontoVoucher"] || sale.raw?.["DESCONTO_VOUCHER"] || matchedClient?.["DESCONTO_VOUCHER"] || "",
         itens: sale["itens"] || sale["ITENS"] || (typeof sale["ITENS_JSON"] === 'string' ? JSON.parse(sale["ITENS_JSON"]) : null) || matchedClient?.["itens"] || [],
@@ -747,13 +813,69 @@ const OSManagement = ({
 
   // Filtro de Ordens de Serviço
   const filteredOrders = useMemo(() => {
+    const todayIso = new Date().toISOString().split('T')[0];
+
+    // Intervalo de datas do filtro de período
+    let minIso = '';
+    let maxIso = '';
+
+    if (dateFilterPreset === 'TODAY') {
+      minIso = todayIso;
+      maxIso = todayIso;
+    } else if (dateFilterPreset === 'WEEK') {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      minIso = d.toISOString().split('T')[0];
+      maxIso = todayIso;
+    } else if (dateFilterPreset === 'MONTH') {
+      const [y, m] = todayIso.split('-');
+      minIso = `${y}-${m}-01`;
+      const lastDay = new Date(Number(y), Number(m), 0).getDate();
+      maxIso = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
+    } else if (dateFilterPreset === 'LAST_MONTH') {
+      const d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() - 1);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const lastDay = new Date(y, d.getMonth() + 1, 0).getDate();
+      minIso = `${y}-${m}-01`;
+      maxIso = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
+    } else if (dateFilterPreset === 'CUSTOM') {
+      minIso = dateFilterStart || '';
+      maxIso = dateFilterEnd || '';
+    }
+
     return allOrders.filter(order => {
       // Filtro de Loja
       if (selectedUnit !== "ALL" && order.unit !== selectedUnit) return false;
 
+      // Filtro de Confirmação (Todas / Confirmadas / Pendentes / Com Ajuste)
+      if (confirmationFilter === 'CONFIRMED') {
+        if (!order.isConfirmed) return false;
+      } else if (confirmationFilter === 'PENDING') {
+        if (!order.isPending) return false;
+      } else if (confirmationFilter === 'ADJUSTMENT') {
+        if (!order.isAdjustmentPending) return false;
+      }
+
+      // Filtro de Intervalo de Datas
+      if (minIso || maxIso) {
+        const rawTargetDate = dateFilterField === 'dtEntrega' ? order.dtEntrega : order.dtVenda;
+        const targetIso = toIsoDate(rawTargetDate);
+        if (targetIso) {
+          if (minIso && targetIso < minIso) return false;
+          if (maxIso && targetIso > maxIso) return false;
+        } else if (minIso || maxIso) {
+          return false;
+        }
+      }
+
       // Filtro de Status
       if (selectedStatusFilter === "DELAYED") {
         if (!order.isDelayed) return false;
+      } else if (selectedStatusFilter === "Pendente de Correção") {
+        if (!order.isAdjustmentPending && order.status !== "Pendente de Correção") return false;
       } else if (selectedStatusFilter !== "ALL" && order.status !== selectedStatusFilter) {
         return false;
       }
@@ -793,19 +915,22 @@ const OSManagement = ({
 
       return true;
     });
-  }, [allOrders, selectedUnit, selectedStatusFilter, search]);
+  }, [allOrders, selectedUnit, selectedStatusFilter, search, confirmationFilter, dateFilterPreset, dateFilterStart, dateFilterEnd, dateFilterField]);
 
   // Contadores para cards resumo
   const stats = useMemo(() => {
     const total = allOrders.length;
     const aguardandoConfirmacao = allOrders.filter(o => o.status === "Aguardando Confirmação").length;
+    const pendenteAjuste = allOrders.filter(o => o.status === "Pendente de Correção" || o.isAdjustmentPending).length;
     const noLab = allOrders.filter(o => o.status === "No Laboratório" || o.status === "Aguardando Lente").length;
     const emProducao = allOrders.filter(o => o.status === "Em Produção").length;
     const pronto = allOrders.filter(o => o.status === "Pronto para Retirada").length;
     const entregues = allOrders.filter(o => o.status === "Entregue").length;
     const atrasadas = allOrders.filter(o => o.isDelayed).length;
+    const confirmadas = allOrders.filter(o => o.isConfirmed).length;
+    const pendentes = allOrders.filter(o => o.isPending).length;
 
-    return { total, aguardandoConfirmacao, noLab, emProducao, pronto, entregues, atrasadas };
+    return { total, aguardandoConfirmacao, pendenteAjuste, noLab, emProducao, pronto, entregues, atrasadas, confirmadas, pendentes };
   }, [allOrders]);
 
   // Confirmar Pagamento da OS, Gerar Duplicatas no Financeiro (CONTAS_RECEBER) e Liberar Montagem
@@ -993,6 +1118,65 @@ const OSManagement = ({
     } finally {
       setIsApproving(false);
     }
+  };
+
+  // ─── GESTÃO DE AJUSTES (AMARELO 🟡) - ADMIN ONLY ───
+  const handleOpenAdjustmentModal = (order) => {
+    if (!isAdmin) return;
+    const rawSale = order.raw || order;
+    const initialItems = Array.isArray(order.itensAjuste) && order.itensAjuste.length > 0
+      ? order.itensAjuste
+      : (Array.isArray(rawSale.ITENS_AJUSTE) ? rawSale.ITENS_AJUSTE : []);
+    setSelectedAdjustmentItems(initialItems);
+    setAdjustmentReasonText(order.motivoAjuste || rawSale.MOTIVO_AJUSTE || "");
+    setAdjustmentModalOrder(order);
+  };
+
+  const handleToggleAdjustmentItem = (itemLabel) => {
+    setSelectedAdjustmentItems(prev => 
+      prev.includes(itemLabel) ? prev.filter(i => i !== itemLabel) : [...prev, itemLabel]
+    );
+  };
+
+  const handleSaveAdjustment = async () => {
+    if (!adjustmentModalOrder || isSavingAdjustment || !isAdmin) return;
+    setIsSavingAdjustment(true);
+
+    try {
+      const targetSale = adjustmentModalOrder.raw || adjustmentModalOrder;
+      const sheetName = data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING';
+      const todayIso = new Date().toISOString();
+
+      const updatedRow = {
+        ...targetSale,
+        STATUS_OS: 'Pendente de Correção',
+        COR_SEMAFORO: 'Amarelo',
+        PAGAMENTO_CONFERIDO: 'Pendente de Ajuste',
+        MOTIVO_AJUSTE: adjustmentReasonText.trim(),
+        ITENS_AJUSTE: selectedAdjustmentItems,
+        DATA_SOLICITACAO_AJUSTE: todayIso,
+        SOLICITADO_POR_AJUSTE: currentUser?.username || currentUser?.name || 'Administrador'
+      };
+
+      if (onUpdateRow) {
+        await onUpdateRow(sheetName, targetSale, updatedRow);
+      }
+
+      setAdjustmentModalOrder(null);
+      setApprovalModalOrder(null);
+      setSuccessToast(`🟡 OS #${adjustmentModalOrder.osNumber} marcada como Pendente de Correção (Amarelo) com sucesso!`);
+      setTimeout(() => setSuccessToast(''), 5000);
+    } catch (err) {
+      console.error('Erro ao salvar ajuste:', err);
+      alert('Erro ao salvar ajuste na OS: ' + (err.message || err));
+    } finally {
+      setIsSavingAdjustment(false);
+    }
+  };
+
+  // ─── CONFERÊNCIA DE DADOS DO CLIENTE, RESPONSÁVEL E DOCUMENTOS ───
+  const handleOpenAuditModal = (order) => {
+    setAuditModalOrder(order);
   };
 
   // Exclusão Cirúrgica da OS com Opção de Apagar ou Manter Dívidas
@@ -1694,7 +1878,7 @@ const OSManagement = ({
       </div>
 
       {/* ─── CARDS DE STATUS COM CORES PADRÃO (AZUL, VERDE, AMARELA E VERMELHA) ─── */}
-      <div className="flex overflow-x-auto snap-x pb-2 sm:grid sm:grid-cols-3 lg:grid-cols-7 gap-2.5 sm:gap-3 erp-scroll">
+      <div className="flex overflow-x-auto snap-x pb-2 sm:grid sm:grid-cols-4 lg:grid-cols-8 gap-2.5 sm:gap-3 erp-scroll">
         
         {/* Total Geral */}
         <div 
@@ -1728,6 +1912,25 @@ const OSManagement = ({
           </div>
           <p className="text-2xl font-black text-sky-300">{stats.aguardandoConfirmacao}</p>
           <p className="text-[10px] text-sky-400/80 font-bold mt-1">Conferência Pgto</p>
+        </div>
+
+        {/* Amarelo: Pendente de Ajuste / Correção (Admin) */}
+        <div 
+          onClick={() => setSelectedStatusFilter("Pendente de Correção")}
+          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border shrink-0 min-w-[150px] sm:min-w-0 snap-start " + (
+            selectedStatusFilter === "Pendente de Correção" 
+              ? "border-amber-500 ring-2 ring-amber-500/40 bg-amber-500/10 shadow-[0_0_15px_rgba(245,158,11,0.25)]" 
+              : "border-white/5 hover:border-amber-500/30"
+          )}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-black uppercase tracking-widest text-amber-400 flex items-center gap-1">
+              🟡 Pendente Ajuste
+            </span>
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+          </div>
+          <p className="text-2xl font-black text-amber-300">{stats.pendenteAjuste}</p>
+          <p className="text-[10px] text-amber-400/80 font-bold mt-1">Correção Admin</p>
         </div>
 
         {/* Vermelho: No Laboratório */}
@@ -1910,6 +2113,150 @@ const OSManagement = ({
         </div>
       </div>
 
+      {/* ─── BARRA DE FILTROS AVANÇADOS: CONFIRMAÇÃO & INTERVALO DE DATAS ─── */}
+      <div className="glass-card p-3 sm:p-4 rounded-2xl flex flex-col gap-3 shadow-lg border border-white/5 bg-slate-900/60">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+          
+          {/* Filtro de Confirmação (Todas / Confirmadas / Pendentes / Com Ajuste Amarela) */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1">
+              <CheckCircle size={14} className="text-pink-400" />
+              <span>Confirmação:</span>
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setConfirmationFilter('ALL')}
+              className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                confirmationFilter === 'ALL'
+                  ? 'bg-white/20 text-white border-white/30 shadow'
+                  : 'bg-white/5 text-slate-400 border-white/5 hover:text-white'
+              }`}
+            >
+              Todas ({allOrders.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setConfirmationFilter('PENDING')}
+              className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1 ${
+                confirmationFilter === 'PENDING'
+                  ? 'bg-sky-500/25 text-sky-200 border-sky-400 ring-2 ring-sky-500/20 shadow'
+                  : 'bg-sky-500/10 text-sky-400 border-sky-500/20 hover:bg-sky-500/20'
+              }`}
+            >
+              <span>🔵 Pendentes ({stats.pendentes})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setConfirmationFilter('ADJUSTMENT')}
+              className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1 ${
+                confirmationFilter === 'ADJUSTMENT'
+                  ? 'bg-amber-500/30 text-amber-200 border-amber-400 ring-2 ring-amber-500/20 shadow'
+                  : 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20'
+              }`}
+            >
+              <span>🟡 Com Ajuste ({stats.pendenteAjuste})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setConfirmationFilter('CONFIRMED')}
+              className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1 ${
+                confirmationFilter === 'CONFIRMED'
+                  ? 'bg-emerald-500/25 text-emerald-200 border-emerald-400 ring-2 ring-emerald-500/20 shadow'
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+              }`}
+            >
+              <span>🟢 Confirmadas ({stats.confirmadas})</span>
+            </button>
+          </div>
+
+          {/* Filtro de Campo de Data (Venda vs Entrega) */}
+          <div className="flex items-center gap-2 self-stretch lg:self-auto justify-end">
+            <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1">
+              <Calendar size={13} className="text-pink-400" />
+              <span>Base da Data:</span>
+            </span>
+            <select
+              value={dateFilterField}
+              onChange={e => setDateFilterField(e.target.value)}
+              className="bg-black/40 border border-white/10 rounded-xl px-2.5 py-1 text-xs text-white font-bold focus:outline-none focus:border-pink-500/50"
+            >
+              <option value="dtVenda">Data da Venda</option>
+              <option value="dtEntrega">Previsão de Entrega</option>
+            </select>
+          </div>
+
+        </div>
+
+        {/* Linha 2: Presets Rápidos de Data & Intervalo Personalizado */}
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-2 border-t border-white/5">
+          <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1">
+            <Clock size={13} className="text-indigo-400" />
+            <span>Período:</span>
+          </span>
+
+          {[
+            { id: 'ALL', label: 'Todas as Datas' },
+            { id: 'TODAY', label: 'Hoje' },
+            { id: 'WEEK', label: 'Últimos 7 Dias' },
+            { id: 'MONTH', label: 'Este Mês' },
+            { id: 'LAST_MONTH', label: 'Mês Anterior' },
+            { id: 'CUSTOM', label: 'Personalizado' }
+          ].map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setDateFilterPreset(p.id)}
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all border ${
+                dateFilterPreset === p.id
+                  ? 'bg-pink-600 text-white border-pink-500 shadow-md shadow-pink-600/30'
+                  : 'bg-white/5 text-slate-300 border-white/5 hover:bg-white/10'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+
+          {dateFilterPreset === 'CUSTOM' && (
+            <div className="flex items-center gap-1.5 ml-1 animate-in fade-in duration-150">
+              <input
+                type="date"
+                value={dateFilterStart}
+                onChange={e => setDateFilterStart(e.target.value)}
+                className="bg-black/50 border border-white/10 rounded-xl px-2.5 py-1 text-xs text-white focus:outline-none focus:border-pink-500/50"
+                title="Data inicial"
+              />
+              <span className="text-slate-500 text-xs font-bold">até</span>
+              <input
+                type="date"
+                value={dateFilterEnd}
+                onChange={e => setDateFilterEnd(e.target.value)}
+                className="bg-black/50 border border-white/10 rounded-xl px-2.5 py-1 text-xs text-white focus:outline-none focus:border-pink-500/50"
+                title="Data final"
+              />
+            </div>
+          )}
+
+          {(dateFilterPreset !== 'ALL' || confirmationFilter !== 'ALL') && (
+            <button
+              type="button"
+              onClick={() => {
+                setDateFilterPreset('ALL');
+                setDateFilterStart('');
+                setDateFilterEnd('');
+                setConfirmationFilter('ALL');
+              }}
+              className="ml-auto text-[11px] text-rose-400 hover:text-white px-2.5 py-1 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-all font-bold"
+            >
+              Limpar Filtros ✕
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* ─── LISTAGEM DE ORDENS DE SERVIÇO ─── */}
       {filteredOrders.length > 0 ? (
         viewMode === "cards" ? (
@@ -2040,6 +2387,9 @@ const OSManagement = ({
                           >
                             <option value="Aguardando Confirmação" className="bg-slate-900 text-sky-300 font-bold">
                               🔵 Aguardando Confirmação (Azul)
+                            </option>
+                            <option value="Pendente de Correção" className="bg-slate-900 text-amber-300 font-bold">
+                              🟡 Pendente de Correção (Amarelo)
                             </option>
                             <option value="No Laboratório" className="bg-slate-900 text-rose-300 font-bold">
                               🔴 No Laboratório (Vermelho)
@@ -2181,6 +2531,30 @@ const OSManagement = ({
                           </>
                         )}
 
+                        {/* Botão Conferir Dados & Documentos */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAuditModal(order)}
+                          className="p-2 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 rounded-xl transition-colors border border-indigo-500/30 flex items-center gap-1 text-xs font-bold"
+                          title="Conferir Dados Cadastrais do Cliente, Responsável e Documentos Anexados"
+                        >
+                          <FileText size={15} className="text-indigo-400" />
+                          <span className="hidden sm:inline">Conferir Dados & Docs</span>
+                        </button>
+
+                        {/* Botão Solicitar Ajuste (Amarelo 🟡) - Admin Only */}
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAdjustmentModal(order)}
+                            className="p-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 rounded-xl transition-colors border border-amber-500/30 flex items-center gap-1 text-xs font-bold"
+                            title="Solicitar Ajuste na OS (Semáforo Amarelo 🟡)"
+                          >
+                            <AlertTriangle size={15} className="text-amber-400" />
+                            <span className="hidden sm:inline">Ajuste 🟡</span>
+                          </button>
+                        )}
+
                         <button
                           onClick={() => openLabelModal(order)}
                           className="p-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-xl transition-colors border border-amber-500/20 flex items-center gap-1 text-xs font-bold"
@@ -2240,7 +2614,29 @@ const OSManagement = ({
                       </div>
 
                       {!isVendedor ? (
-                        <div className="flex items-center gap-2 self-stretch md:self-auto justify-end">
+                        <div className="flex flex-wrap items-center gap-2 self-stretch md:self-auto justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAuditModal(order)}
+                            className="px-3 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 font-bold text-xs transition-all flex items-center gap-1.5"
+                            title="Conferir Dados Cadastrais e Documentos Anexados"
+                          >
+                            <FileText size={15} />
+                            <span>Conferir Dados & Docs</span>
+                          </button>
+
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAdjustmentModal(order)}
+                              className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 font-bold text-xs transition-all flex items-center gap-1.5"
+                              title="Solicitar Ajuste na OS e Marcar como Pendente (Amarelo 🟡)"
+                            >
+                              <AlertTriangle size={15} className="text-amber-400" />
+                              <span>Solicitar Ajuste (Amarelo 🟡)</span>
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={() => handleRejectOS(order)}
@@ -2258,17 +2654,101 @@ const OSManagement = ({
                             title="Conferir pagamento, gerar duplicatas no financeiro e liberar montagem"
                           >
                             <ShieldCheck size={16} />
-                            <span>Confirmar Pagamento & Liberar Montagem</span>
+                            <span>Confirmar Pagamento & Liberar</span>
                           </button>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 self-stretch md:self-auto justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAuditModal(order)}
+                            className="px-3 py-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 font-bold text-xs transition-all flex items-center gap-1.5"
+                            title="Conferir Dados Cadastrais e Documentos Anexados"
+                          >
+                            <FileText size={14} />
+                            <span>Conferir Dados & Docs</span>
+                          </button>
                           <span className="px-3 py-1.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-300 text-xs font-bold flex items-center gap-1.5">
                             <Clock size={14} className="text-sky-400" />
                             Aguardando liberação do Financeiro
                           </span>
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {/* ─── BANNER DE PENDÊNCIA DE AJUSTE (AMARELO 🟡) ─── */}
+                  {(order.status === "Pendente de Correção" || order.motivoAjuste) && (
+                    <div className="mx-4 sm:mx-5 my-3 p-4 rounded-2xl bg-gradient-to-r from-amber-950/70 via-slate-900 to-yellow-950/70 border border-amber-500/40 shadow-lg shadow-amber-500/10 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 mt-0.5">
+                          <AlertTriangle size={22} className="animate-pulse" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black uppercase tracking-wider text-amber-300">
+                              Pendente de Correção / Ajuste Necessário
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                              Semáforo Amarelo 🟡
+                            </span>
+                            {order.ajustadoPor && (
+                              <span className="text-[10px] text-amber-400/80 font-bold">
+                                por {order.ajustadoPor}
+                              </span>
+                            )}
+                          </div>
+                          {order.itensAjuste && order.itensAjuste.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-1.5">
+                              {order.itensAjuste.map((item, idx) => (
+                                <span key={idx} className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/30 text-[10px] font-bold text-amber-200">
+                                  {item}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {order.motivoAjuste && (
+                            <p className="mt-1.5 text-slate-300 font-mono text-xs italic bg-black/30 px-2.5 py-1 rounded-lg border border-white/5">
+                              "{order.motivoAjuste}"
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 self-stretch md:self-auto justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAuditModal(order)}
+                          className="px-3 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 font-bold text-xs transition-all flex items-center gap-1.5"
+                          title="Conferir Dados Cadastrais e Documentos Anexados"
+                        >
+                          <FileText size={15} />
+                          <span>Conferir Dados & Docs</span>
+                        </button>
+
+                        {isAdmin && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAdjustmentModal(order)}
+                              className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 font-bold text-xs transition-all flex items-center gap-1.5"
+                              title="Editar ou Adicionar Ajustes nesta OS"
+                            >
+                              <Edit2 size={14} />
+                              <span>Editar Ajuste</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setApprovalModalOrder(order)}
+                              className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-sky-500 hover:from-emerald-400 hover:to-sky-400 text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-1.5 active:scale-95"
+                              title="Aprovar e liberar montagem após regularização"
+                            >
+                              <ShieldCheck size={16} />
+                              <span>Aprovar & Liberar</span>
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -2710,6 +3190,9 @@ const OSManagement = ({
                                   <option value="Aguardando Confirmação" className="bg-slate-900 text-sky-300 font-bold">
                                     🔵 Aguardando Confirmação (Azul)
                                   </option>
+                                  <option value="Pendente de Correção" className="bg-slate-900 text-amber-300 font-bold">
+                                    🟡 Pendente de Correção (Amarelo)
+                                  </option>
                                   <option value="No Laboratório" className="bg-slate-900 text-rose-300 font-bold">
                                     🔴 No Laboratório (Vermelho)
                                   </option>
@@ -2748,6 +3231,16 @@ const OSManagement = ({
                                     <span>Conferir Pgto</span>
                                   </button>
                                 )
+                              ) : order.status === "Pendente de Correção" || order.motivoAjuste ? (
+                                <button
+                                  type="button"
+                                  onClick={() => isAdmin ? handleOpenAdjustmentModal(order) : handleOpenAuditModal(order)}
+                                  className="flex items-center justify-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border border-amber-500/40 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 transition-all shadow-md active:scale-95"
+                                  title="Ver ou editar pendências de ajuste solicitadas pela administração"
+                                >
+                                  <AlertTriangle size={12} className="text-amber-400" />
+                                  <span>Ver Ajuste 🟡</span>
+                                </button>
                               ) : (
                                 isVendedor ? (
                                   <div 
@@ -2806,6 +3299,27 @@ const OSManagement = ({
                           {/* Ações */}
                           <td className="px-5 py-4 whitespace-nowrap text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              {/* Botão Conferir Dados & Docs na Tabela */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAuditModal(order)}
+                                className="p-2 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 rounded-xl transition-colors border border-indigo-500/30"
+                                title="Conferir Dados Cadastrais e Documentos Anexados"
+                              >
+                                <FileText size={15} />
+                              </button>
+
+                              {/* Botão Solicitar Ajuste (Amarelo 🟡) - Admin Only na Tabela */}
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAdjustmentModal(order)}
+                                  className="p-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 rounded-xl transition-colors border border-amber-500/30"
+                                  title="Solicitar Ajuste na OS (Semáforo Amarelo 🟡)"
+                                >
+                                  <AlertTriangle size={15} />
+                                </button>
+                              )}
                               {order.clientPhone && (
                                 <button
                                   onClick={() => handleSendWhatsApp(order)}
@@ -3188,15 +3702,42 @@ const OSManagement = ({
 
             {/* Ações */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-white/10">
-              <button
-                type="button"
-                disabled={isApproving}
-                onClick={() => handleRejectOS(approvalModalOrder)}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-bold transition-all flex items-center justify-center gap-1.5"
-              >
-                <XCircle size={15} />
-                <span>Recusar / Cancelar OS</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  disabled={isApproving}
+                  onClick={() => handleRejectOS(approvalModalOrder)}
+                  className="px-3.5 py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                >
+                  <XCircle size={15} />
+                  <span>Recusar</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenAuditModal(approvalModalOrder)}
+                  className="px-3.5 py-2.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                  title="Conferir Dados Cadastrais do Cliente, Responsável e Documentos"
+                >
+                  <FileText size={15} />
+                  <span>Conferir Docs</span>
+                </button>
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = approvalModalOrder;
+                      handleOpenAdjustmentModal(target);
+                    }}
+                    className="px-3.5 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                    title="Solicitar Ajuste na OS e Marcar como Pendente (Amarelo 🟡)"
+                  >
+                    <AlertTriangle size={15} className="text-amber-400" />
+                    <span>Ajuste (Amarelo 🟡)</span>
+                  </button>
+                )}
+              </div>
 
               <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                 <button
@@ -3228,6 +3769,624 @@ const OSManagement = ({
               </div>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL DE SOLICITAÇÃO DE AJUSTE (SEMÁFORO AMARELO 🟡) - ADMIN ONLY ─── */}
+      {adjustmentModalOrder && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#0f172a] border border-amber-500/40 rounded-3xl p-5 sm:p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 relative erp-scroll">
+            
+            {/* Cabeçalho */}
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                  <AlertTriangle size={22} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white flex items-center gap-2">
+                    Solicitar Ajuste na OS
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-black">Amarelo 🟡</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 font-mono">
+                    OS #{adjustmentModalOrder.osNumber} · {adjustmentModalOrder.clientName} · Unidade {adjustmentModalOrder.unit}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdjustmentModalOrder(null)}
+                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Instrução */}
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs">
+              <p className="font-bold">
+                ⚠️ Marque os itens que necessitam de correção para que a OS fique correta e apta para montagem. A OS ficará com o semáforo na cor <strong>Amarela (Pendente de Correção)</strong>.
+              </p>
+            </div>
+
+            {/* Checkboxes de Ajuste */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                Itens a Ajustar / Regularizar:
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                {[
+                  "Documento com foto do Titular (RG/CPF)",
+                  "Comprovante de residência do Titular",
+                  "Documento com foto do Responsável",
+                  "Comprovante de residência do Responsável",
+                  "Dados cadastrais / Telefone / WhatsApp",
+                  "Dados do Responsável Legal / Financeiro",
+                  "Dioptria / Grau / Receita Médica",
+                  "Armação / Lente / Marca / Tratamento",
+                  "Condição de Pgto / Valor de Entrada",
+                  "Outro ajuste necessário"
+                ].map((itemLabel) => {
+                  const isChecked = selectedAdjustmentItems.includes(itemLabel);
+                  return (
+                    <button
+                      key={itemLabel}
+                      type="button"
+                      onClick={() => handleToggleAdjustmentItem(itemLabel)}
+                      className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-all ${
+                        isChecked
+                          ? 'bg-amber-500/20 border-amber-400 text-amber-200 font-bold'
+                          : 'bg-white/[0.02] border-white/10 text-slate-400 hover:bg-white/5'
+                      }`}
+                    >
+                      <div className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${
+                        isChecked ? 'bg-amber-500 border-amber-400 text-slate-950' : 'border-slate-500'
+                      }`}>
+                        {isChecked && <Check size={12} strokeWidth={3} />}
+                      </div>
+                      <span className="text-[11px] leading-tight">{itemLabel}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Observações / Descrição detalhada */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                Observações e Instruções da Administração:
+              </label>
+              <textarea
+                rows={3}
+                value={adjustmentReasonText}
+                onChange={e => setAdjustmentReasonText(e.target.value)}
+                placeholder="Ex: Foto do RG está cortada/ilegível. Favor solicitar novo documento ao cliente e anexar no cadastro."
+                className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50 resize-none font-sans"
+              />
+            </div>
+
+            {/* Ações */}
+            <div className="flex items-center justify-between gap-3 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                disabled={isSavingAdjustment}
+                onClick={() => setAdjustmentModalOrder(null)}
+                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isSavingAdjustment}
+                onClick={handleSaveAdjustment}
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/25 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {isSavingAdjustment ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    <span>Salvando...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={16} />
+                    <span>Salvar e Marcar Amarelo 🟡</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL DE CONFERÊNCIA DE DADOS DO CLIENTE, RESPONSÁVEL & DOCUMENTOS ─── */}
+      {auditModalOrder && (() => {
+        const auditClient = auditModalOrder.clientData || 
+          auditModalOrder.matchedClient || 
+          clientsData.find(c => isSameClient(c, {
+            'Nome Completo': auditModalOrder.clientName,
+            'WhatsApp': auditModalOrder.clientPhone,
+            'CPF / CNPJ': auditModalOrder.clientCPF,
+            id: auditModalOrder.raw?.CLIENTE_ID,
+            CLIENTE_ID: auditModalOrder.raw?.CLIENTE_ID
+          })) || auditModalOrder.raw || {};
+
+        const hasResp = Boolean(
+          auditClient['Nome do Responsável'] || 
+          auditClient['nomeResponsavel'] || 
+          auditClient['Responsável'] || 
+          auditClient['RESPONSAVEL'] || 
+          auditModalOrder.raw?.['RESPONSAVEL'] || 
+          auditModalOrder.raw?.['NOME_RESPONSAVEL']
+        );
+
+        const docCliente = auditClient['Foto Documento Cliente'] || auditClient['fotoDocumentoCliente'] || auditModalOrder.raw?.['Foto Documento Cliente'] || auditModalOrder.raw?.['FOTO_DOCUMENTO_CLIENTE'] || '';
+        const compCliente = auditClient['Foto Comprovante Residência Cliente'] || auditClient['fotoComprovanteResidenciaCliente'] || auditModalOrder.raw?.['Foto Comprovante Residência Cliente'] || auditModalOrder.raw?.['FOTO_COMPROVANTE_CLIENTE'] || '';
+        const docResp = auditClient['Foto Documento Responsável'] || auditClient['fotoDocumentoResponsavel'] || auditModalOrder.raw?.['Foto Documento Responsável'] || auditModalOrder.raw?.['FOTO_DOCUMENTO_RESPONSAVEL'] || '';
+        const compResp = auditClient['Foto Comprovante Residência Responsável'] || auditClient['fotoComprovanteResidenciaResponsavel'] || auditModalOrder.raw?.['Foto Comprovante Residência Responsável'] || auditModalOrder.raw?.['FOTO_COMPROVANTE_RESPONSAVEL'] || '';
+        const fotoReceita = auditModalOrder.raw?.['RECEITA_FOTO'] || auditModalOrder.raw?.['FOTO_RECEITA'] || auditModalOrder.raw?.['Foto da Receita'] || auditClient['RECEITA_FOTO'] || '';
+
+        const clientCleanPhone = String(auditClient['WhatsApp'] || auditClient['TELEFONE'] || auditModalOrder.clientPhone || '').replace(/\D/g, '');
+        const respCleanPhone = String(auditClient['Telefone do Responsável'] || auditClient['telefoneResponsavel'] || auditClient['WhatsApp do Responsável'] || auditModalOrder.raw?.['TEL_RESPONSAVEL'] || '').replace(/\D/g, '');
+
+        return (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+            <div className="bg-[#0b1120] border border-indigo-500/40 rounded-3xl p-5 sm:p-7 max-w-3xl w-full max-h-[92vh] overflow-y-auto shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 relative erp-scroll">
+              
+              {/* Cabeçalho */}
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+                    <ShieldCheck size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-white flex items-center gap-2">
+                      Conferência de Dados Cadastrais & Documentos
+                    </h3>
+                    <p className="text-xs text-slate-400 font-mono">
+                      OS #{auditModalOrder.osNumber} · Unidade {auditModalOrder.unit}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAuditModalOrder(null)}
+                  className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Grid 2 Colunas: Cliente (Titular) e Responsável */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Card 1: Cliente Titular */}
+                <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-4 space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                    <span className="text-[11px] font-black uppercase text-pink-400 flex items-center gap-1.5">
+                      <User size={14} /> Cliente Titular
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-slate-300 font-bold">
+                      Titular da Compra
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div>
+                      <span className="text-[10px] text-slate-400 uppercase font-bold block">Nome Completo:</span>
+                      <span className="text-white font-black text-sm">{auditClient['Nome Completo'] || auditModalOrder.clientName}</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">CPF:</span>
+                        <span className="text-slate-200 font-mono font-bold">{formatCPF_CNPJ(auditClient['CPF / CNPJ'] || auditClient['CPF'] || auditModalOrder.clientCPF) || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">RG:</span>
+                        <span className="text-slate-200 font-mono">{auditClient['RG'] || auditClient['rg'] || '—'}</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">Nascimento:</span>
+                        <span className="text-slate-200">{formatDate(auditClient['Data de Nascimento'] || auditClient['dataNascimento'] || auditClient['Nascimento'])}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">WhatsApp / Telefone:</span>
+                        {clientCleanPhone ? (
+                          <a
+                            href={`https://wa.me/55${clientCleanPhone}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1"
+                          >
+                            <MessageCircle size={12} />
+                            <span>{auditClient['WhatsApp'] || auditClient['TELEFONE'] || auditModalOrder.clientPhone}</span>
+                          </a>
+                        ) : (
+                          <span className="text-slate-400">Não informado</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-white/5">
+                      <span className="text-[10px] text-slate-400 uppercase font-bold block">Endereço Residencial:</span>
+                      <p className="text-slate-300 leading-relaxed">
+                        {auditClient['Endereço'] || auditClient['Rua'] ? (
+                          <>
+                            {auditClient['Endereço'] || auditClient['Rua']}, Nº {auditClient['Número'] || auditClient['Numero'] || 'S/N'}
+                            {auditClient['Bairro'] ? ` · ${auditClient['Bairro']}` : ''}
+                            {auditClient['Cidade'] ? ` · ${auditClient['Cidade']}` : ''}
+                            {auditClient['CEP'] ? ` · CEP: ${auditClient['CEP']}` : ''}
+                            {auditClient['Complemento'] ? ` (${auditClient['Complemento']})` : ''}
+                          </>
+                        ) : (
+                          <span className="text-slate-500 italic">Endereço não cadastrado</span>
+                        )}
+                      </p>
+                    </div>
+
+                    {/* Referências do Titular */}
+                    {(auditClient['Nome Referência 1'] || auditClient['Nome Referencia 1'] || auditClient['Nome Referência 2'] || auditClient['Nome Referencia 2']) && (
+                      <div className="pt-2 border-t border-white/5 space-y-1">
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">Contatos de Referência:</span>
+                        {(auditClient['Nome Referência 1'] || auditClient['Nome Referencia 1']) && (
+                          <p className="text-slate-300 text-[11px]">
+                            1. <strong>{auditClient['Nome Referência 1'] || auditClient['Nome Referencia 1']}</strong> ({auditClient['Parentesco Referência 1'] || auditClient['Parentesco Referencia 1'] || 'Ref'}) - {auditClient['Telefone Referência 1'] || auditClient['Telefone Referencia 1'] || '—'}
+                          </p>
+                        )}
+                        {(auditClient['Nome Referência 2'] || auditClient['Nome Referencia 2']) && (
+                          <p className="text-slate-300 text-[11px]">
+                            2. <strong>{auditClient['Nome Referência 2'] || auditClient['Nome Referencia 2']}</strong> ({auditClient['Parentesco Referência 2'] || auditClient['Parentesco Referencia 2'] || 'Ref'}) - {auditClient['Telefone Referência 2'] || auditClient['Telefone Referencia 2'] || '—'}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                  </div>
+                </div>
+
+                {/* Card 2: Responsável Legal / Financeiro */}
+                <div className={`border rounded-2xl p-4 space-y-2.5 text-xs ${
+                  hasResp 
+                    ? 'bg-white/[0.03] border-indigo-500/30' 
+                    : 'bg-white/[0.01] border-white/5 opacity-80'
+                }`}>
+                  <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                    <span className="text-[11px] font-black uppercase text-indigo-400 flex items-center gap-1.5">
+                      <User size={14} /> Responsável Legal / Financeiro
+                    </span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold ${
+                      hasResp 
+                        ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300' 
+                        : 'bg-white/5 border-white/10 text-slate-400'
+                    }`}>
+                      {hasResp ? 'Possui Responsável' : 'Sem Responsável Adicional'}
+                    </span>
+                  </div>
+
+                  {hasResp ? (
+                    <div className="space-y-1.5">
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">Nome do Responsável:</span>
+                        <span className="text-white font-black text-sm">
+                          {auditClient['Nome do Responsável'] || auditClient['nomeResponsavel'] || auditClient['Responsável'] || auditModalOrder.raw?.['RESPONSAVEL']}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-bold block">CPF:</span>
+                          <span className="text-slate-200 font-mono font-bold">
+                            {formatCPF_CNPJ(auditClient['CPF do Responsável'] || auditClient['cpfResponsavel'] || auditModalOrder.raw?.['CPF_RESPONSAVEL']) || '—'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-bold block">RG:</span>
+                          <span className="text-slate-200 font-mono">
+                            {auditClient['RG do Responsável'] || auditClient['rgResponsavel'] || auditModalOrder.raw?.['RG_RESPONSAVEL'] || '—'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-bold block">Parentesco / Relação:</span>
+                          <span className="text-slate-200 font-bold">
+                            {auditClient['Parentesco com o Responsável'] || auditClient['parentescoResponsavel'] || auditModalOrder.raw?.['PARENTESCO_RESPONSAVEL'] || '—'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-bold block">WhatsApp / Telefone:</span>
+                          {respCleanPhone ? (
+                            <a
+                              href={`https://wa.me/55${respCleanPhone}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1"
+                            >
+                              <MessageCircle size={12} />
+                              <span>{auditClient['Telefone do Responsável'] || auditClient['telefoneResponsavel'] || auditClient['WhatsApp do Responsável'] || auditModalOrder.raw?.['TEL_RESPONSAVEL']}</span>
+                            </a>
+                          ) : (
+                            <span className="text-slate-400">Não informado</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-white/5">
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">Endereço do Responsável:</span>
+                        <p className="text-slate-300 leading-relaxed">
+                          {auditClient['Endereço do Responsável'] || auditClient['enderecoResponsavel'] || 'Mesmo endereço do titular'}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 text-center space-y-1">
+                      <p className="text-slate-400 font-medium">
+                        O próprio cliente é o titular financeiro e legal desta compra.
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Não foi indicado fiador ou responsável legal adicional no cadastro.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
+              {/* Seção 3: Documentos Anexados & Comprovantes */}
+              <div className="space-y-3 pt-2 border-t border-white/10">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                    <FileText size={15} className="text-amber-400" />
+                    <span>Documentos & Comprovantes Anexados</span>
+                  </h4>
+                  <span className="text-[10px] text-slate-400">
+                    Clique na imagem para visualizar em alta resolução
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  
+                  {/* Doc 1: Documento Titular */}
+                  <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-3 flex flex-col justify-between space-y-2">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Doc. Titular (RG/CPF)</span>
+                      {docCliente ? (
+                        <div 
+                          onClick={() => setAuditImagePreview({ title: `Documento do Titular - ${auditClient['Nome Completo'] || auditModalOrder.clientName}`, url: docCliente })}
+                          className="h-28 rounded-xl bg-black/40 border border-emerald-500/30 overflow-hidden cursor-pointer relative group flex items-center justify-center"
+                        >
+                          {docCliente.startsWith('data:application/pdf') || docCliente.toLowerCase().endsWith('.pdf') ? (
+                            <FileText size={36} className="text-emerald-400" />
+                          ) : (
+                            <img src={docCliente} alt="Doc Titular" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          )}
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold gap-1">
+                            <Eye size={14} /> Ampliar
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="h-28 rounded-xl bg-white/[0.02] border border-dashed border-rose-500/40 flex flex-col items-center justify-center p-2 text-center text-rose-400">
+                          <XCircle size={22} className="mb-1" />
+                          <span className="text-[10px] font-bold">Não Anexado</span>
+                        </div>
+                      )}
+                    </div>
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full text-center block ${
+                      docCliente ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                    }`}>
+                      {docCliente ? '✅ Anexado' : '⚠️ Pendente'}
+                    </span>
+                  </div>
+
+                  {/* Doc 2: Comprovante Residência Titular */}
+                  <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-3 flex flex-col justify-between space-y-2">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Comp. Residência</span>
+                      {compCliente ? (
+                        <div 
+                          onClick={() => setAuditImagePreview({ title: `Comprovante de Residência - ${auditClient['Nome Completo'] || auditModalOrder.clientName}`, url: compCliente })}
+                          className="h-28 rounded-xl bg-black/40 border border-emerald-500/30 overflow-hidden cursor-pointer relative group flex items-center justify-center"
+                        >
+                          {compCliente.startsWith('data:application/pdf') || compCliente.toLowerCase().endsWith('.pdf') ? (
+                            <FileText size={36} className="text-emerald-400" />
+                          ) : (
+                            <img src={compCliente} alt="Comp Residência" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          )}
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold gap-1">
+                            <Eye size={14} /> Ampliar
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="h-28 rounded-xl bg-white/[0.02] border border-dashed border-rose-500/40 flex flex-col items-center justify-center p-2 text-center text-rose-400">
+                          <XCircle size={22} className="mb-1" />
+                          <span className="text-[10px] font-bold">Não Anexado</span>
+                        </div>
+                      )}
+                    </div>
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full text-center block ${
+                      compCliente ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                    }`}>
+                      {compCliente ? '✅ Anexado' : '⚠️ Pendente'}
+                    </span>
+                  </div>
+
+                  {/* Doc 3: Documento Responsável */}
+                  <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-3 flex flex-col justify-between space-y-2">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Doc. Responsável</span>
+                      {docResp ? (
+                        <div 
+                          onClick={() => setAuditImagePreview({ title: 'Documento do Responsável', url: docResp })}
+                          className="h-28 rounded-xl bg-black/40 border border-emerald-500/30 overflow-hidden cursor-pointer relative group flex items-center justify-center"
+                        >
+                          {docResp.startsWith('data:application/pdf') || docResp.toLowerCase().endsWith('.pdf') ? (
+                            <FileText size={36} className="text-emerald-400" />
+                          ) : (
+                            <img src={docResp} alt="Doc Responsável" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          )}
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold gap-1">
+                            <Eye size={14} /> Ampliar
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="h-28 rounded-xl bg-white/[0.02] border border-dashed border-white/10 flex flex-col items-center justify-center p-2 text-center text-slate-500">
+                          <span className="text-[10px] font-bold">{hasResp ? 'Não Anexado' : 'Não se aplica'}</span>
+                        </div>
+                      )}
+                    </div>
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full text-center block ${
+                      docResp ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : hasResp ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' : 'bg-white/5 text-slate-500'
+                    }`}>
+                      {docResp ? '✅ Anexado' : hasResp ? '⚠️ Pendente' : '—'}
+                    </span>
+                  </div>
+
+                  {/* Doc 4: Comprovante Responsável */}
+                  <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-3 flex flex-col justify-between space-y-2">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Comp. Responsável</span>
+                      {compResp ? (
+                        <div 
+                          onClick={() => setAuditImagePreview({ title: 'Comprovante do Responsável', url: compResp })}
+                          className="h-28 rounded-xl bg-black/40 border border-emerald-500/30 overflow-hidden cursor-pointer relative group flex items-center justify-center"
+                        >
+                          {compResp.startsWith('data:application/pdf') || compResp.toLowerCase().endsWith('.pdf') ? (
+                            <FileText size={36} className="text-emerald-400" />
+                          ) : (
+                            <img src={compResp} alt="Comp Responsável" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          )}
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold gap-1">
+                            <Eye size={14} /> Ampliar
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="h-28 rounded-xl bg-white/[0.02] border border-dashed border-white/10 flex flex-col items-center justify-center p-2 text-center text-slate-500">
+                          <span className="text-[10px] font-bold">{hasResp ? 'Não Anexado' : 'Não se aplica'}</span>
+                        </div>
+                      )}
+                    </div>
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full text-center block ${
+                      compResp ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : hasResp ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' : 'bg-white/5 text-slate-500'
+                    }`}>
+                      {compResp ? '✅ Anexado' : hasResp ? '⚠️ Pendente' : '—'}
+                    </span>
+                  </div>
+
+                  {/* Doc 5: Receita Médica */}
+                  <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-3 flex flex-col justify-between space-y-2">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Receita Médica</span>
+                      {fotoReceita ? (
+                        <div 
+                          onClick={() => setAuditImagePreview({ title: `Receita Médica - OS #${auditModalOrder.osNumber}`, url: fotoReceita })}
+                          className="h-28 rounded-xl bg-black/40 border border-emerald-500/30 overflow-hidden cursor-pointer relative group flex items-center justify-center"
+                        >
+                          {fotoReceita.startsWith('data:application/pdf') || fotoReceita.toLowerCase().endsWith('.pdf') ? (
+                            <FileText size={36} className="text-emerald-400" />
+                          ) : (
+                            <img src={fotoReceita} alt="Receita Médica" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          )}
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold gap-1">
+                            <Eye size={14} /> Ampliar
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="h-28 rounded-xl bg-white/[0.02] border border-dashed border-white/10 flex flex-col items-center justify-center p-2 text-center text-slate-500">
+                          <span className="text-[10px] font-bold">Sem foto da receita</span>
+                        </div>
+                      )}
+                    </div>
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full text-center block ${
+                      fotoReceita ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-white/5 text-slate-500'
+                    }`}>
+                      {fotoReceita ? '✅ Anexada' : '—'}
+                    </span>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Ações do Rodapé */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setAuditModalOrder(null)}
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition-all w-full sm:w-auto"
+                >
+                  Fechar Conferência
+                </button>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = auditModalOrder;
+                        setAuditModalOrder(null);
+                        handleOpenAdjustmentModal(target);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
+                    >
+                      <AlertTriangle size={15} className="text-amber-400" />
+                      <span>Solicitar Ajuste (Amarelo 🟡)</span>
+                    </button>
+                  )}
+
+                  {!isVendedor && (auditModalOrder.status === 'Aguardando Confirmação' || auditModalOrder.status === 'Pendente de Correção') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = auditModalOrder;
+                        setAuditModalOrder(null);
+                        setApprovalModalOrder(target);
+                      }}
+                      className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-sky-500 hover:from-emerald-400 hover:to-sky-400 text-white font-black text-xs shadow-lg transition-all flex items-center gap-1.5 active:scale-95"
+                    >
+                      <ShieldCheck size={16} />
+                      <span>Aprovar / Liberar OS</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ─── MODAL LIGHTBOX DE VISUALIZAÇÃO DE IMAGEM/DOCUMENTO EM ALTA RESOLUÇÃO ─── */}
+      {auditImagePreview && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/95 backdrop-blur-lg animate-in fade-in duration-150">
+          <div className="relative max-w-4xl w-full max-h-[92vh] flex flex-col items-center justify-center">
+            <div className="flex items-center justify-between w-full mb-3 text-white">
+              <span className="font-bold text-sm truncate max-w-lg">{auditImagePreview.title || 'Visualização do Documento'}</span>
+              <button
+                type="button"
+                onClick={() => setAuditImagePreview(null)}
+                className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            {auditImagePreview.url?.startsWith('data:application/pdf') || auditImagePreview.url?.toLowerCase().endsWith('.pdf') ? (
+              <iframe
+                src={auditImagePreview.url}
+                title="Documento PDF"
+                className="w-full h-[75vh] rounded-2xl border border-white/20"
+              />
+            ) : (
+              <img
+                src={auditImagePreview.url}
+                alt="Documento"
+                className="max-h-[78vh] max-w-full object-contain rounded-2xl border border-white/10 shadow-2xl"
+              />
+            )}
           </div>
         </div>
       )}

@@ -939,10 +939,12 @@ const ErpOptica = ({
     const clientCpf = row.CLIENTE_CPF || row.cliente_cpf || row.CPF || row.cpf || '';
     const resolvedName = resolveInstallmentClientName(row, clientsData, salesData);
     const osNumero = extractOSFromRow(row);
+    const responsibleName = String(row.RESPONSAVEL || row.responsavel || row.NOME_RESPONSAVEL || '').trim();
     setClientInstallmentsInfo({
       clientId,
       clientCpf,
       osNumero,
+      responsibleName,
       clientName: resolvedName && resolvedName !== 'Cliente não identificado' ? resolvedName : (row.CLIENTE || row.cliente || row.NOME || 'Cliente Desconhecido')
     });
   };
@@ -1212,8 +1214,10 @@ const ErpOptica = ({
       if (activeTab === 'receber') {
         rows = rows.filter(item => {
           if (!item || typeof item !== 'object') return false;
-          const cl = String(item.CLIENTE || item.NOME || item['NOME DO CLIENTE'] || item['NOME CLIENTE'] || item.Cliente || '').trim();
-          return Boolean(cl);
+          const direct = String(item.CLIENTE || item.NOME || item['NOME DO CLIENTE'] || item['NOME CLIENTE'] || item.Cliente || item.CLIENTE_ID || item.CPF || item.OS || item.os || item.DOCUMENTO || item.DESCRICAO || '').trim();
+          if (direct) return true;
+          const resolved = resolveInstallmentClientName(item, clientsData, salesData);
+          return Boolean(resolved && resolved !== 'Cliente não identificado');
         });
       }
       rows = filterInstallmentsByDateRange(rows, {
@@ -1681,13 +1685,14 @@ const ErpOptica = ({
               <span className="sm:hidden">Excel (.xlsx)</span>
             </button>
           )}
-          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes') && (
+          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes' || activeTab === 'transferencias') && (
             <button
               onClick={() => setIsTransferModalOpen(true)}
-              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-indigo-600/30 to-sky-600/30 hover:from-indigo-600/50 hover:to-sky-600/50 border border-indigo-500/40 hover:border-indigo-400 text-indigo-200 hover:text-white font-black rounded-xl shadow-lg transition-all text-xs sm:text-sm active:scale-95"
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500 text-white font-black rounded-xl shadow-lg shadow-indigo-600/25 transition-all text-xs sm:text-sm active:scale-95"
+              title="Transferir produtos, lentes, armações e brindes entre lojas"
             >
-              <ArrowLeftRight size={15} className="text-indigo-400 shrink-0" />
-              <span className="hidden sm:inline">Transferir Estoque</span>
+              <ArrowLeftRight size={15} className="text-white shrink-0" />
+              <span className="hidden sm:inline">Nova Transferência</span>
               <span className="sm:hidden">Transferir</span>
             </button>
           )}
@@ -3548,6 +3553,17 @@ const ErpOptica = ({
               </h3>
 
               <div className="flex flex-wrap items-center gap-2">
+                {activeTab === 'transferencias' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsTransferModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500 text-white text-xs font-black rounded-xl shadow-lg shadow-indigo-600/30 transition-all active:scale-95 cursor-pointer"
+                    title="Realizar nova transferência de produtos entre filiais"
+                  >
+                    <ArrowLeftRight size={14} className="shrink-0" />
+                    <span>Nova Transferência</span>
+                  </button>
+                )}
                 {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'acessorios' || activeTab === 'brindes') && (
                   <button
                     onClick={() => {
@@ -3913,15 +3929,31 @@ const ErpOptica = ({
           const cleanRowCpf = String(r.CLIENTE_CPF || r.cliente_cpf || r.CPF || r.cpf || '').replace(/\D/g, '');
           if (cleanTargetCpf && cleanRowCpf && cleanTargetCpf === cleanRowCpf) return true;
           const rName = resolveInstallmentClientName(r, clientsData, salesData);
+          const tName = String(clientInstallmentsInfo.clientName || '').trim().toLowerCase();
           if (
-            clientInstallmentsInfo.clientName &&
-            clientInstallmentsInfo.clientName !== 'Cliente Desconhecido' &&
-            clientInstallmentsInfo.clientName !== 'Cliente não identificado' &&
-            rName.toLowerCase() === clientInstallmentsInfo.clientName.toLowerCase()
+            tName &&
+            tName !== 'cliente desconhecido' &&
+            tName !== 'cliente não identificado' &&
+            (rName.toLowerCase() === tName ||
+             rName.toLowerCase().includes(tName) ||
+             tName.includes(rName.toLowerCase()))
+          ) {
+            return true;
+          }
+          const directName = String(r.CLIENTE || r.NOME || r['NOME DO CLIENTE'] || r['NOME CLIENTE'] || '').trim().toLowerCase();
+          if (
+            directName &&
+            tName &&
+            (directName === tName || directName.includes(tName) || tName.includes(directName))
           ) {
             return true;
           }
           if (clientInstallmentsInfo.osNumero && extractOSFromRow(r) === clientInstallmentsInfo.osNumero) {
+            return true;
+          }
+          const respName = String(r.RESPONSAVEL || r.responsavel || r.NOME_RESPONSAVEL || '').trim().toLowerCase();
+          const targetResp = String(clientInstallmentsInfo.responsibleName || '').trim().toLowerCase();
+          if (respName && (respName === tName || (targetResp && respName === targetResp))) {
             return true;
           }
           return false;

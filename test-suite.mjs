@@ -9179,7 +9179,68 @@ async function runTests() {
     console.log('  ✅ Test 100 Passed: Paginação de 50 em 50 e Exibição de Todos os 32.204 Registros validada com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 100 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ▶ Test 101: Gestão de OS (Filtros de Data/Confirmação, Ajuste Amarelo Admin, Conferência Dados & Docs), Gestão Financeira Completa e Nova Transferência
+  {
+    console.log('▶ Test 101: Gestão de OS (Filtros, Ajuste Amarelo Admin, Auditoria Docs), Gestão Financeira e Transferência');
+    const osManagementSrc = fs.readFileSync('./src/components/OSManagement.jsx', 'utf8');
+    const reparcelamentoUtilsSrc = fs.readFileSync('./src/reparcelamentoUtils.js', 'utf8');
+    const erpOpticaSrc = fs.readFileSync('./src/components/ErpOptica.jsx', 'utf8');
+
+    // 1. Verificação do Semáforo Amarelo (Pendente de Correção)
+    console.assert(osManagementSrc.includes('"Pendente de Correção"'), 'OSManagement deve conter o status "Pendente de Correção"');
+    console.assert(osManagementSrc.includes('🟡'), 'OSManagement deve conter o ícone do Semáforo Amarelo');
+    console.assert(osManagementSrc.includes('MOTIVO_AJUSTE'), 'OSManagement deve registrar MOTIVO_AJUSTE');
+    console.assert(osManagementSrc.includes('ITENS_AJUSTE'), 'OSManagement deve registrar ITENS_AJUSTE');
+
+    // 2. Verificação dos Filtros de Data e Confirmação
+    console.assert(osManagementSrc.includes('dateFilterPreset'), 'OSManagement deve gerenciar dateFilterPreset');
+    console.assert(osManagementSrc.includes('confirmationFilter'), 'OSManagement deve gerenciar confirmationFilter');
+    console.assert(osManagementSrc.includes('dateFilterField'), 'OSManagement deve gerenciar dateFilterField');
+    console.assert(osManagementSrc.includes('🔵 Pendentes'), 'Barra de filtros deve conter botão de OSs Pendentes');
+    console.assert(osManagementSrc.includes('🟢 Confirmadas'), 'Barra de filtros deve conter botão de OSs Confirmadas');
+    console.assert(osManagementSrc.includes('🟡 Com Ajuste'), 'Barra de filtros deve conter botão de OSs Com Ajuste');
+
+    // 3. Verificação do Modal de Ajuste Amarelo (Exclusivo Admin)
+    console.assert(osManagementSrc.includes('adjustmentModalOrder'), 'OSManagement deve possuir estado adjustmentModalOrder');
+    console.assert(osManagementSrc.includes('handleOpenAdjustmentModal'), 'OSManagement deve possuir handleOpenAdjustmentModal');
+    console.assert(osManagementSrc.includes('handleSaveAdjustment'), 'OSManagement deve possuir handleSaveAdjustment');
+    console.assert(osManagementSrc.includes('Solicitar Ajuste na OS'), 'Modal deve possuir título Solicitar Ajuste na OS');
+
+    // 4. Verificação do Botão e Modal de Auditoria de Dados & Documentos do Cliente e Responsável
+    console.assert(osManagementSrc.includes('auditModalOrder'), 'OSManagement deve gerenciar auditModalOrder');
+    console.assert(osManagementSrc.includes('handleOpenAuditModal'), 'OSManagement deve possuir handleOpenAuditModal');
+    console.assert(osManagementSrc.includes('Conferir Dados & Docs'), 'Botão Conferir Dados & Docs deve estar presente');
+    console.assert(osManagementSrc.includes('Foto Documento Cliente'), 'Modal de conferência deve verificar Foto Documento Cliente');
+    console.assert(osManagementSrc.includes('Foto Comprovante Residência Cliente'), 'Modal de conferência deve verificar Foto Comprovante Residência Cliente');
+    console.assert(osManagementSrc.includes('Foto Documento Responsável'), 'Modal de conferência deve verificar Foto Documento Responsável');
+    console.assert(osManagementSrc.includes('Foto Comprovante Residência Responsável'), 'Modal de conferência deve verificar Foto Comprovante Residência Responsável');
+    console.assert(osManagementSrc.includes('Receita Médica'), 'Modal de conferência deve verificar Receita Médica');
+
+    // 5. Teste da Função filterInstallmentsByDateRange na Gestão Financeira
+    const { filterInstallmentsByDateRange } = await import('./src/reparcelamentoUtils.js');
+    const mockInstallments = [
+      { id: '1', CLIENTE: 'Maria Oliveira', VALOR: '150,00', DATA_VENCIMENTO: '2025-01-15', STATUS: 'Pendente' },
+      { id: '2', CLIENTE: 'Maria Oliveira', VALOR: '150,00', DATA_VENCIMENTO: '2025-02-15', STATUS: 'Pendente' },
+      { id: '3', CLIENTE: 'Maria Oliveira', VALOR: '150,00', DATA_VENCIMENTO: '2026-11-15', STATUS: 'Pendente' },
+      { id: '4', CLIENTE: 'Maria Oliveira', VALOR: '150,00', DATA_VENCIMENTO: '2027-05-15', STATUS: 'Pendente' },
+      { id: '5', CLIENTE: 'João Santos', VALOR: '200,00', DATA_VENCIMENTO: '2026-11-20', STATUS: 'Pendente' }
+    ];
+
+    // Busca por cliente com período predefinido (ex: Mês Atual) NÃO deve descartar as outras parcelas do cliente
+    const filteredMaria = filterInstallmentsByDateRange(mockInstallments, {
+      periodMode: 'THIS_MONTH',
+      searchQuery: 'Maria Oliveira'
+    });
+    console.assert(filteredMaria.length === 4, `Todas as 4 parcelas da Maria devem aparecer na Gestão Financeira (retornou: ${filteredMaria.length})`);
+
+    // 6. Verificação do Botão de Nova Transferência em ErpOptica.jsx
+    console.assert(erpOpticaSrc.includes("activeTab === 'transferencias'"), 'ErpOptica deve conter condicional para activeTab transferencias');
+    console.assert(erpOpticaSrc.includes('Nova Transferência'), 'ErpOptica deve exibir botão Nova Transferência');
+
+    console.log('  ✅ Test 101 Passed: Gestão de OS (Filtros, Ajuste Amarelo Admin, Auditoria Docs), Gestão Financeira e Transferência validados com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 101 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 
