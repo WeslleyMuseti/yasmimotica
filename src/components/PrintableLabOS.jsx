@@ -24,6 +24,9 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
   const pacienteNome = osData.pacienteNome || osData.PACIENTE || osData.NOME_BENEFICIARIO || osData.nomePessoa || safeClient.pacienteNome || safeClient.PACIENTE || safeClient.NOME_BENEFICIARIO || safeClient.nomePessoa || '';
   const displayOS = String(osData.numeroOS || osData['OS DA VENDA'] || osData['OS'] || '---').replace(/^#+/, '');
 
+  const rawEntrega = osData.dataEntrega || osData.dtEntrega || osData['PREVISAO_ENTREGA'] || osData['DATA_ENTREGA'] || osData['DATA ENTREGA ÓCULOS'] || osData['Previsão Entrega'] || osData.raw?.['PREVISAO_ENTREGA'] || osData.raw?.['DATA_ENTREGA'] || '';
+  const dataEntrega = rawEntrega ? (String(rawEntrega).includes('-') && /^\d{4}-\d{2}-\d{2}/.test(String(rawEntrega)) ? String(rawEntrega).split('T')[0].split('-').reverse().join('/') : String(rawEntrega)) : '';
+
   const otica = osData.unidade || osData.unit || safeClient['Cidade'] || '';
   const lente = osData.lente || safeClient['Lente'] || safeClient['Marca de Lente'] || '';
   const laboratorio = osData.laboratorio || safeClient['Laboratório'] || '';
@@ -63,20 +66,35 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
             <p className="text-xs font-bold mt-1 text-slate-700">
               Data: {dataAtual}
             </p>
+            {dataEntrega && (
+              <p className="text-xs font-black text-rose-700 mt-0.5">
+                Previsão de Entrega: {dataEntrega}
+              </p>
+            )}
           </div>
         </div>
 
         {/* INFO BASIC */}
         <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 gap-3 border border-slate-300 rounded p-3 bg-slate-50/50 text-xs">
           <div><strong className="text-slate-600 block text-[10px] uppercase">Cliente:</strong> <span className="font-bold text-slate-900">{clientName || 'Não informado'}</span></div>
-          {pacienteNome ? (
-            <div><strong className="text-slate-600 block text-[10px] uppercase">Paciente / Beneficiário:</strong> <span className="font-black text-slate-950 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">{pacienteNome}</span></div>
-          ) : (
-            <div><strong className="text-slate-600 block text-[10px] uppercase">Ótica / Loja:</strong> <span className="font-bold text-slate-900">{otica || 'Central'}</span></div>
-          )}
-          <div><strong className="text-slate-600 block text-[10px] uppercase">Lente & Tratamento:</strong> <span className="font-bold text-slate-900 uppercase">{lente || 'Não informada'}{tratamento ? ` (${tratamento})` : ''}{material ? ` [${material}]` : ''}</span></div>
+          <div><strong className="text-slate-600 block text-[10px] uppercase">Ótica / Loja:</strong> <span className="font-bold text-slate-900">{otica || 'Central'}</span></div>
+          <div><strong className="text-slate-600 block text-[10px] uppercase">Lente &amp; Tratamento:</strong> <span className="font-bold text-slate-900 uppercase">{lente || 'Não informada'}{tratamento ? ` (${tratamento})` : ''}{material ? ` [${material}]` : ''}</span></div>
           <div><strong className="text-slate-600 block text-[10px] uppercase">Laboratório:</strong> <span className="font-bold text-slate-900">{laboratorio || 'Não informado'}</span></div>
         </div>
+        {pacienteNome && pacienteNome.trim().toLowerCase() !== clientName.trim().toLowerCase() && (
+          <div className="mb-3 px-3 py-1.5 bg-amber-50/80 border border-amber-300 rounded text-xs flex items-center justify-between">
+            <div>
+              <strong className="text-[10px] font-black uppercase text-amber-900 mr-2">Paciente / Beneficiário dos Óculos:</strong>
+              <span className="font-black text-slate-900">{pacienteNome}</span>
+            </div>
+            {dataEntrega && (
+              <div className="text-right">
+                <span className="text-[10px] font-bold text-slate-600 uppercase mr-1">Prazo de Entrega:</span>
+                <span className="font-black text-rose-700">{dataEntrega}</span>
+              </div>
+            )}
+          </div>
+        )}
         {detalhes && (
           <div className="mb-3 px-3 py-1.5 bg-amber-50/60 border border-amber-200 rounded text-xs">
             <strong className="text-[10px] font-black uppercase text-amber-900 mr-1.5">Detalhes / Obs do Produto:</strong>
@@ -105,28 +123,28 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
               <tr className="bg-white">
                 <td className="border border-slate-400 py-2 px-2 font-black text-left text-slate-900" rowSpan={2}>LONGE</td>
                 <td className="border border-slate-400 py-2 px-2 font-black text-slate-900">OD</td>
-                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.odEsf || osData['OD_ESF'] || '---'}</td>
-                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.odCil || osData['OD_CIL'] || '---'}</td>
-                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.odEixo || osData['OD_EIXO'] || '---'}</td>
+                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.odEsf || osData['OD_ESF'] || safeClient['OD_ESF'] || safeClient['odEsf'] || '---'}</td>
+                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.odCil || osData['OD_CIL'] || safeClient['OD_CIL'] || safeClient['odCil'] || '---'}</td>
+                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.odEixo || osData['OD_EIXO'] || safeClient['OD_EIXO'] || safeClient['odEixo'] || '---'}</td>
               </tr>
               <tr className="bg-slate-50/70">
                 <td className="border border-slate-400 py-2 px-2 font-black text-slate-900">OE</td>
-                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.oeEsf || osData['OE_ESF'] || '---'}</td>
-                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.oeCil || osData['OE_CIL'] || '---'}</td>
-                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.oeEixo || osData['OE_EIXO'] || '---'}</td>
+                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.oeEsf || osData['OE_ESF'] || safeClient['OE_ESF'] || safeClient['oeEsf'] || '---'}</td>
+                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.oeCil || osData['OE_CIL'] || safeClient['OE_CIL'] || safeClient['oeCil'] || '---'}</td>
+                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.oeEixo || osData['OE_EIXO'] || safeClient['OE_EIXO'] || safeClient['oeEixo'] || '---'}</td>
               </tr>
               <tr className="bg-white">
                 <td className="border border-slate-400 py-2 px-2 font-black text-left text-slate-900" rowSpan={2}>PERTO</td>
                 <td className="border border-slate-400 py-2 px-2 font-black text-slate-900">OD</td>
-                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.odPertoEsf || osData['OD_PERTO_ESF'] || ''}</td>
-                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.odPertoCil || osData['OD_PERTO_CIL'] || osData.odCil || osData['OD_CIL'] || ''}</td>
-                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.odPertoEixo || osData['OD_PERTO_EIXO'] || osData.odEixo || osData['OD_EIXO'] || ''}</td>
+                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.odPertoEsf || osData['OD_PERTO_ESF'] || safeClient['OD_PERTO_ESF'] || safeClient['odPertoEsf'] || ''}</td>
+                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.odPertoCil || osData['OD_PERTO_CIL'] || safeClient['OD_PERTO_CIL'] || osData.odCil || osData['OD_CIL'] || safeClient['OD_CIL'] || ''}</td>
+                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.odPertoEixo || osData['OD_PERTO_EIXO'] || safeClient['OD_PERTO_EIXO'] || osData.odEixo || osData['OD_EIXO'] || safeClient['OD_EIXO'] || ''}</td>
               </tr>
               <tr className="bg-slate-50/70">
                 <td className="border border-slate-400 py-2 px-2 font-black text-slate-900">OE</td>
-                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.oePertoEsf || osData['OE_PERTO_ESF'] || ''}</td>
-                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.oePertoCil || osData['OE_PERTO_CIL'] || osData.oeCil || osData['OE_CIL'] || ''}</td>
-                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.oePertoEixo || osData['OE_PERTO_EIXO'] || osData.oeEixo || osData['OE_EIXO'] || ''}</td>
+                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.oePertoEsf || osData['OE_PERTO_ESF'] || safeClient['OE_PERTO_ESF'] || safeClient['oePertoEsf'] || ''}</td>
+                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.oePertoCil || osData['OE_PERTO_CIL'] || safeClient['OE_PERTO_CIL'] || osData.oeCil || osData['OE_CIL'] || safeClient['OE_CIL'] || ''}</td>
+                <td className="border border-slate-400 py-2 px-2 font-bold text-slate-900 text-sm">{osData.oePertoEixo || osData['OE_PERTO_EIXO'] || safeClient['OE_PERTO_EIXO'] || osData.oeEixo || osData['OE_EIXO'] || safeClient['OE_EIXO'] || ''}</td>
               </tr>
             </tbody>
           </table>
@@ -137,24 +155,24 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
               <tr>
                 <td className="border border-slate-400 py-3 px-3 text-left bg-slate-50 w-24" rowSpan={2}>
                   <div className="font-black text-[10px] text-slate-600 uppercase">AD</div>
-                  <div className="text-center font-black text-xl mt-1 text-slate-900">{osData.adicao || osData['ADICAO'] || '---'}</div>
+                  <div className="text-center font-black text-xl mt-1 text-slate-900">{osData.adicao || osData['ADICAO'] || safeClient['ADICAO'] || safeClient['adicao'] || '---'}</div>
                 </td>
                 <td className="border border-slate-400 py-2 px-2 bg-slate-50 text-[10px] font-black uppercase text-slate-600 w-28" rowSpan={2}>
                   Altura de<br/>Montagem
                 </td>
-                <td className="border border-slate-400 py-2 px-3 font-bold text-slate-900 text-sm">OD: {osData.odAlt || osData['OD_ALT'] || '---'}</td>
+                <td className="border border-slate-400 py-2 px-3 font-bold text-slate-900 text-sm">OD: {osData.odAlt || osData['OD_ALT'] || safeClient['OD_ALT'] || safeClient['odAlt'] || '---'}</td>
                 <td className="border border-slate-400 py-2 px-3 text-left bg-slate-50 w-16" rowSpan={2}>
                   <div className="font-black text-[10px] text-slate-600 uppercase">DNP</div>
                 </td>
-                <td className="border border-slate-400 py-2 px-3 font-bold text-slate-900 text-sm">OD: {osData.odDnp || osData['OD_DNP'] || '---'}</td>
+                <td className="border border-slate-400 py-2 px-3 font-bold text-slate-900 text-sm">OD: {osData.odDnp || osData['OD_DNP'] || safeClient['OD_DNP'] || safeClient['odDnp'] || '---'}</td>
                 <td className="border border-slate-400 py-3 px-3 bg-slate-50 text-center w-32" rowSpan={2}>
                   <div className="font-black text-[10px] text-slate-600 uppercase">Tipo de Armação</div>
                   <div className="font-black text-xs mt-1 uppercase text-slate-900">{tipoArmacao || '---'}{cor ? ` (Cor: ${cor})` : ''}{referenciaSku ? ` [Ref: ${referenciaSku}]` : ''}</div>
                 </td>
               </tr>
               <tr>
-                <td className="border border-slate-400 py-2 px-3 font-bold text-slate-900 bg-slate-50/70 text-sm">OE: {osData.oeAlt || osData['OE_ALT'] || '---'}</td>
-                <td className="border border-slate-400 py-2 px-3 font-bold text-slate-900 bg-slate-50/70 text-sm">OE: {osData.oeDnp || osData['OE_DNP'] || '---'}</td>
+                <td className="border border-slate-400 py-2 px-3 font-bold text-slate-900 bg-slate-50/70 text-sm">OE: {osData.oeAlt || osData['OE_ALT'] || safeClient['OE_ALT'] || safeClient['oeAlt'] || '---'}</td>
+                <td className="border border-slate-400 py-2 px-3 font-bold text-slate-900 bg-slate-50/70 text-sm">OE: {osData.oeDnp || osData['OE_DNP'] || safeClient['OE_DNP'] || safeClient['oeDnp'] || '---'}</td>
               </tr>
             </tbody>
           </table>
@@ -170,23 +188,23 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
               <tbody>
                 <tr className="bg-white">
                   <td className="border border-slate-400 py-2.5 px-3 font-bold text-slate-700">Ponte + Aro:</td>
-                  <td className="border border-slate-400 py-2.5 px-3 font-black text-center text-slate-900 text-sm">{osData.raw?.PONTE_ARO || '---'}</td>
+                  <td className="border border-slate-400 py-2.5 px-3 font-black text-center text-slate-900 text-sm">{osData.ponteAro || osData.PONTE_ARO || osData.raw?.PONTE_ARO || safeClient?.PONTE_ARO || safeClient?.ponteAro || '---'}</td>
                 </tr>
                 <tr className="bg-slate-50/70">
                   <td className="border border-slate-400 py-2.5 px-3 font-bold text-slate-700">Diagonal Maior:</td>
-                  <td className="border border-slate-400 py-2.5 px-3 font-black text-center text-slate-900 text-sm">{osData.raw?.DIAGONAL_MAIOR || '---'}</td>
+                  <td className="border border-slate-400 py-2.5 px-3 font-black text-center text-slate-900 text-sm">{osData.diagonalMaior || osData.DIAGONAL_MAIOR || osData.raw?.DIAGONAL_MAIOR || safeClient?.DIAGONAL_MAIOR || safeClient?.diagonalMaior || '---'}</td>
                 </tr>
                 <tr className="bg-white">
                   <td className="border border-slate-400 py-2.5 px-3 font-bold text-slate-700">Altura Vertical:</td>
-                  <td className="border border-slate-400 py-2.5 px-3 font-black text-center text-slate-900 text-sm">{osData.raw?.ALTURA_VERTICAL || '---'}</td>
+                  <td className="border border-slate-400 py-2.5 px-3 font-black text-center text-slate-900 text-sm">{osData.alturaVertical || osData.ALTURA_VERTICAL || osData.raw?.ALTURA_VERTICAL || safeClient?.ALTURA_VERTICAL || safeClient?.alturaVertical || '---'}</td>
                 </tr>
                 <tr className="bg-slate-50/70">
                   <td className="border border-slate-400 py-2.5 px-3 font-bold text-slate-700">Ponte:</td>
-                  <td className="border border-slate-400 py-2.5 px-3 font-black text-center text-slate-900 text-sm">{osData.raw?.PONTE || '---'}</td>
+                  <td className="border border-slate-400 py-2.5 px-3 font-black text-center text-slate-900 text-sm">{osData.ponte || osData.PONTE || osData.raw?.PONTE || safeClient?.PONTE || safeClient?.ponte || '---'}</td>
                 </tr>
                 <tr className="bg-white">
                   <td className="border border-slate-400 py-2.5 px-3 font-bold text-slate-700">Aro:</td>
-                  <td className="border border-slate-400 py-2.5 px-3 font-black text-center text-slate-900 text-sm">{osData.raw?.ARO || '---'}</td>
+                  <td className="border border-slate-400 py-2.5 px-3 font-black text-center text-slate-900 text-sm">{osData.aro || osData.ARO || osData.raw?.ARO || safeClient?.ARO || safeClient?.aro || '---'}</td>
                 </tr>
               </tbody>
             </table>
@@ -256,7 +274,9 @@ const PrintableLabOS = ({ osData, clientData }) => {
   const safeClient = clientData || osData?.clientData || {};
   const list = (osData.multiOrders && Array.isArray(osData.multiOrders))
     ? osData.multiOrders
-    : (Array.isArray(osData) ? osData : [osData]);
+    : (osData.orders && Array.isArray(osData.orders))
+      ? osData.orders
+      : (Array.isArray(osData) ? osData : [osData]);
 
   return (
     <>

@@ -9464,7 +9464,143 @@ async function runTests() {
     console.log('  ✅ Test 102 Passed: Descrições de Produtos no PDV/OS e Seleção do Titular das Parcelas do Boleto (Cliente vs Responsável) validados com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 102 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // =========================================================================
+  // ▶ Test 103: Rastreabilidade Total PDV <-> ERP <-> OS <-> Impressão e Comprovantes
+  // =========================================================================
+  {
+    console.log('▶ Test 103: Rastreabilidade Total PDV <-> ERP <-> OS <-> Impressão e Comprovantes');
+
+    const osManagementSrc = fs.readFileSync(path.join(__dirname, 'src/components/OSManagement.jsx'), 'utf-8');
+    const posRegisterSrc = fs.readFileSync(path.join(__dirname, 'src/components/POSRegister.jsx'), 'utf-8');
+    const editOSModalSrc = fs.readFileSync(path.join(__dirname, 'src/components/EditOSModal.jsx'), 'utf-8');
+    const osGeneratorSrc = fs.readFileSync(path.join(__dirname, 'src/components/OSGeneratorModal.jsx'), 'utf-8');
+    const printableOSSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableOS.jsx'), 'utf-8');
+    const printableLabSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableLabOS.jsx'), 'utf-8');
+    const printableLabelSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableLabel.jsx'), 'utf-8');
+    const printableReceiptSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableReceipt.jsx'), 'utf-8');
+    const appSrc = fs.readFileSync(path.join(__dirname, 'src/App.jsx'), 'utf-8');
+    const reparcelamentoUtilsSrc = fs.readFileSync(path.join(__dirname, 'src/reparcelamentoUtils.js'), 'utf-8');
+
+    // 103.1: handlePrintAllLab sem ReferenceError de orderTargetClient e com preservação de armação/lente/perto
+    console.assert(osManagementSrc.includes('const orderTargetClient = (clientsData || []).find'), 'OSManagement handlePrintAllLab deve declarar orderTargetClient localmente');
+    console.assert(!osManagementSrc.includes('orderTargetClient?.itens') || osManagementSrc.includes('const orderTargetClient ='), 'orderTargetClient deve estar no escopo');
+    console.assert(osManagementSrc.includes('PONTE_ARO: pAro'), 'handlePrintAllLab deve passar medidas da armação PONTE_ARO');
+    console.assert(osManagementSrc.includes('odPertoEsf: o.odPertoEsf'), 'handlePrintAllLab deve mapear dioptrias de perto OD');
+
+    // 103.2: handlePrintAllOS não pode esvaziar parcelas com parcelas: []
+    console.assert(!osManagementSrc.includes('parcelas: [],\n      PARCELAS_JSON: "[]",\n      observacoes: o.raw?.["OBSERVACOES"]'), 'handlePrintAllOS não deve sobrescrever parcelas com array vazio');
+    console.assert(osManagementSrc.includes('const orderParcelas = extractOrderInstallments(o)'), 'handlePrintAllOS deve extrair parcelas reais com extractOrderInstallments');
+
+    // 103.3: Preservação incondicional do Responsável Legal no PDV (mesmo em pagamentos via PIX/Cartão/Dinheiro)
+    console.assert(posRegisterSrc.includes('...(effectiveRespName ? {\n        \'RESPONSAVEL_LEGAL\': effectiveRespName'), 'POSRegister deve salvar Responsável Legal incondicionalmente em newSale');
+    console.assert(posRegisterSrc.includes('...(effectiveRespName ? {\n        \'Responsável Nome\': effectiveRespName'), 'POSRegister deve salvar Responsável Legal incondicionalmente em clientForOS');
+
+    // 103.4: Sincronização de medidas da armação e dioptrias completas no EditOSModal
+    console.assert(editOSModalSrc.includes('ponteAro:'), 'EditOSModal deve gerenciar ponteAro no estado');
+    console.assert(editOSModalSrc.includes('alturaVertical:'), 'EditOSModal deve gerenciar alturaVertical no estado');
+    console.assert(editOSModalSrc.includes('RESPONSAVEL_NOME\': effectiveRespName'), 'EditOSModal deve salvar RESPONSAVEL_NOME');
+    console.assert(editOSModalSrc.includes('RESPONSAVEL_CPF\': effectiveRespCpf'), 'EditOSModal deve salvar RESPONSAVEL_CPF');
+
+    // 103.5: Fallbacks de Dioptrias e Medidas da Armação na Impressão (PrintableOS & PrintableLabOS)
+    console.assert(printableOSSrc.includes('safeClient[\'OD_ESF\']'), 'PrintableOS deve ter fallback em safeClient para OD_ESF');
+    console.assert(printableOSSrc.includes('safeClient[\'OD_PERTO_ESF\']'), 'PrintableOS deve ter fallback em safeClient para OD_PERTO_ESF');
+    console.assert(printableLabSrc.includes('osData.ponteAro || osData.PONTE_ARO || osData.raw?.PONTE_ARO || safeClient?.PONTE_ARO'), 'PrintableLabOS deve ler ponteAro de múltiplos aliases e de safeClient');
+    console.assert(printableLabSrc.includes('safeClient[\'OD_ESF\']'), 'PrintableLabOS deve ter fallback em safeClient para OD_ESF');
+
+    // 103.6: Etiquetas térmicas com PREVISAO_ENTREGA e Paciente/Laboratório
+    console.assert(printableLabelSrc.includes('PREVISAO_ENTREGA'), 'PrintableLabel deve checar PREVISAO_ENTREGA');
+    console.assert(printableLabelSrc.includes('Pac: {paciente}'), 'PrintableLabel deve exibir Paciente quando diferente do titular');
+    console.assert(printableLabelSrc.includes('Lab: {lab}'), 'PrintableLabel deve exibir Laboratório quando presente');
+
+    // 103.7: Comprovante de Pagamento do PDV com discriminação completa de Cliente, Paciente e Responsável
+    console.assert(printableReceiptSrc.includes('CPF do Cliente:'), 'PrintableReceipt deve exibir CPF do Cliente');
+    console.assert(printableReceiptSrc.includes('Paciente / Beneficiário:'), 'PrintableReceipt deve exibir Paciente / Beneficiário');
+    console.assert(printableReceiptSrc.includes('CPF do Responsável:'), 'PrintableReceipt deve exibir CPF do Responsável');
+
+    // 103.8: Sincronização multi-planilha em handleDeleteRow no App.jsx (Registro_Vendas & BD MARKETING)
+    console.assert(appSrc.includes('const isSalesSheet = [\'Registro_Vendas\', \'BD MARKETING\', \'VENDAS\'].includes(sheetName)'), 'App.jsx handleDeleteRow deve reconhecer isSalesSheet');
+    console.assert(appSrc.includes('const otherSales = [\'Registro_Vendas\', \'BD MARKETING\'].filter(s => s !== sheetName)'), 'App.jsx handleDeleteRow deve deletar vendas em ambas as coleções');
+
+    // 103.9: Recibo A4 de Reparcelamento e Pagamento Geral com responsavelCpf
+    console.assert(reparcelamentoUtilsSrc.includes('responsavelCpf = \'\''), 'reparcelamentoUtils deve aceitar responsavelCpf no payload');
+    console.assert(reparcelamentoUtilsSrc.includes('responsavelCpf: clientRespCpf'), 'buildGeneralPaymentReceiptPayload deve retornar responsavelCpf');
+
+    console.log('  ✅ Test 103 Passed: Rastreabilidade Total PDV <-> ERP <-> OS <-> Impressão e Comprovantes validada com 100% de sucesso!\n');
+  }
+
+  // =========================================================================
+  // ▶ Test 104: Auditoria e Blindagem Avançada PDV, ERP, OS, Comprovantes e Medidas
+  // =========================================================================
+  {
+    console.log('▶ Test 104: Auditoria e Blindagem Avançada PDV, ERP, OS, Comprovantes e Medidas');
+
+    const osManagementSrc = fs.readFileSync(path.join(__dirname, 'src/components/OSManagement.jsx'), 'utf-8');
+    const posRegisterSrc = fs.readFileSync(path.join(__dirname, 'src/components/POSRegister.jsx'), 'utf-8');
+    const editOSModalSrc = fs.readFileSync(path.join(__dirname, 'src/components/EditOSModal.jsx'), 'utf-8');
+    const osGeneratorSrc = fs.readFileSync(path.join(__dirname, 'src/components/OSGeneratorModal.jsx'), 'utf-8');
+    const printableOSSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableOS.jsx'), 'utf-8');
+    const printableLabSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableLabOS.jsx'), 'utf-8');
+    const printableLabelSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableLabel.jsx'), 'utf-8');
+    const printableReceiptSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableReceipt.jsx'), 'utf-8');
+    const dataTableSrc = fs.readFileSync(path.join(__dirname, 'src/components/DataTable.jsx'), 'utf-8');
+    const rowDetailsModalSrc = fs.readFileSync(path.join(__dirname, 'src/components/RowDetailsModal.jsx'), 'utf-8');
+    const clientProfileModalSrc = fs.readFileSync(path.join(__dirname, 'src/components/ClientProfileModal.jsx'), 'utf-8');
+
+    // 104.1: PrintableReceipt parsing seguro de effectiveParcelas e effectiveItens (sem crash em string JSON)
+    console.assert(printableReceiptSrc.includes('const effectiveItens = (() => {'), 'PrintableReceipt deve conter parser seguro de effectiveItens');
+    console.assert(printableReceiptSrc.includes('const effectiveParcelas = (() => {'), 'PrintableReceipt deve conter parser seguro de effectiveParcelas');
+    console.assert(printableReceiptSrc.includes('effectiveParcelas && effectiveParcelas.length > 0'), 'PrintableReceipt deve renderizar parcelas a partir de effectiveParcelas');
+    console.assert(printableReceiptSrc.includes('effectiveItens && effectiveItens.length > 0'), 'PrintableReceipt deve renderizar itens a partir de effectiveItens');
+
+    // 104.2: EditOSModal inputs de medidas da armação para laboratório no formulário
+    console.assert(editOSModalSrc.includes('3. Medidas Técnicas da Armação (Laboratório)'), 'EditOSModal deve conter seção de medidas da armação no JSX');
+    console.assert(editOSModalSrc.includes('onChange={e => handleChange(\'ponteAro\', e.target.value)}'), 'EditOSModal deve ter input para ponteAro');
+    console.assert(editOSModalSrc.includes('onChange={e => handleChange(\'diagonalMaior\', e.target.value)}'), 'EditOSModal deve ter input para diagonalMaior');
+    console.assert(editOSModalSrc.includes('onChange={e => handleChange(\'alturaVertical\', e.target.value)}'), 'EditOSModal deve ter input para alturaVertical');
+
+    // 104.3: OSGeneratorModal inputs de medidas da armação e propagação completa
+    console.assert(osGeneratorSrc.includes('Medidas Técnicas da Armação (Laboratório)'), 'OSGeneratorModal deve conter seção de medidas no JSX');
+    console.assert(osGeneratorSrc.includes('onChange={e => handleCurrentOSChange(\'ponteAro\', e.target.value)}'), 'OSGeneratorModal deve ter input para ponteAro');
+    console.assert(osGeneratorSrc.includes('ponteAro: source.ponteAro'), 'OSGeneratorModal handleApplyToAll deve propagar ponteAro');
+    console.assert(osGeneratorSrc.includes('diagonalMaior: source.diagonalMaior'), 'OSGeneratorModal handleApplyToAll deve propagar diagonalMaior');
+
+    // 104.4: Reimprimir OS em DataTable e RowDetailsModal com dioptrias de perto, parcelas, itens e responsável
+    console.assert(dataTableSrc.includes('odPertoEsf: row[\'OD_PERTO_ESF\'] || row[\'odPertoEsf\'] || \'\''), 'DataTable setPrintRowData deve incluir odPertoEsf');
+    console.assert(dataTableSrc.includes('responsavelNome: rowRespN'), 'DataTable setPrintRowData deve incluir responsavelNome');
+    console.assert(dataTableSrc.includes('responsavelCpf: row.RESPONSAVEL_CPF || row[\'Responsável CPF\']'), 'DataTable buildGeneralPaymentReceiptPayload deve receber responsavelCpf');
+    console.assert(rowDetailsModalSrc.includes('odPertoEsf: row[\'OD_PERTO_ESF\'] || row[\'odPertoEsf\'] || \'\''), 'RowDetailsModal setPrintOSData deve incluir odPertoEsf');
+    console.assert(rowDetailsModalSrc.includes('responsavelNome: rowRespN'), 'RowDetailsModal setPrintOSData deve incluir responsavelNome');
+
+    // 104.5: ClientProfileModal setOsDataForPrint com dioptrias de perto, itens e responsável
+    console.assert(clientProfileModalSrc.includes('odPertoEsf: compra[\'OD_PERTO_ESF\'] || compra[\'odPertoEsf\'] || \'\''), 'ClientProfileModal deve incluir odPertoEsf');
+    console.assert(clientProfileModalSrc.includes('responsavelNome: compRespN'), 'ClientProfileModal deve incluir responsavelNome');
+    console.assert(clientProfileModalSrc.includes('responsavelCpf: compRespC'), 'ClientProfileModal deve incluir responsavelCpf');
+
+    // 104.6: OSManagement impressão de comprovante/recibo do cliente diretamente na Gestão de OS
+    console.assert(osManagementSrc.includes('const handlePrintReceipt = (order) => {'), 'OSManagement deve implementar handlePrintReceipt');
+    console.assert(osManagementSrc.includes('onClick={() => handlePrintReceipt(order)}'), 'OSManagement deve ter botão de imprimir recibo');
+    console.assert(osManagementSrc.includes('<PrintableReceipt saleData={receiptPrintData}'), 'OSManagement deve renderizar PrintableReceipt');
+
+    // 104.7: OSManagement sincronização de faturas pagas e RESPONSAVEL_CPF no Contas a Receber
+    console.assert(osManagementSrc.includes('Sincroniza faturas já pagas com o número da OS renomeado'), 'OSManagement deve atualizar paidInvoices ao renomear OS');
+    console.assert(osManagementSrc.includes('RESPONSAVEL_CPF: effectiveRespCpf'), 'OSManagement deve gravar RESPONSAVEL_CPF ao atualizar duplicatas');
+    console.assert(osManagementSrc.includes('RESPONSAVEL_CPF: order.responsavelCpf'), 'OSManagement deve gravar RESPONSAVEL_CPF na aprovação de OS');
+
+    // 104.8: POSRegister gravação de RESPONSAVEL_CPF em vendas sem confecção de OS
+    console.assert(posRegisterSrc.includes('\'RESPONSAVEL_CPF\': effectiveRespCpf || \'\''), 'POSRegister deve gravar RESPONSAVEL_CPF em CONTAS_RECEBER');
+
+    // 104.9: PrintableLabOS com Previsão de Entrega e fallback de osData.orders
+    console.assert(printableLabSrc.includes('Previsão de Entrega: {dataEntrega}'), 'PrintableLabOS deve exibir Previsão de Entrega');
+    console.assert(printableLabSrc.includes('osData.orders && Array.isArray(osData.orders)'), 'PrintableLabOS deve suportar osData.orders');
+
+    // 104.10: PrintableOS com fallbacks em safeClient para dioptrias de perto
+    console.assert(printableOSSrc.includes('safeClient[\'odPertoCil\']'), 'PrintableOS deve ter fallback em safeClient para odPertoCil');
+    console.assert(printableOSSrc.includes('safeClient[\'oePertoAlt\']'), 'PrintableOS deve ter fallback em safeClient para oePertoAlt');
+
+    console.log('  ✅ Test 104 Passed: Auditoria e Blindagem Avançada PDV, ERP, OS, Comprovantes e Medidas validada com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 104 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

@@ -86,7 +86,23 @@ const RowDetailsModal = ({ isOpen, onClose, data, onEditClick }) => {
               {osNum && (
                 <button
                   onClick={() => {
+                    const rowPac = row['PACIENTE'] || row['NOME_BENEFICIARIO'] || row['nomePessoa'] || '';
+                    const rowRespN = row['RESPONSAVEL_NOME'] || row['RESPONSAVEL_LEGAL'] || row['Responsável Nome'] || row['Responsável'] || row['responsavelNome'] || '';
+                    const rowRespC = row['RESPONSAVEL_CPF'] || row['Responsável CPF'] || row['responsavelCpf'] || '';
+                    let rowParcs = [];
+                    try {
+                      if (Array.isArray(row.parcelas)) rowParcs = row.parcelas;
+                      else if (row.PARCELAS_JSON) rowParcs = typeof row.PARCELAS_JSON === 'string' ? JSON.parse(row.PARCELAS_JSON) : row.PARCELAS_JSON;
+                    } catch (_) { rowParcs = []; }
+                    let rowItens = [];
+                    try {
+                      if (Array.isArray(row.itens)) rowItens = row.itens;
+                      else if (row.ITENS_JSON) rowItens = typeof row.ITENS_JSON === 'string' ? JSON.parse(row.ITENS_JSON) : row.ITENS_JSON;
+                    } catch (_) { rowItens = []; }
+
                     setPrintOSData({
+                      ...row,
+                      raw: row,
                       numeroOS: osNum,
                       selectedCity: row['CIDADE'] || row['LOJA'] || row['UNIDADE'] || 'Central',
                       unidade: row['CIDADE'] || row['LOJA'] || row['UNIDADE'] || 'Central',
@@ -97,27 +113,72 @@ const RowDetailsModal = ({ isOpen, onClose, data, onEditClick }) => {
                       valorEntrada: row['VALOR ENTRADA'] || '0,00',
                       restante: row['RESTANTE'] || '0,00',
                       dataVenda: row['DATA  DA VENDA'] || row['DATA DA VENDA'] || row['DATA_VENDA'] || row['Data da Venda'] || row['data_venda'] || row['DATA'] || row['Data'] || '',
-                      dataEntrega: row['DATA ENTREGA ÓCULOS'] || row['DATA_ENTREGA'] || '',
+                      dataEntrega: row['DATA ENTREGA ÓCULOS'] || row['DATA_ENTREGA'] || row['PREVISAO_ENTREGA'] || '',
                       formasPagamento: row['FORMAS_PAGAMENTO'] || row['MEIO_PAGAMENTO'] || '',
+                      FORMA_ENTRADA: row['FORMA_ENTRADA'] || row.formaPagamentoEntrada || '',
+                      formaPagamentoEntrada: row['FORMA_ENTRADA'] || row.formaPagamentoEntrada || '',
+                      FORMA_RESTANTE: row['FORMA_RESTANTE'] || row.formaPagamentoRestante || '',
+                      formaPagamentoRestante: row['FORMA_RESTANTE'] || row.formaPagamentoRestante || '',
+                      pacienteNome: rowPac,
+                      PACIENTE: rowPac,
+                      nomePessoa: rowPac,
+                      NOME_BENEFICIARIO: rowPac,
+                      responsavelNome: rowRespN,
+                      responsavelCpf: rowRespC,
+                      'Responsável Nome': rowRespN,
+                      'Responsável CPF': rowRespC,
+                      cor: row['COR'] || row['Cor'] || '',
+                      material: row['MATERIAL'] || row['Material'] || '',
+                      tratamento: row['TRATAMENTO'] || row['Tratamento'] || '',
+                      referenciaSku: row['REFERENCIA_SKU'] || row['referenciaSku'] || row['CODIGO'] || '',
+                      detalhes: row['DETALHES'] || row['detalhes'] || '',
+                      ponteAro: row['PONTE_ARO'] || row['ponteAro'] || '',
+                      diagonalMaior: row['DIAGONAL_MAIOR'] || row['diagonalMaior'] || '',
+                      alturaVertical: row['ALTURA_VERTICAL'] || row['alturaVertical'] || '',
+                      ponte: row['PONTE'] || row['ponte'] || '',
+                      aro: row['ARO'] || row['aro'] || '',
+                      itens: rowItens,
+                      ITENS_JSON: row.ITENS_JSON || JSON.stringify(rowItens),
+                      parcelas: rowParcs,
+                      PARCELAS_JSON: row.PARCELAS_JSON || JSON.stringify(rowParcs),
                       observacoes: row['OBSERVACOES'] || '',
-                      odEsf: row['OD_ESF'] || '',
-                      odCil: row['OD_CIL'] || '',
-                      odEixo: row['OD_EIXO'] || '',
-                      odDnp: row['OD_DNP'] || '',
-                      odAlt: row['OD_ALT'] || '',
-                      oeEsf: row['OE_ESF'] || '',
-                      oeCil: row['OE_CIL'] || '',
-                      oeEixo: row['OE_EIXO'] || '',
-                      oeDnp: row['OE_DNP'] || '',
-                      oeAlt: row['OE_ALT'] || '',
-                      adicao: row['ADICAO'] || ''
+                      odEsf: row['OD_ESF'] || row['odEsf'] || '',
+                      odCil: row['OD_CIL'] || row['odCil'] || '',
+                      odEixo: row['OD_EIXO'] || row['odEixo'] || '',
+                      odDnp: row['OD_DNP'] || row['odDnp'] || '',
+                      odAlt: row['OD_ALT'] || row['odAlt'] || '',
+                      oeEsf: row['OE_ESF'] || row['oeEsf'] || '',
+                      oeCil: row['OE_CIL'] || row['oeCil'] || '',
+                      oeEixo: row['OE_EIXO'] || row['oeEixo'] || '',
+                      oeDnp: row['OE_DNP'] || row['oeDnp'] || '',
+                      oeAlt: row['OE_ALT'] || row['oeAlt'] || '',
+                      odPertoEsf: row['OD_PERTO_ESF'] || row['odPertoEsf'] || '',
+                      odPertoCil: row['OD_PERTO_CIL'] || row['odPertoCil'] || '',
+                      odPertoEixo: row['OD_PERTO_EIXO'] || row['odPertoEixo'] || '',
+                      odPertoDnp: row['OD_PERTO_DNP'] || row['odPertoDnp'] || '',
+                      odPertoAlt: row['OD_PERTO_ALT'] || row['odPertoAlt'] || '',
+                      oePertoEsf: row['OE_PERTO_ESF'] || row['oePertoEsf'] || '',
+                      oePertoCil: row['OE_PERTO_CIL'] || row['oePertoCil'] || '',
+                      oePertoEixo: row['OE_PERTO_EIXO'] || row['oePertoEixo'] || '',
+                      oePertoDnp: row['OE_PERTO_DNP'] || row['oePertoDnp'] || '',
+                      oePertoAlt: row['OE_PERTO_ALT'] || row['oePertoAlt'] || '',
+                      adicao: row['ADICAO'] || row['adicao'] || ''
                     });
                     setPrintClientData({
                       ...row,
                       'Nome Completo': row['Nome Completo'] || row['NOME'] || row['NOME DO CLIENTE'] || row['CLIENTE'] || 'Cliente',
                       'CPF / CNPJ': row['CPF / CNPJ'] || row['CPF'] || '',
                       'WhatsApp': row['WhatsApp'] || row['TELEFONE'] || row['TELEFONE CLIENTE'] || '',
-                      'Cidade': row['CIDADE'] || row['Cidade'] || 'Central'
+                      'Cidade': row['CIDADE'] || row['Cidade'] || 'Central',
+                      'Responsável Nome': rowRespN,
+                      'Responsável CPF': rowRespC,
+                      'Responsável Legal': row['RESPONSAVEL_LEGAL'] || rowRespN,
+                      'RESPONSAVEL_NOME': rowRespN,
+                      'RESPONSAVEL_CPF': rowRespC,
+                      responsavelNome: rowRespN,
+                      responsavelCpf: rowRespC,
+                      parcelas: rowParcs,
+                      PARCELAS_JSON: row.PARCELAS_JSON || JSON.stringify(rowParcs)
                     });
                     setTimeout(() => window.print(), 300);
                   }}

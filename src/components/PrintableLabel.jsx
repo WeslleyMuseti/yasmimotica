@@ -164,9 +164,13 @@ export const SingleLabel50x30 = ({ item = {}, type = 'armacao', storeName = 'YAS
   if (type === 'os' || type === 'envelope_lab' || item.numeroOS || item.osNumber || item.OS) {
     const osNum = item.numeroOS || item.osNumber || item.OS || item['OS DA VENDA'] || item['OS da COMPRA'] || item['VENDA_OS'] || '---';
     const client = item.clientName || item['Nome Completo'] || item.NOME || item.CLIENTE || item['NOME DO CLIENTE'] || item.nomeCliente || 'Cliente';
+    const paciente = item.pacienteNome || item.PACIENTE || item.NOME_BENEFICIARIO || item.nomePessoa || '';
     const armacao = item.armacao || item['ARMAÇÃO'] || item.armacaoNome || item.modeloArmacao || '';
     const lente = item.lente || item['LENTE'] || item.lenteNome || item.PRODUTO || '';
-    const entrega = item.dtEntrega || item.dataEntrega || item['DATA ENTREGA ÓCULOS'] || item['DATA_ENTREGA'] || '';
+    const lab = item.laboratorio || item['LABORATORIO'] || '';
+    const rawEntrega = item.dtEntrega || item.dataEntrega || item['DATA ENTREGA ÓCULOS'] || item['DATA_ENTREGA'] || item['PREVISAO_ENTREGA'] || item['Previsão Entrega'] || item.raw?.['PREVISAO_ENTREGA'] || '';
+    const entrega = rawEntrega ? (String(rawEntrega).includes('-') && /^\d{4}-\d{2}-\d{2}/.test(String(rawEntrega)) ? String(rawEntrega).split('T')[0].split('-').reverse().join('/') : String(rawEntrega)) : '';
+    const responsavel = item.responsavelNome || item.RESPONSAVEL_NOME || item.RESPONSAVEL_LEGAL || item.raw?.RESPONSAVEL_NOME || item.raw?.RESPONSAVEL_LEGAL || '';
     
     const odEsf = item.odEsf || item.OD_ESF || '';
     const odCil = item.odCil || item.OD_CIL || '';
@@ -195,17 +199,24 @@ export const SingleLabel50x30 = ({ item = {}, type = 'armacao', storeName = 'YAS
           </span>
         </div>
 
-        {/* Cliente */}
+        {/* Cliente / Paciente */}
         <div className="truncate text-[8.5px] font-bold">
           <span className="font-normal text-[7px] text-gray-700">Cli: </span>
           {client}
+          {paciente && paciente.trim().toLowerCase() !== client.trim().toLowerCase() && (
+            <span className="text-[7.5px] text-amber-900 ml-1 font-black">(Pac: {paciente})</span>
+          )}
+          {responsavel && responsavel.trim().toLowerCase() !== client.trim().toLowerCase() && (!paciente || paciente.trim().toLowerCase() === client.trim().toLowerCase()) && (
+            <span className="text-[7.5px] text-sky-900 ml-1 font-black">(Resp: {responsavel})</span>
+          )}
         </div>
 
         {/* Armação & Lente */}
-        {(armacao || lente) && (
+        {(armacao || lente || lab) && (
           <div className="truncate text-[7.5px] text-gray-900 leading-none">
             {armacao && <span className="font-semibold">Arm: {armacao} </span>}
-            {lente && <span>| Lnt: {lente}</span>}
+            {lente && <span>| Lnt: {lente} </span>}
+            {lab && <span className="font-bold text-slate-800">| Lab: {lab}</span>}
           </div>
         )}
 

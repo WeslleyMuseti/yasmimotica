@@ -906,6 +906,8 @@ export const numeroPorExtenso = (valor) => {
 export const buildReparcelamentoReceiptPayload = ({
   osNumero = 'AVULSO',
   clienteNome = 'Cliente',
+  responsavelNome = '',
+  responsavelCpf = '',
   clienteCpf = '',
   clienteTelefone = '',
   clienteEndereco = '',
@@ -933,6 +935,8 @@ export const buildReparcelamentoReceiptPayload = ({
     unidade,
     operador,
     clienteNome,
+    responsavelNome,
+    responsavelCpf,
     clienteCpf,
     clienteTelefone,
     clienteEndereco,
@@ -967,6 +971,7 @@ export const buildGeneralPaymentReceiptPayload = ({
   vencimentoOriginal = '',
   vencimentoDate = '',
   responsavelNome = '',
+  responsavelCpf = '',
   tipoPagamento = '',
   numeroParcela = null,
   totalParcelas = null,
@@ -983,6 +988,7 @@ export const buildGeneralPaymentReceiptPayload = ({
   const resolvedStore = resolveOSUnit({ numeroOS: osClean }, clientData) || clientData?.['Cidade'] || 'Cajati';
   const clientName = clientData?.['Nome Completo'] || clientData?.['NOME'] || clientData?.['Nome'] || 'Cliente';
   const clientResp = responsavelNome || clientData?.['Responsável'] || clientData?.['RESPONSÁVEL'] || clientData?.['Nome Responsável'] || clientData?.['Responsável Legal'] || clientData?.['RESPONSAVEL'] || clientData?.['responsavel'] || '';
+  const clientRespCpf = responsavelCpf || clientData?.['Responsável CPF'] || clientData?.['RESPONSAVEL_CPF'] || clientData?.['responsavelCpf'] || '';
   const clientCpf = clientData?.['CPF / CNPJ'] || clientData?.['CPF'] || '';
   const clientPhone = clientData?.['WhatsApp'] || clientData?.['TELEFONE'] || clientData?.['Telefone'] || '';
   const clientAddress = [clientData?.['Rua'], clientData?.['Número'], clientData?.['Bairro'], clientData?.['Cidade']].filter(Boolean).join(', ');
@@ -1002,6 +1008,7 @@ export const buildGeneralPaymentReceiptPayload = ({
     operador: currentUser?.username || 'Yasmin Ótica',
     clienteNome: clientName,
     responsavelNome: clientResp,
+    responsavelCpf: clientRespCpf,
     clienteCpf: clientCpf,
     clienteTelefone: clientPhone,
     clienteEndereco: clientAddress,

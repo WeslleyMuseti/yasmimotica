@@ -1984,7 +1984,18 @@ const ClientProfileModal = ({
                                         }
                                       }
 
+                                      let compItens = [];
+                                      try {
+                                        if (Array.isArray(compra.itens)) compItens = compra.itens;
+                                        else if (compra.ITENS_JSON) compItens = typeof compra.ITENS_JSON === 'string' ? JSON.parse(compra.ITENS_JSON) : compra.ITENS_JSON;
+                                      } catch (_) { compItens = []; }
+
+                                      const compRespN = compra['RESPONSAVEL_NOME'] || compra['RESPONSAVEL_LEGAL'] || compra['Responsável Nome'] || currentClient['Responsável Nome'] || currentClient['Responsável'] || currentClient['RESPONSAVEL_NOME'] || '';
+                                      const compRespC = compra['RESPONSAVEL_CPF'] || compra['Responsável CPF'] || currentClient['Responsável CPF'] || currentClient['RESPONSAVEL_CPF'] || '';
+
                                       setOsDataForPrint({
+                                        ...compra,
+                                        raw: compra,
                                         numeroOS: compra['OS DA VENDA'] || compra['OS'] || compra['VENDA_OS'],
                                         selectedCity: compra['CIDADE'] || compra['UNIDADE'] || currentClient['Cidade'] || 'Central',
                                         unidade: compra['CIDADE'] || compra['UNIDADE'] || currentClient['Cidade'] || 'Central',
@@ -2007,18 +2018,44 @@ const ClientProfileModal = ({
                                         financeiroUnificado: Boolean(compra.isSecondaryOS || compra.FINANCEIRO_UNIFICADO || compra.financeiroUnificado),
                                         nomePessoa: compra['PACIENTE'] || compra['NOME_BENEFICIARIO'] || compra.nomePessoa || '',
                                         PACIENTE: compra['PACIENTE'] || compra['NOME_BENEFICIARIO'] || compra.nomePessoa || '',
+                                        responsavelNome: compRespN,
+                                        responsavelCpf: compRespC,
+                                        'Responsável Nome': compRespN,
+                                        'Responsável CPF': compRespC,
+                                        cor: compra['COR'] || compra['Cor'] || '',
+                                        material: compra['MATERIAL'] || compra['Material'] || '',
+                                        tratamento: compra['TRATAMENTO'] || compra['Tratamento'] || '',
+                                        referenciaSku: compra['REFERENCIA_SKU'] || compra['referenciaSku'] || compra['CODIGO'] || '',
+                                        detalhes: compra['DETALHES'] || compra['detalhes'] || '',
+                                        ponteAro: compra['PONTE_ARO'] || compra['ponteAro'] || '',
+                                        diagonalMaior: compra['DIAGONAL_MAIOR'] || compra['diagonalMaior'] || '',
+                                        alturaVertical: compra['ALTURA_VERTICAL'] || compra['alturaVertical'] || '',
+                                        ponte: compra['PONTE'] || compra['ponte'] || '',
+                                        aro: compra['ARO'] || compra['aro'] || '',
+                                        itens: compItens,
+                                        ITENS_JSON: compra.ITENS_JSON || JSON.stringify(compItens),
                                         observacoes: compra['OBSERVACOES'] || '',
-                                        odEsf: compra['OD_ESF'] || '',
-                                        odCil: compra['OD_CIL'] || '',
-                                        odEixo: compra['OD_EIXO'] || '',
-                                        odDnp: compra['OD_DNP'] || '',
-                                        odAlt: compra['OD_ALT'] || '',
-                                        oeEsf: compra['OE_ESF'] || '',
-                                        oeCil: compra['OE_CIL'] || '',
-                                        oeEixo: compra['OE_EIXO'] || '',
-                                        oeDnp: compra['OE_DNP'] || '',
-                                        oeAlt: compra['OE_ALT'] || '',
-                                        adicao: compra['ADICAO'] || ''
+                                        odEsf: compra['OD_ESF'] || compra['odEsf'] || '',
+                                        odCil: compra['OD_CIL'] || compra['odCil'] || '',
+                                        odEixo: compra['OD_EIXO'] || compra['odEixo'] || '',
+                                        odDnp: compra['OD_DNP'] || compra['odDnp'] || '',
+                                        odAlt: compra['OD_ALT'] || compra['odAlt'] || '',
+                                        oeEsf: compra['OE_ESF'] || compra['oeEsf'] || '',
+                                        oeCil: compra['OE_CIL'] || compra['oeCil'] || '',
+                                        oeEixo: compra['OE_EIXO'] || compra['oeEixo'] || '',
+                                        oeDnp: compra['OE_DNP'] || compra['oeDnp'] || '',
+                                        oeAlt: compra['OE_ALT'] || compra['oeAlt'] || '',
+                                        odPertoEsf: compra['OD_PERTO_ESF'] || compra['odPertoEsf'] || '',
+                                        odPertoCil: compra['OD_PERTO_CIL'] || compra['odPertoCil'] || '',
+                                        odPertoEixo: compra['OD_PERTO_EIXO'] || compra['odPertoEixo'] || '',
+                                        odPertoDnp: compra['OD_PERTO_DNP'] || compra['odPertoDnp'] || '',
+                                        odPertoAlt: compra['OD_PERTO_ALT'] || compra['odPertoAlt'] || '',
+                                        oePertoEsf: compra['OE_PERTO_ESF'] || compra['oePertoEsf'] || '',
+                                        oePertoCil: compra['OE_PERTO_CIL'] || compra['oePertoCil'] || '',
+                                        oePertoEixo: compra['OE_PERTO_EIXO'] || compra['oePertoEixo'] || '',
+                                        oePertoDnp: compra['OE_PERTO_DNP'] || compra['oePertoDnp'] || '',
+                                        oePertoAlt: compra['OE_PERTO_ALT'] || compra['oePertoAlt'] || '',
+                                        adicao: compra['ADICAO'] || compra['adicao'] || ''
                                       });
                                       setIsPrintingProfile(false);
                                       setTimeout(() => {

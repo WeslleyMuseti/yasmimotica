@@ -105,7 +105,15 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
 
   // ─── DADOS COMPLETOS DO RESPONSÁVEL LEGAL ─────────────────────
   const respName = String(
+    osData.responsavelNome ||
+    osData.RESPONSAVEL_NOME ||
+    osData['Responsável Nome'] ||
+    osData['Responsável Legal'] ||
+    osData['RESPONSAVEL_LEGAL'] ||
     safeClient['Responsável Nome'] || 
+    safeClient['Responsável Legal'] || 
+    safeClient['RESPONSAVEL_LEGAL'] || 
+    safeClient['RESPONSAVEL_NOME'] || 
     safeClient['Responsável'] || 
     safeClient['RESPONSAVEL'] || 
     safeClient['NOME RESPONSAVEL'] || 
@@ -116,7 +124,7 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
     ''
   ).trim();
 
-  const respCpf = safeClient['Responsável CPF'] || safeClient['RESPONSAVEL_CPF'] || safeClient['CPF Responsável'] || safeClient['responsavelCpf'] || '';
+  const respCpf = osData.responsavelCpf || osData.RESPONSAVEL_CPF || osData['Responsável CPF'] || safeClient['Responsável CPF'] || safeClient['RESPONSAVEL_CPF'] || safeClient['CPF Responsável'] || safeClient['responsavelCpf'] || '';
   const respRg = safeClient['Responsável RG'] || safeClient['RESPONSAVEL_RG'] || safeClient['RG Responsável'] || safeClient['responsavelRg'] || '';
   const respNascRaw = safeClient['Responsável Data de Nascimento'] || safeClient['RESPONSAVEL_DATA_NASCIMENTO'] || safeClient['Nascimento Responsável'] || safeClient['responsavelNascimento'] || '';
   const respNasc = respNascRaw ? formatDatePrint(respNascRaw) : '';
@@ -619,46 +627,46 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
               {/* Longe */}
               <tr className="bg-white">
                 <td className="border border-slate-400 py-0.5 px-1 font-black text-left text-slate-900">OD (Longe)</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odEsf || osData['OD_ESF'] || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odCil || osData['OD_CIL'] || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odEixo || osData['OD_EIXO'] || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odDnp || osData['OD_DNP'] || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odAlt || osData['OD_ALT'] || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odDp || osData['OD_DP'] || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odOpa || osData['OD_OPA'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odEsf || osData['OD_ESF'] || safeClient['OD_ESF'] || safeClient['odEsf'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odCil || osData['OD_CIL'] || safeClient['OD_CIL'] || safeClient['odCil'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odEixo || osData['OD_EIXO'] || safeClient['OD_EIXO'] || safeClient['odEixo'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odDnp || osData['OD_DNP'] || safeClient['OD_DNP'] || safeClient['odDnp'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odAlt || osData['OD_ALT'] || safeClient['OD_ALT'] || safeClient['odAlt'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odDp || osData['OD_DP'] || safeClient['OD_DP'] || safeClient['odDp'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odOpa || osData['OD_OPA'] || safeClient['OD_OPA'] || safeClient['odOpa'] || '---'}</td>
               </tr>
               <tr className="bg-slate-50/70">
                 <td className="border border-slate-400 py-0.5 px-1 font-black text-left text-slate-900">OE (Longe)</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeEsf || osData['OE_ESF'] || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeCil || osData['OE_CIL'] || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeEixo || osData['OE_EIXO'] || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeDnp || osData['OE_DNP'] || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeAlt || osData['OE_ALT'] || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeDp || osData['OE_DP'] || '---'}</td>
-                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeOpa || osData['OE_OPA'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeEsf || osData['OE_ESF'] || safeClient['OE_ESF'] || safeClient['oeEsf'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeCil || osData['OE_CIL'] || safeClient['OE_CIL'] || safeClient['oeCil'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeEixo || osData['OE_EIXO'] || safeClient['OE_EIXO'] || safeClient['oeEixo'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeDnp || osData['OE_DNP'] || safeClient['OE_DNP'] || safeClient['oeDnp'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeAlt || osData['OE_ALT'] || safeClient['OE_ALT'] || safeClient['oeAlt'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeDp || osData['OE_DP'] || safeClient['OE_DP'] || safeClient['oeDp'] || '---'}</td>
+                <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oeOpa || osData['OE_OPA'] || safeClient['OE_OPA'] || safeClient['oeOpa'] || '---'}</td>
               </tr>
               {/* Perto */}
-              {(osData.odPertoEsf || osData['OD_PERTO_ESF'] || osData.oePertoEsf || osData['OE_PERTO_ESF'] || osData.adicao || osData['ADICAO'] || osData.odPertoCil || osData['OD_PERTO_CIL'] || osData.oePertoCil || osData['OE_PERTO_CIL']) && (
+              {(osData.odPertoEsf || osData['OD_PERTO_ESF'] || safeClient['OD_PERTO_ESF'] || osData.oePertoEsf || osData['OE_PERTO_ESF'] || safeClient['OE_PERTO_ESF'] || osData.adicao || osData['ADICAO'] || safeClient['ADICAO'] || osData.odPertoCil || osData['OD_PERTO_CIL'] || osData.oePertoCil || osData['OE_PERTO_CIL']) && (
                 <>
                   <tr className="bg-amber-50/40">
                     <td className="border border-slate-400 py-0.5 px-1 font-black text-left text-amber-950">OD (Perto)</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoEsf || osData['OD_PERTO_ESF'] || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoCil || osData['OD_PERTO_CIL'] || osData.odCil || osData['OD_CIL'] || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoEixo || osData['OD_PERTO_EIXO'] || osData.odEixo || osData['OD_EIXO'] || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoDnp || osData['OD_PERTO_DNP'] || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoAlt || osData['OD_PERTO_ALT'] || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoDp || osData['OD_PERTO_DP'] || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoOpa || osData['OD_PERTO_OPA'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoEsf || osData['OD_PERTO_ESF'] || safeClient['OD_PERTO_ESF'] || safeClient['odPertoEsf'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoCil || osData['OD_PERTO_CIL'] || safeClient['OD_PERTO_CIL'] || safeClient['odPertoCil'] || osData.odCil || osData['OD_CIL'] || safeClient['OD_CIL'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoEixo || osData['OD_PERTO_EIXO'] || safeClient['OD_PERTO_EIXO'] || safeClient['odPertoEixo'] || osData.odEixo || osData['OD_EIXO'] || safeClient['OD_EIXO'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoDnp || osData['OD_PERTO_DNP'] || safeClient['OD_PERTO_DNP'] || safeClient['odPertoDnp'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoAlt || osData['OD_PERTO_ALT'] || safeClient['OD_PERTO_ALT'] || safeClient['odPertoAlt'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoDp || osData['OD_PERTO_DP'] || safeClient['OD_PERTO_DP'] || safeClient['odPertoDp'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.odPertoOpa || osData['OD_PERTO_OPA'] || safeClient['OD_PERTO_OPA'] || safeClient['odPertoOpa'] || '---'}</td>
                   </tr>
                   <tr className="bg-amber-50/60">
                     <td className="border border-slate-400 py-0.5 px-1 font-black text-left text-amber-950">OE (Perto)</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoEsf || osData['OE_PERTO_ESF'] || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoCil || osData['OE_PERTO_CIL'] || osData.oeCil || osData['OE_CIL'] || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoEixo || osData['OE_PERTO_EIXO'] || osData.oeEixo || osData['OE_EIXO'] || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoDnp || osData['OE_PERTO_DNP'] || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoAlt || osData['OE_PERTO_ALT'] || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoDp || osData['OE_PERTO_DP'] || '---'}</td>
-                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoOpa || osData['OE_PERTO_OPA'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoEsf || osData['OE_PERTO_ESF'] || safeClient['OE_PERTO_ESF'] || safeClient['oePertoEsf'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoCil || osData['OE_PERTO_CIL'] || safeClient['OE_PERTO_CIL'] || safeClient['oePertoCil'] || osData.oeCil || osData['OE_CIL'] || safeClient['OE_CIL'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoEixo || osData['OE_PERTO_EIXO'] || safeClient['OE_PERTO_EIXO'] || safeClient['oePertoEixo'] || osData.oeEixo || osData['OE_EIXO'] || safeClient['OE_EIXO'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoDnp || osData['OE_PERTO_DNP'] || safeClient['OE_PERTO_DNP'] || safeClient['oePertoDnp'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoAlt || osData['OE_PERTO_ALT'] || safeClient['OE_PERTO_ALT'] || safeClient['oePertoAlt'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoDp || osData['OE_PERTO_DP'] || safeClient['OE_PERTO_DP'] || safeClient['oePertoDp'] || '---'}</td>
+                    <td className="border border-slate-400 py-0.5 px-1 font-bold text-slate-900">{osData.oePertoOpa || osData['OE_PERTO_OPA'] || safeClient['OE_PERTO_OPA'] || safeClient['oePertoOpa'] || '---'}</td>
                   </tr>
                 </>
               )}

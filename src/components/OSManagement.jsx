@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import PrintableOS from "./PrintableOS";
 import PrintableLabOS from "./PrintableLabOS";
+import PrintableReceipt from "./PrintableReceipt";
 import { PrintableLabelModal } from "./PrintableLabel";
 import EditOSModal from "./EditOSModal";
 import { isSameClient, normalizeSearchText } from "../firebaseSync";
@@ -379,6 +380,7 @@ const OSManagement = ({
   const [osDataForLabPrint, setOsDataForLabPrint] = useState(null);
   const [printLabClient, setPrintLabClient] = useState(null);
   const [labelModalData, setLabelModalData] = useState(null);
+  const [receiptPrintData, setReceiptPrintData] = useState(null);
 
   // Modal de Conferência Financeira & Aprovação de OS (Semáforo Azul)
   const [approvalModalOrder, setApprovalModalOrder] = useState(null);
@@ -439,36 +441,81 @@ const OSManagement = ({
       finalizedRow.BOLETO_PAGADOR_NOME ||
       finalizedRow.boletoPagadorNome ||
       finalizedRow['Responsável Nome'] ||
-      finalizedRow['Responsável']
+      finalizedRow['Responsável'] ||
+      finalizedRow.RESPONSAVEL_NOME ||
+      finalizedRow.RESPONSAVEL
     );
 
     const titularPagadorName = isRespTitular
-      ? (finalizedRow.BOLETO_PAGADOR_NOME || finalizedRow.boletoPagadorNome || finalizedRow['Responsável Nome'] || finalizedRow['Responsável'] || 'Responsável')
+      ? (finalizedRow.BOLETO_PAGADOR_NOME || finalizedRow.boletoPagadorNome || finalizedRow['Responsável Nome'] || finalizedRow['Responsável'] || finalizedRow.RESPONSAVEL_NOME || finalizedRow.RESPONSAVEL || 'Responsável')
       : (finalizedRow.CLIENTE || rawSale.CLIENTE || 'Cliente');
 
     const titularPagadorCpf = isRespTitular
-      ? (finalizedRow.BOLETO_PAGADOR_CPF || finalizedRow.boletoPagadorCpf || finalizedRow['Responsável CPF'] || '')
+      ? (finalizedRow.BOLETO_PAGADOR_CPF || finalizedRow.boletoPagadorCpf || finalizedRow['Responsável CPF'] || finalizedRow.RESPONSAVEL_CPF || '')
       : (finalizedRow.CPF || rawSale.CPF || '');
 
-    // Sincroniza número da OS, pagador e titular no Contas a Receber
-    if (Array.isArray(receberList) && onUpdateRow && (oldOSNum || newOSNum)) {
+    const effectiveRespName = finalizedRow.RESPONSAVEL_NOME || finalizedRow.RESPONSAVEL || finalizedRow['Responsável Nome'] || finalizedRow['Responsável'] || '';
+    const osStoreUnit = finalizedRow.CIDADE || finalizedRow.LOJA || finalizedRow.UNIDADE || finalizedRow.selectedCity || editingOrder.unit || 'Cajati';
+    const clientName = finalizedRow.CLIENTE || rawSale.CLIENTE || 'Cliente';
+    const osProductDesc = finalizedRow.PRODUTO || finalizedRow.LENTE || rawSale.PRODUTO || 'Óculos Completo';
+
+    // Sincroniza número da OS, pagador, titular, valores e parcelas no Contas a Receber
+    if (Array.isArray(receberList) && (oldOSNum || newOSNum)) {
       const linkedInvoices = receberList.filter(inv =>
         (oldOSNum && isMatchingOS(inv, oldOSNum.toLowerCase())) ||
         (newOSNum && isMatchingOS(inv, newOSNum.toLowerCase()))
       );
 
-      for (const inv of linkedInvoices) {
-        try {
+      const paidInvoices = linkedInvoices.filter(inv => inv.STATUS === 'Recebido' || inv.STATUS === 'Pago');
+      const pendingInvoices = linkedInvoices.filter(inv => inv.STATUS !== 'Recebido' && inv.STATUS !== 'Pago');
+
+      // Extrai as novas parcelas estruturadas salvas da edição
+      let newParcelas = [];
+      try {
+        if (Array.isArray(finalizedRow.parcelas) && finalizedRow.parcelas.length > 0) {
+          newParcelas = finalizedRow.parcelas;
+        } else if (finalizedRow.PARCELAS_JSON) {
+          newParcelas = typeof finalizedRow.PARCELAS_JSON === 'string' ? JSON.parse(finalizedRow.PARCELAS_JSON) : finalizedRow.PARCELAS_JSON;
+        }
+      } catch (e) {
+        newParcelas = [];
+      }
+
+      // Se houver parcelas novas e já existiam duplicatas pendentes, atualiza/sincroniza de forma cirúrgica
+      if (newParcelas && newParcelas.length > 0 && (pendingInvoices.length > 0 || linkedInvoices.length > 0)) {
+        // Filtra quais novas parcelas ainda NÃO foram pagas
+        const unpaidNewParcelas = newParcelas.filter(np => {
+          const numP = np.numero || 1;
+          const totP = np.totalParcelas || newParcelas.length;
+          return !paidInvoices.some(paid => {
+            const doc = String(paid.DOCUMENTO || '').toLowerCase();
+            const desc = String(paid.DESCRICAO || '').toLowerCase();
+            return doc.includes(`${numP}/${totP}`) || desc.includes(`parcela ${numP}/${totP}`) || doc.includes(`parcela ${numP}`) || doc.includes(`${numP}ª`);
+          });
+        });
+
+        // 1. Atualiza as faturas pendentes existentes com os novos valores, vencimentos e descrições
+        const limit = Math.min(pendingInvoices.length, unpaidNewParcelas.length);
+        for (let i = 0; i < limit; i++) {
+          const inv = pendingInvoices[i];
+          const np = unpaidNewParcelas[i];
+          const numP = np.numero || (i + 1);
+          const totP = np.totalParcelas || newParcelas.length;
+          const valP = typeof np.valor === 'number' ? formatMoney(np.valor) : String(np.valor || '0,00');
+          const isoVenc = toIsoDate(np.vencimento) || inv.DATA_VENCIMENTO || new Date().toISOString().split('T')[0];
+
           const updatedInv = {
             ...inv,
-            ...(isOSRenamed ? {
-              OS: newOSNum,
-              'OS DA VENDA': newOSNum,
-              VENDA_OS: newOSNum,
-              osNumero: newOSNum,
-              DESCRICAO: String(inv.DESCRICAO || '').replace(new RegExp(oldOSNum, 'gi'), newOSNum),
-              DOCUMENTO: String(inv.DOCUMENTO || '').replace(new RegExp(oldOSNum, 'gi'), newOSNum)
-            } : {}),
+            OS: newOSNum,
+            'OS DA VENDA': newOSNum,
+            VENDA_OS: newOSNum,
+            osNumero: newOSNum,
+            DOCUMENTO: `BOLETO ${numP}/${totP} - OS ${newOSNum}`,
+            DESCRICAO: `OS #${newOSNum} - Parcela ${numP}/${totP} (${osProductDesc})`,
+            VALOR: valP,
+            DATA_VENCIMENTO: isoVenc,
+            'DATA VENCIMENTO': isoVenc,
+            VENCIMENTO: isoVenc,
             CLIENTE: titularPagadorName,
             'NOME CLIENTE': titularPagadorName,
             NOME: titularPagadorName,
@@ -479,16 +526,230 @@ const OSManagement = ({
             CPF: titularPagadorCpf,
             PAGADOR_TIPO: isRespTitular ? 'Responsável' : 'Cliente',
             TITULAR_PARCELA: titularPagadorName,
-            TITULAR_TIPO: isRespTitular ? 'responsavel' : 'cliente'
+            TITULAR_TIPO: isRespTitular ? 'responsavel' : 'cliente',
+            RESPONSAVEL_NOME: effectiveRespName,
+            RESPONSAVEL_CPF: effectiveRespCpf,
+            'Responsável CPF': effectiveRespCpf,
+            responsavelCpf: effectiveRespCpf,
+            'Responsável Legal': effectiveRespName,
+            PACIENTE: clientName,
+            CIDADE: osStoreUnit,
+            LOJA: osStoreUnit,
+            UNIDADE: osStoreUnit,
+            MEIO_PAGAMENTO: 'Boleto'
           };
-          await onUpdateRow('CONTAS_RECEBER', inv, updatedInv);
-        } catch (updateErr) {
-          console.warn('Aviso ao sincronizar duplicata no Contas a Receber:', updateErr);
+          if (onUpdateRow) await onUpdateRow('CONTAS_RECEBER', inv, updatedInv).catch(() => {});
+        }
+
+        // 2. Se houver mais parcelas novas do que faturas pendentes, adiciona as extras
+        if (unpaidNewParcelas.length > pendingInvoices.length) {
+          const toAdd = [];
+          for (let i = pendingInvoices.length; i < unpaidNewParcelas.length; i++) {
+            const np = unpaidNewParcelas[i];
+            const numP = np.numero || (i + 1);
+            const totP = np.totalParcelas || newParcelas.length;
+            const valP = typeof np.valor === 'number' ? formatMoney(np.valor) : String(np.valor || '0,00');
+            const isoVenc = toIsoDate(np.vencimento) || new Date().toISOString().split('T')[0];
+
+            toAdd.push({
+              CLIENTE_ID: finalizedRow.CLIENTE_ID || rawSale.CLIENTE_ID || '',
+              CLIENTE_CPF: titularPagadorCpf,
+              CPF: titularPagadorCpf,
+              CLIENTE: titularPagadorName,
+              'NOME CLIENTE': titularPagadorName,
+              NOME: titularPagadorName,
+              PAGADOR: titularPagadorName,
+              PAGADOR_NOME: titularPagadorName,
+              PAGADOR_CPF: titularPagadorCpf,
+              PAGADOR_TIPO: isRespTitular ? 'Responsável' : 'Cliente',
+              TITULAR_PARCELA: titularPagadorName,
+              TITULAR_TIPO: isRespTitular ? 'responsavel' : 'cliente',
+              RESPONSAVEL_NOME: effectiveRespName,
+              RESPONSAVEL_CPF: effectiveRespCpf,
+              'Responsável CPF': effectiveRespCpf,
+              responsavelCpf: effectiveRespCpf,
+              'Responsável Legal': effectiveRespName,
+              PACIENTE: clientName,
+              DESCRICAO: `OS #${newOSNum} - Parcela ${numP}/${totP} (${osProductDesc})`,
+              VENDA_OS: newOSNum,
+              OS: newOSNum,
+              DOCUMENTO: `BOLETO ${numP}/${totP} - OS ${newOSNum}`,
+              VALOR: valP,
+              DATA_VENCIMENTO: isoVenc,
+              'DATA VENCIMENTO': isoVenc,
+              VENCIMENTO: isoVenc,
+              STATUS: 'Pendente',
+              CIDADE: osStoreUnit,
+              LOJA: osStoreUnit,
+              UNIDADE: osStoreUnit,
+              MEIO_PAGAMENTO: 'Boleto',
+              OBSERVACOES: `Duplicata gerada após edição da OS #${newOSNum}`,
+              DATA_CADASTRO: new Date().toLocaleDateString('pt-BR')
+            });
+          }
+          if (toAdd.length > 0) {
+            if (onAddBatch) await onAddBatch('CONTAS_RECEBER', toAdd).catch(() => {});
+            else if (onAddRow) {
+              for (const item of toAdd) await onAddRow('CONTAS_RECEBER', item).catch(() => {});
+            }
+          }
+        }
+
+        // 3. Se houver menos parcelas novas do que faturas pendentes, remove as pendentes excedentes
+        if (pendingInvoices.length > unpaidNewParcelas.length && onDeleteRow) {
+          for (let i = unpaidNewParcelas.length; i < pendingInvoices.length; i++) {
+            await onDeleteRow('CONTAS_RECEBER', pendingInvoices[i]).catch(() => {});
+          }
+        }
+
+        // 4. Sincroniza faturas já pagas com o número da OS renomeado e novos metadados
+        if (paidInvoices.length > 0 && onUpdateRow) {
+          for (const inv of paidInvoices) {
+            try {
+              const updatedPaid = {
+                ...inv,
+                ...(isOSRenamed ? {
+                  OS: newOSNum,
+                  'OS DA VENDA': newOSNum,
+                  VENDA_OS: newOSNum,
+                  osNumero: newOSNum,
+                  DESCRICAO: String(inv.DESCRICAO || '').replace(new RegExp(oldOSNum, 'gi'), newOSNum),
+                  DOCUMENTO: String(inv.DOCUMENTO || '').replace(new RegExp(oldOSNum, 'gi'), newOSNum)
+                } : {}),
+                CLIENTE: titularPagadorName,
+                'NOME CLIENTE': titularPagadorName,
+                NOME: titularPagadorName,
+                PAGADOR: titularPagadorName,
+                PAGADOR_NOME: titularPagadorName,
+                PAGADOR_CPF: titularPagadorCpf,
+                CLIENTE_CPF: titularPagadorCpf,
+                CPF: titularPagadorCpf,
+                PAGADOR_TIPO: isRespTitular ? 'Responsável' : 'Cliente',
+                TITULAR_PARCELA: titularPagadorName,
+                TITULAR_TIPO: isRespTitular ? 'responsavel' : 'cliente',
+                RESPONSAVEL_NOME: effectiveRespName,
+                RESPONSAVEL_CPF: effectiveRespCpf,
+                'Responsável CPF': effectiveRespCpf,
+                responsavelCpf: effectiveRespCpf,
+                'Responsável Legal': effectiveRespName,
+                PACIENTE: clientName,
+                CIDADE: osStoreUnit,
+                LOJA: osStoreUnit,
+                UNIDADE: osStoreUnit
+              };
+              await onUpdateRow('CONTAS_RECEBER', inv, updatedPaid).catch(() => {});
+            } catch (_) {}
+          }
+        }
+      } else if (parseCurrency(finalizedRow.RESTANTE) <= 0 && pendingInvoices.length > 0 && onDeleteRow) {
+        // Se a OS foi quitada integralmente na edição, purga faturas pendentes para não deixar débitos fantasmas
+        for (const pend of pendingInvoices) {
+          await onDeleteRow('CONTAS_RECEBER', pend).catch(() => {});
+        }
+      } else {
+        // Sincronização padrão para todas as faturas vinculadas (inclusive pagas)
+        for (const inv of linkedInvoices) {
+          try {
+            const updatedInv = {
+              ...inv,
+              ...(isOSRenamed ? {
+                OS: newOSNum,
+                'OS DA VENDA': newOSNum,
+                VENDA_OS: newOSNum,
+                osNumero: newOSNum,
+                DESCRICAO: String(inv.DESCRICAO || '').replace(new RegExp(oldOSNum, 'gi'), newOSNum),
+                DOCUMENTO: String(inv.DOCUMENTO || '').replace(new RegExp(oldOSNum, 'gi'), newOSNum)
+              } : {}),
+              CLIENTE: titularPagadorName,
+              'NOME CLIENTE': titularPagadorName,
+              NOME: titularPagadorName,
+              PAGADOR: titularPagadorName,
+              PAGADOR_NOME: titularPagadorName,
+              PAGADOR_CPF: titularPagadorCpf,
+              CLIENTE_CPF: titularPagadorCpf,
+              CPF: titularPagadorCpf,
+              PAGADOR_TIPO: isRespTitular ? 'Responsável' : 'Cliente',
+              TITULAR_PARCELA: titularPagadorName,
+              TITULAR_TIPO: isRespTitular ? 'responsavel' : 'cliente',
+              RESPONSAVEL_NOME: effectiveRespName,
+              RESPONSAVEL_CPF: effectiveRespCpf,
+              'Responsável CPF': effectiveRespCpf,
+              responsavelCpf: effectiveRespCpf,
+              'Responsável Legal': effectiveRespName,
+              PACIENTE: clientName,
+              CIDADE: osStoreUnit,
+              LOJA: osStoreUnit,
+              UNIDADE: osStoreUnit
+            };
+            if (onUpdateRow) await onUpdateRow('CONTAS_RECEBER', inv, updatedInv);
+          } catch (updateErr) {
+            console.warn('Aviso ao sincronizar duplicata no Contas a Receber:', updateErr);
+          }
         }
       }
     }
 
-    // 2. Salva a linha da OS atualizada
+    // 2. Sincronização no FLUXO_CAIXA
+    const fluxoList = data?.['FLUXO_CAIXA'] || [];
+    if (Array.isArray(fluxoList) && onUpdateRow && (oldOSNum || newOSNum || rawSale.id)) {
+      const matchingCash = fluxoList.filter(m =>
+        (rawSale.id && m.saleId === rawSale.id) ||
+        (oldOSNum && isMatchingOS(m, oldOSNum.toLowerCase())) ||
+        (newOSNum && isMatchingOS(m, newOSNum.toLowerCase()))
+      );
+      for (const mov of matchingCash) {
+        try {
+          const updatedMov = {
+            ...mov,
+            osNumero: newOSNum,
+            cliente: clientName,
+            unidade: osStoreUnit,
+            cidade: osStoreUnit,
+            data: finalizedRow.DATA || finalizedRow['DATA  DA VENDA'] || mov.data,
+            DATA: finalizedRow.DATA || finalizedRow['DATA  DA VENDA'] || mov.DATA,
+            dataHora: finalizedRow.dataHora || mov.dataHora,
+            timestamp: finalizedRow.timestamp || mov.timestamp,
+            DATA_HORA: finalizedRow.DATA_HORA || mov.DATA_HORA,
+            hora: finalizedRow.HORA || finalizedRow.hora || mov.hora,
+            HORA: finalizedRow.HORA || finalizedRow.hora || mov.HORA,
+            valorTotalOS: parseCurrency(finalizedRow['VALOR TOTAL'] || finalizedRow['VALOR DA VENDA'] || mov.valorTotalOS),
+            valorEntradaOS: parseCurrency(finalizedRow['VALOR ENTRADA'] || finalizedRow['SINAL'] || mov.valorEntradaOS),
+            valorRestanteBoleto: parseCurrency(finalizedRow['RESTANTE'] || mov.valorRestanteBoleto)
+          };
+          await onUpdateRow('FLUXO_CAIXA', mov, updatedMov);
+        } catch (fcErr) {
+          console.warn('Aviso ao sincronizar FLUXO_CAIXA na edição da OS:', fcErr);
+        }
+      }
+    }
+
+    // 3. Atualizar ficha e saldo devedor do titular em CLIENTES_CADASTRADOS
+    const targetClientRecord = (clientsData || []).find(c => isSameClient(c, finalizedRow)) || editingOrder.clientData;
+    if (targetClientRecord && onUpdateRow) {
+      // Recalcula dívida real em aberto
+      const updatedReceber = data?.['CONTAS_RECEBER'] || [];
+      const clientPendingInvoices = updatedReceber.filter(r => {
+        const isMatch = (targetClientRecord.id && r.CLIENTE_ID === targetClientRecord.id) ||
+                        (titularPagadorCpf && (r.CLIENTE_CPF === titularPagadorCpf || r.CPF === titularPagadorCpf)) ||
+                        (titularPagadorName && (r.CLIENTE === titularPagadorName || r.NOME === titularPagadorName));
+        return isMatch && r.STATUS !== 'Recebido' && r.STATUS !== 'Pago';
+      });
+      const realDebt = clientPendingInvoices.reduce((sum, r) => sum + parseCurrency(r.VALOR), 0);
+      const updatedClient = {
+        ...targetClientRecord,
+        'Valor Devido': formatMoney(realDebt),
+        'Status de Pagamento': realDebt > 0 ? 'Inadimplente' : 'Em dia',
+        ...(isOSRenamed ? {
+          numeroOS: newOSNum,
+          'OS DA VENDA': newOSNum,
+          'OS': newOSNum,
+          'VENDA_OS': newOSNum
+        } : {})
+      };
+      await onUpdateRow('CLIENTES_CADASTRADOS', targetClientRecord, updatedClient).catch(() => {});
+    }
+
+    // 4. Salva a linha da OS atualizada
     if (onUpdateRow) {
       await onUpdateRow(sheetName, rawSale, finalizedRow);
     }
@@ -1094,6 +1355,10 @@ const OSManagement = ({
                 TITULAR_PARCELA: titularPagadorName,
                 TITULAR_TIPO: isRespTitular ? 'responsavel' : 'cliente',
                 RESPONSAVEL_NOME: order.responsavelNome || order.clientData?.['Responsável Nome'] || order.clientData?.['Responsável'] || '',
+                RESPONSAVEL_CPF: order.responsavelCpf || order.raw?.['RESPONSAVEL_CPF'] || order.clientData?.['Responsável CPF'] || order.clientData?.['RESPONSAVEL_CPF'] || order.clientData?.['responsavelCpf'] || '',
+                'Responsável CPF': order.responsavelCpf || order.raw?.['RESPONSAVEL_CPF'] || order.clientData?.['Responsável CPF'] || order.clientData?.['RESPONSAVEL_CPF'] || order.clientData?.['responsavelCpf'] || '',
+                responsavelCpf: order.responsavelCpf || order.raw?.['RESPONSAVEL_CPF'] || order.clientData?.['Responsável CPF'] || order.clientData?.['RESPONSAVEL_CPF'] || order.clientData?.['responsavelCpf'] || '',
+                'Responsável Legal': order.responsavelNome || order.clientData?.['Responsável Legal'] || order.clientData?.['Responsável Nome'] || '',
                 PACIENTE: clientName,
                 DESCRICAO: `OS #${order.osNumber} - Parcela ${numP}/${totP} (${order.product || 'Óculos Completo'})`,
                 VENDA_OS: order.osNumber,
@@ -1137,6 +1402,10 @@ const OSManagement = ({
               TITULAR_PARCELA: titularPagadorName,
               TITULAR_TIPO: isRespTitular ? 'responsavel' : 'cliente',
               RESPONSAVEL_NOME: order.responsavelNome || order.clientData?.['Responsável Nome'] || order.clientData?.['Responsável'] || '',
+              RESPONSAVEL_CPF: order.responsavelCpf || order.raw?.['RESPONSAVEL_CPF'] || order.clientData?.['Responsável CPF'] || order.clientData?.['RESPONSAVEL_CPF'] || order.clientData?.['responsavelCpf'] || '',
+              'Responsável CPF': order.responsavelCpf || order.raw?.['RESPONSAVEL_CPF'] || order.clientData?.['Responsável CPF'] || order.clientData?.['RESPONSAVEL_CPF'] || order.clientData?.['responsavelCpf'] || '',
+              responsavelCpf: order.responsavelCpf || order.raw?.['RESPONSAVEL_CPF'] || order.clientData?.['Responsável CPF'] || order.clientData?.['RESPONSAVEL_CPF'] || order.clientData?.['responsavelCpf'] || '',
+              'Responsável Legal': order.responsavelNome || order.clientData?.['Responsável Legal'] || order.clientData?.['Responsável Nome'] || '',
               PACIENTE: clientName,
               DESCRICAO: `Venda OS #${order.osNumber} - ${order.product || 'Óculos Completo'}${order.formaRestante ? ` (${order.formaRestante})` : ''}`,
               VENDA_OS: order.osNumber,
@@ -1201,6 +1470,7 @@ const OSManagement = ({
 
       // 4. Liberar a OS para o laboratório / montagem dos óculos
       if (onUpdateRow) {
+        const salesSheetName = data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING';
         const updatedRow = {
           ...order.raw,
           STATUS_OS: 'No Laboratório',
@@ -1210,7 +1480,7 @@ const OSManagement = ({
           DATA_APROVACAO: todayStr,
           APROVADO_POR: currentUser?.username || 'Administração'
         };
-        await onUpdateRow('Registro_Vendas', order.raw, updatedRow);
+        await onUpdateRow(salesSheetName, order.raw, updatedRow);
       }
 
       setApprovalModalOrder(null);
@@ -1377,8 +1647,9 @@ const OSManagement = ({
         DATA_CANCELAMENTO: todayStr,
         CANCELADO_POR: currentUser?.username || 'Administração'
       };
+      const salesSheetName = data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING';
       if (onUpdateRow) {
-        await onUpdateRow('Registro_Vendas', order.raw, updatedRow);
+        await onUpdateRow(salesSheetName, order.raw, updatedRow);
       }
       setApprovalModalOrder(null);
       setSuccessToast(`OS #${order.osNumber} foi cancelada. Duplicatas pendentes removidas e financeiro limpo.`);
@@ -1420,22 +1691,24 @@ const OSManagement = ({
     }
 
     if (!onUpdateRow) return;
+    const salesSheetName = data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING';
     const updatedRow = {
       ...order.raw,
       STATUS_OS: newStatus,
       SITUAÇÃO: newStatus === "Entregue" ? "Pago" : "Pendente"
     };
-    onUpdateRow("Registro_Vendas", order.raw, updatedRow);
+    onUpdateRow(salesSheetName, order.raw, updatedRow);
   };
 
   const handleTogglePgtoConferido = (order) => {
     if (!onUpdateRow || isVendedor) return;
+    const salesSheetName = data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING';
     const isConferido = order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim';
     const updatedRow = {
       ...order.raw,
       PAGAMENTO_CONFERIDO: isConferido ? 'Não' : 'Sim'
     };
-    onUpdateRow("Registro_Vendas", order.raw, updatedRow);
+    onUpdateRow(salesSheetName, order.raw, updatedRow);
   };
 
   // Confirmar Baixa com Data Efetiva de Entrega
@@ -1444,6 +1717,7 @@ const OSManagement = ({
     if (!deliveryModalOrder || !onUpdateRow || isVendedor) return;
 
     const chosenDate = deliveryDateInput || new Date().toISOString().split('T')[0];
+    const salesSheetName = data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING';
 
     const updatedRow = {
       ...deliveryModalOrder.raw,
@@ -1456,7 +1730,7 @@ const OSManagement = ({
       OBS_ENTREGA: deliveryNotesInput || ""
     };
 
-    onUpdateRow("Registro_Vendas", deliveryModalOrder.raw, updatedRow);
+    onUpdateRow(salesSheetName, deliveryModalOrder.raw, updatedRow);
     setDeliveryModalOrder(null);
   };
 
@@ -1481,7 +1755,7 @@ const OSManagement = ({
     window.open("https://wa.me/" + fullPhone + "?text=" + encodeURIComponent(msg), "_blank");
   };
 
-  // Impressão da OS (Omitindo estritamente parcelas na Gestão de OS)
+  // Impressão da OS (Folha Única A4 com todos os dados, cliente, responsável, dioptrias e parcelamento)
   const handlePrint = (order) => {
     setOsDataForLabPrint(null);
     setPrintLabClient(null);
@@ -1504,6 +1778,10 @@ const OSManagement = ({
       || order.matchedClient
       || {};
 
+    const orderParcelas = extractOrderInstallments(order);
+    const respName = order.responsavelNome || targetClient["Responsável Nome"] || targetClient["Responsável"] || targetClient["RESPONSAVEL_NOME"] || targetClient["RESPONSAVEL"] || order.raw?.["RESPONSAVEL_NOME"] || order.raw?.["RESPONSAVEL"] || order.raw?.["responsavelNome"] || "";
+    const respCpf = order.responsavelCpf || targetClient["Responsável CPF"] || targetClient["RESPONSAVEL_CPF"] || order.raw?.["RESPONSAVEL_CPF"] || order.raw?.["responsavelCpf"] || "";
+
     const cData = {
       ...order.raw,
       ...(order.clientData || {}),
@@ -1511,6 +1789,14 @@ const OSManagement = ({
       "Nome Completo": order.clientName || targetClient["Nome Completo"] || targetClient["NOME"] || order.raw?.['CLIENTE'] || order.raw?.['NOME'],
       "WhatsApp": order.clientPhone || targetClient["WhatsApp"] || targetClient["TELEFONE"] || order.raw?.['TELEFONE'],
       "Cidade": order.clientCity || targetClient["Cidade"] || targetClient["CIDADE"] || order.unit,
+      "Responsável Nome": respName,
+      "Responsável": respName,
+      "RESPONSAVEL_NOME": respName,
+      "RESPONSAVEL": respName,
+      "responsavelNome": respName,
+      "Responsável CPF": respCpf,
+      "RESPONSAVEL_CPF": respCpf,
+      "responsavelCpf": respCpf,
       "FORMAS_PAGAMENTO": cleanedFP,
       "FORMA_PAGTO": cleanedFP,
       "FORMA_ENTRADA": order.formaEntrada || order.raw?.["FORMA_ENTRADA"] || "",
@@ -1521,11 +1807,12 @@ const OSManagement = ({
       "pacienteNome": pacienteNomeVal,
       "nomePessoa": pacienteNomeVal,
       "NOME_BENEFICIARIO": pacienteNomeVal,
-      parcelas: [],
-      PARCELAS_JSON: "[]"
+      parcelas: orderParcelas,
+      PARCELAS_JSON: JSON.stringify(orderParcelas)
     };
     setPrintClient(cData);
     setOsDataForPrint({
+      ...order.raw,
       raw: order.raw,
       clientData: targetClient,
       numeroOS: order.osNumber,
@@ -1536,7 +1823,12 @@ const OSManagement = ({
       nomePessoa: pacienteNomeVal,
       NOME_BENEFICIARIO: pacienteNomeVal,
       beneficiario: pacienteNomeVal,
-      medico: order.raw["MEDICO"] || "",
+      responsavelNome: respName,
+      responsavelCpf: respCpf,
+      boletoTitularTipo: order.boletoTitularTipo || order.raw?.["BOLETO_TITULAR_TIPO"] || "cliente",
+      boletoPagadorNome: order.boletoPagadorNome || order.raw?.["BOLETO_PAGADOR_NOME"] || "",
+      boletoPagadorCpf: order.boletoPagadorCpf || order.raw?.["BOLETO_PAGADOR_CPF"] || "",
+      medico: order.raw["MEDICO"] || order.medico || "",
       lente: order.lente || order.raw["LENTE"] || order.product,
       armacao: order.armacao || order.raw["ARMAÇÃO"] || "",
       itens: order.itens || order.raw?.itens || targetClient?.itens || [],
@@ -1557,8 +1849,8 @@ const OSManagement = ({
       dataVenda: order.dtVenda || order.raw?.["DATA  DA VENDA"] || order.raw?.["DATA DA VENDA"] || order.raw?.["DATA"] || "",
       dataEntrega: order.dtEntrega,
       formasPagamento: cleanedFP,
-      parcelas: [],
-      PARCELAS_JSON: "[]",
+      parcelas: orderParcelas,
+      PARCELAS_JSON: JSON.stringify(orderParcelas),
       observacoes: order.raw["OBSERVACOES"] || order.obsEntrega || "",
       odEsf: order.odEsf || order.raw["OD_ESF"] || "",
       odCil: order.odCil || order.raw["OD_CIL"] || "",
@@ -1570,6 +1862,20 @@ const OSManagement = ({
       oeEixo: order.oeEixo || order.raw["OE_EIXO"] || "",
       oeDnp: order.oeDnp || order.raw["OE_DNP"] || "",
       oeAlt: order.oeAlt || order.raw["OE_ALT"] || "",
+      odPertoEsf: order.odPertoEsf || order.raw["OD_PERTO_ESF"] || "",
+      odPertoCil: order.odPertoCil || order.raw["OD_PERTO_CIL"] || "",
+      odPertoEixo: order.odPertoEixo || order.raw["OD_PERTO_EIXO"] || "",
+      odPertoDnp: order.odPertoDnp || order.raw["OD_PERTO_DNP"] || "",
+      odPertoAlt: order.odPertoAlt || order.raw["OD_PERTO_ALT"] || "",
+      oePertoEsf: order.oePertoEsf || order.raw["OE_PERTO_ESF"] || "",
+      oePertoCil: order.oePertoCil || order.raw["OE_PERTO_CIL"] || "",
+      oePertoEixo: order.oePertoEixo || order.raw["OE_PERTO_EIXO"] || "",
+      oePertoDnp: order.oePertoDnp || order.raw["OE_PERTO_DNP"] || "",
+      oePertoAlt: order.oePertoAlt || order.raw["OE_PERTO_ALT"] || "",
+      odDp: order.odDp || order.raw["OD_DP"] || "",
+      odOpa: order.odOpa || order.raw["OD_OPA"] || "",
+      oeDp: order.oeDp || order.raw["OE_DP"] || "",
+      oeOpa: order.oeOpa || order.raw["OE_OPA"] || "",
       adicao: order.adicao || order.raw["ADICAO"] || ""
     });
 
@@ -1612,8 +1918,9 @@ const OSManagement = ({
       ...labFormData
     };
     
+    const salesSheetName = data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING';
     if (onUpdateRow && !isVendedor) {
-      onUpdateRow("Registro_Vendas", order.raw, updatedRaw);
+      onUpdateRow(salesSheetName, order.raw, updatedRaw);
     }
     
     // Preparar impressão usando updatedRaw
@@ -1631,6 +1938,7 @@ const OSManagement = ({
     };
     setPrintLabClient(cData);
     setOsDataForLabPrint({
+      ...updatedRaw,
       raw: updatedRaw,
       numeroOS: order.osNumber,
       selectedCity: order.unit,
@@ -1658,7 +1966,22 @@ const OSManagement = ({
       oeEixo: updatedRaw["OE_EIXO"] || "",
       oeDnp: updatedRaw["OE_DNP"] || "",
       oeAlt: updatedRaw["OE_ALT"] || "",
-      adicao: updatedRaw["ADICAO"] || ""
+      odPertoEsf: updatedRaw["OD_PERTO_ESF"] || "",
+      odPertoCil: updatedRaw["OD_PERTO_CIL"] || "",
+      odPertoEixo: updatedRaw["OD_PERTO_EIXO"] || "",
+      odPertoDnp: updatedRaw["OD_PERTO_DNP"] || "",
+      odPertoAlt: updatedRaw["OD_PERTO_ALT"] || "",
+      oePertoEsf: updatedRaw["OE_PERTO_ESF"] || "",
+      oePertoCil: updatedRaw["OE_PERTO_CIL"] || "",
+      oePertoEixo: updatedRaw["OE_PERTO_EIXO"] || "",
+      oePertoDnp: updatedRaw["OE_PERTO_DNP"] || "",
+      oePertoAlt: updatedRaw["OE_PERTO_ALT"] || "",
+      adicao: updatedRaw["ADICAO"] || "",
+      ponteAro: updatedRaw["PONTE_ARO"] || "",
+      diagonalMaior: updatedRaw["DIAGONAL_MAIOR"] || "",
+      alturaVertical: updatedRaw["ALTURA_VERTICAL"] || "",
+      ponte: updatedRaw["PONTE"] || "",
+      aro: updatedRaw["ARO"] || ""
     });
 
     setLabModalOrder(null);
@@ -1724,6 +2047,10 @@ const OSManagement = ({
       || primary.matchedClient
       || {};
 
+    const primaryParcelas = extractOrderInstallments(primary);
+    const primaryRespName = primary.responsavelNome || primary.raw?.["RESPONSAVEL_NOME"] || primary.raw?.["RESPONSAVEL_LEGAL"] || targetClient["Responsável Legal"] || targetClient["RESPONSAVEL_LEGAL"] || "";
+    const primaryRespCpf = primary.responsavelCpf || primary.raw?.["RESPONSAVEL_CPF"] || targetClient["Responsável CPF"] || targetClient["RESPONSAVEL_CPF"] || "";
+
     const cData = {
       ...primary.raw,
       ...(primary.clientData || {}),
@@ -1737,8 +2064,14 @@ const OSManagement = ({
       "formaPagamentoEntrada": primary.formaEntrada || primary.raw?.["formaPagamentoEntrada"] || "",
       "FORMA_RESTANTE": primary.formaRestante || primary.raw?.["FORMA_RESTANTE"] || "",
       "formaPagamentoRestante": primary.formaRestante || primary.raw?.["formaPagamentoRestante"] || "",
-      parcelas: [],
-      PARCELAS_JSON: "[]"
+      responsavelNome: primaryRespName,
+      responsavelCpf: primaryRespCpf,
+      "Responsável Legal": primaryRespName,
+      "Responsável CPF": primaryRespCpf,
+      "RESPONSAVEL_NOME": primaryRespName,
+      "RESPONSAVEL_CPF": primaryRespCpf,
+      parcelas: primaryParcelas,
+      PARCELAS_JSON: JSON.stringify(primaryParcelas)
     };
     setPrintClient(cData);
 
@@ -1759,8 +2092,13 @@ const OSManagement = ({
         || targetClient;
 
       const pacName = o.pacienteNome || o.raw?.["PACIENTE"] || o.raw?.["NOME_BENEFICIARIO"] || o.raw?.["nomePessoa"] || "";
+      const orderParcelas = extractOrderInstallments(o);
+      const respName = o.responsavelNome || o.raw?.["RESPONSAVEL_NOME"] || o.raw?.["RESPONSAVEL_LEGAL"] || orderTargetClient?.["Responsável Legal"] || orderTargetClient?.["RESPONSAVEL_LEGAL"] || primaryRespName;
+      const respCpf = o.responsavelCpf || o.raw?.["RESPONSAVEL_CPF"] || orderTargetClient?.["Responsável CPF"] || orderTargetClient?.["RESPONSAVEL_CPF"] || primaryRespCpf;
+
       return {
         ...o.raw,
+        raw: o.raw,
         clientData: orderTargetClient,
         numeroOS: o.osNumber,
         selectedCity: o.unit,
@@ -1769,47 +2107,69 @@ const OSManagement = ({
         PACIENTE: pacName,
         nomePessoa: pacName,
         NOME_BENEFICIARIO: pacName,
+        beneficiario: pacName,
+        responsavelNome: respName,
+        responsavelCpf: respCpf,
         medico: o.medico || o.raw?.["MEDICO"] || "",
-      lente: o.lente || o.raw?.["LENTE"] || o.product,
-      armacao: o.armacao || o.raw?.["ARMAÇÃO"] || "",
-      itens: o.itens || o.raw?.itens || orderTargetClient?.itens || [],
-      detalhes: o.detalhes || o.raw?.["DETALHES"] || o.raw?.["detalhes"] || o.raw?.["DETALHE DO PRODUTO"] || orderTargetClient?.["DETALHES"] || "",
-      cor: o.cor || o.raw?.["COR"] || o.raw?.["Cor"] || orderTargetClient?.["Cor"] || "",
-      tratamento: o.tratamento || o.raw?.["TRATAMENTO"] || o.raw?.["Tratamento"] || orderTargetClient?.["Tratamento"] || "",
-      material: o.material || o.raw?.["MATERIAL"] || o.raw?.["Material"] || orderTargetClient?.["MATERIAL"] || "",
-      referenciaSku: o.referenciaSku || o.raw?.["REFERENCIA_SKU"] || o.raw?.["CODIGO"] || orderTargetClient?.["REFERENCIA_SKU"] || "",
-      valorArmacao: o.valorArmacao || o.raw?.["VALOR ARMAÇÃO"] || o.raw?.["VALOR_ARMACAO"] || "",
-      valorLente: o.valorLente || o.raw?.["VALOR LENTE"] || o.raw?.["VALOR_LENTE"] || "",
-      valorTotal: o.valorTotal,
-      valorEntrada: o.raw?.["VALOR ENTRADA"] || "0,00",
-      restante: o.raw?.["RESTANTE"] || "0,00",
-      FORMA_ENTRADA: o.formaEntrada || o.raw?.["FORMA_ENTRADA"] || primary.formaEntrada || "",
-      formaPagamentoEntrada: o.formaEntrada || o.raw?.["formaPagamentoEntrada"] || primary.formaEntrada || "",
-      FORMA_RESTANTE: o.formaRestante || o.raw?.["FORMA_RESTANTE"] || primary.formaRestante || "",
-      formaPagamentoRestante: o.formaRestante || o.raw?.["formaPagamentoRestante"] || primary.formaRestante || "",
-      dataVenda: o.dtVenda || o.raw?.["DATA  DA VENDA"] || o.raw?.["DATA DA VENDA"] || o.raw?.["DATA"] || "",
-      dataEntrega: o.dtEntrega,
-      formasPagamento: cleanPaymentMethodForOS(o.raw?.["FORMAS_PAGAMENTO"] || o.raw?.["MEIO_PAGAMENTO"] || o.formasPagamento || ""),
-      parcelas: [],
-      PARCELAS_JSON: "[]",
-      observacoes: o.raw?.["OBSERVACOES"] || o.obsEntrega || "",
-      odEsf: o.odEsf || o.raw?.["OD_ESF"] || "",
-      odCil: o.odCil || o.raw?.["OD_CIL"] || "",
-      odEixo: o.odEixo || o.raw?.["OD_EIXO"] || "",
-      odDnp: o.odDnp || o.raw?.["OD_DNP"] || "",
-      odAlt: o.odAlt || o.raw?.["OD_ALT"] || "",
-      oeEsf: o.oeEsf || o.raw?.["OE_ESF"] || "",
-      oeCil: o.oeCil || o.raw?.["OE_CIL"] || "",
-      oeEixo: o.oeEixo || o.raw?.["OE_EIXO"] || "",
-      oeDnp: o.oeDnp || o.raw?.["OE_DNP"] || "",
-      oeAlt: o.oeAlt || o.raw?.["OE_ALT"] || "",
-      adicao: o.adicao || o.raw?.["ADICAO"] || "",
-      osIndex: o.osIndex || (idx + 1),
-      totalOS: ordersToPrint.length,
-      isMultiOS: true,
-      clientData: cData
-    };
-  });
+        lente: o.lente || o.raw?.["LENTE"] || o.product,
+        armacao: o.armacao || o.raw?.["ARMAÇÃO"] || "",
+        itens: o.itens || o.raw?.itens || orderTargetClient?.itens || [],
+        detalhes: o.detalhes || o.raw?.["DETALHES"] || o.raw?.["detalhes"] || o.raw?.["DETALHE DO PRODUTO"] || orderTargetClient?.["DETALHES"] || "",
+        cor: o.cor || o.raw?.["COR"] || o.raw?.["Cor"] || orderTargetClient?.["Cor"] || "",
+        tratamento: o.tratamento || o.raw?.["TRATAMENTO"] || o.raw?.["Tratamento"] || orderTargetClient?.["Tratamento"] || "",
+        material: o.material || o.raw?.["MATERIAL"] || o.raw?.["Material"] || orderTargetClient?.["MATERIAL"] || "",
+        referenciaSku: o.referenciaSku || o.raw?.["REFERENCIA_SKU"] || o.raw?.["CODIGO"] || orderTargetClient?.["REFERENCIA_SKU"] || "",
+        valorArmacao: o.valorArmacao || o.raw?.["VALOR ARMAÇÃO"] || o.raw?.["VALOR_ARMACAO"] || "",
+        valorLente: o.valorLente || o.raw?.["VALOR LENTE"] || o.raw?.["VALOR_LENTE"] || "",
+        valorTotal: o.valorTotal,
+        valorEntrada: o.raw?.["VALOR ENTRADA"] || "0,00",
+        restante: o.raw?.["RESTANTE"] || "0,00",
+        FORMA_ENTRADA: o.formaEntrada || o.raw?.["FORMA_ENTRADA"] || primary.formaEntrada || "",
+        formaPagamentoEntrada: o.formaEntrada || o.raw?.["formaPagamentoEntrada"] || primary.formaEntrada || "",
+        FORMA_RESTANTE: o.formaRestante || o.raw?.["FORMA_RESTANTE"] || primary.formaRestante || "",
+        formaPagamentoRestante: o.formaRestante || o.raw?.["formaPagamentoRestante"] || primary.formaRestante || "",
+        dataVenda: o.dtVenda || o.raw?.["DATA  DA VENDA"] || o.raw?.["DATA DA VENDA"] || o.raw?.["DATA"] || "",
+        dataEntrega: o.dtEntrega,
+        formasPagamento: cleanPaymentMethodForOS(o.raw?.["FORMAS_PAGAMENTO"] || o.raw?.["MEIO_PAGAMENTO"] || o.formasPagamento || ""),
+        parcelas: orderParcelas,
+        PARCELAS_JSON: JSON.stringify(orderParcelas),
+        observacoes: o.raw?.["OBSERVACOES"] || o.obsEntrega || "",
+        odEsf: o.odEsf || o.raw?.["OD_ESF"] || "",
+        odCil: o.odCil || o.raw?.["OD_CIL"] || "",
+        odEixo: o.odEixo || o.raw?.["OD_EIXO"] || "",
+        odDnp: o.odDnp || o.raw?.["OD_DNP"] || "",
+        odAlt: o.odAlt || o.raw?.["OD_ALT"] || "",
+        oeEsf: o.oeEsf || o.raw?.["OE_ESF"] || "",
+        oeCil: o.oeCil || o.raw?.["OE_CIL"] || "",
+        oeEixo: o.oeEixo || o.raw?.["OE_EIXO"] || "",
+        oeDnp: o.oeDnp || o.raw?.["OE_DNP"] || "",
+        oeAlt: o.oeAlt || o.raw?.["OE_ALT"] || "",
+        odPertoEsf: o.odPertoEsf || o.raw?.["OD_PERTO_ESF"] || "",
+        odPertoCil: o.odPertoCil || o.raw?.["OD_PERTO_CIL"] || "",
+        odPertoEixo: o.odPertoEixo || o.raw?.["OD_PERTO_EIXO"] || "",
+        odPertoDnp: o.odPertoDnp || o.raw?.["OD_PERTO_DNP"] || "",
+        odPertoAlt: o.odPertoAlt || o.raw?.["OD_PERTO_ALT"] || "",
+        oePertoEsf: o.oePertoEsf || o.raw?.["OE_PERTO_ESF"] || "",
+        oePertoCil: o.oePertoCil || o.raw?.["OE_PERTO_CIL"] || "",
+        oePertoEixo: o.oePertoEixo || o.raw?.["OE_PERTO_EIXO"] || "",
+        oePertoDnp: o.oePertoDnp || o.raw?.["OE_PERTO_DNP"] || "",
+        oePertoAlt: o.oePertoAlt || o.raw?.["OE_PERTO_ALT"] || "",
+        odDp: o.odDp || o.raw?.["OD_DP"] || "",
+        odOpa: o.odOpa || o.raw?.["OD_OPA"] || "",
+        oeDp: o.oeDp || o.raw?.["OE_DP"] || "",
+        oeOpa: o.oeOpa || o.raw?.["OE_OPA"] || "",
+        adicao: o.adicao || o.raw?.["ADICAO"] || "",
+        ponteAro: o.raw?.["PONTE_ARO"] || o.ponteAro || "",
+        diagonalMaior: o.raw?.["DIAGONAL_MAIOR"] || o.diagonalMaior || "",
+        alturaVertical: o.raw?.["ALTURA_VERTICAL"] || o.alturaVertical || "",
+        ponte: o.raw?.["PONTE"] || o.ponte || "",
+        aro: o.raw?.["ARO"] || o.aro || "",
+        osIndex: o.osIndex || (idx + 1),
+        totalOS: ordersToPrint.length,
+        isMultiOS: true,
+        clientData: cData
+      };
+    });
 
     setOsDataForPrint({
       ...mappedMulti[0],
@@ -1830,53 +2190,134 @@ const OSManagement = ({
     setPrintClient(null);
 
     const primary = ordersToPrint[0];
+    const targetClient = (clientsData || []).find(c => isSameClient(c, primary.raw || {}))
+      || (clientsData || []).find(c => {
+        const cpfOrder = String(primary.raw?.["CPF / CNPJ"] || primary.raw?.["CPF"] || primary.clientCPF || "").replace(/\D/g, "");
+        const cpfC = String(c["CPF / CNPJ"] || c["CPF"] || "").replace(/\D/g, "");
+        return cpfOrder && cpfC && cpfOrder === cpfC;
+      })
+      || (clientsData || []).find(c => {
+        const n1 = String(c["Nome Completo"] || c["NOME"] || "").trim().toLowerCase();
+        const n2 = String(primary.clientName || primary.raw?.["CLIENTE"] || "").trim().toLowerCase();
+        return n1 && n2 && n1 === n2;
+      })
+      || primary.clientData
+      || primary.matchedClient
+      || {};
+
+    const primaryRespName = primary.responsavelNome || primary.raw?.["RESPONSAVEL_NOME"] || primary.raw?.["RESPONSAVEL_LEGAL"] || targetClient["Responsável Legal"] || targetClient["RESPONSAVEL_LEGAL"] || "";
+    const primaryRespCpf = primary.responsavelCpf || primary.raw?.["RESPONSAVEL_CPF"] || targetClient["Responsável CPF"] || targetClient["RESPONSAVEL_CPF"] || "";
+
     const cData = {
       ...primary.raw,
       ...(primary.clientData || {}),
-      "Nome Completo": primary.clientName || primary.raw?.['CLIENTE'] || primary.raw?.['NOME'],
-      "WhatsApp": primary.clientPhone || primary.raw?.['TELEFONE'],
-      "Cidade": primary.clientCity || primary.unit
+      ...(targetClient || {}),
+      "Nome Completo": primary.clientName || targetClient["Nome Completo"] || targetClient["NOME"] || primary.raw?.['CLIENTE'] || primary.raw?.['NOME'],
+      "WhatsApp": primary.clientPhone || targetClient["WhatsApp"] || targetClient["TELEFONE"] || primary.raw?.['TELEFONE'],
+      "Cidade": primary.clientCity || targetClient["Cidade"] || targetClient["CIDADE"] || primary.unit,
+      responsavelNome: primaryRespName,
+      responsavelCpf: primaryRespCpf,
+      "Responsável Legal": primaryRespName,
+      "Responsável CPF": primaryRespCpf,
+      "RESPONSAVEL_NOME": primaryRespName,
+      "RESPONSAVEL_CPF": primaryRespCpf
     };
     setPrintLabClient(cData);
 
-    const mappedMulti = ordersToPrint.map((o, idx) => ({
-      raw: o.raw,
-      numeroOS: o.osNumber,
-      selectedCity: o.unit,
-      unidade: o.unit,
-      laboratorio: o.laboratorio || o.raw?.["LABORATORIO"] || "",
-      medico: o.medico || o.raw?.["MEDICO"] || "",
-      lente: o.lente || o.raw?.["LENTE"] || o.product,
-      armacao: o.armacao || o.raw?.["ARMAÇÃO"] || "",
-      itens: o.itens || o.raw?.itens || orderTargetClient?.itens || [],
-      detalhes: o.detalhes || o.raw?.["DETALHES"] || o.raw?.["detalhes"] || o.raw?.["DETALHE DO PRODUTO"] || orderTargetClient?.["DETALHES"] || "",
-      cor: o.cor || o.raw?.["COR"] || o.raw?.["Cor"] || orderTargetClient?.["Cor"] || "",
-      tratamento: o.tratamento || o.raw?.["TRATAMENTO"] || o.raw?.["Tratamento"] || orderTargetClient?.["Tratamento"] || "",
-      material: o.material || o.raw?.["MATERIAL"] || o.raw?.["Material"] || orderTargetClient?.["MATERIAL"] || "",
-      referenciaSku: o.referenciaSku || o.raw?.["REFERENCIA_SKU"] || o.raw?.["CODIGO"] || orderTargetClient?.["REFERENCIA_SKU"] || "",
-      valorArmacao: o.valorArmacao || o.raw?.["VALOR ARMAÇÃO"] || o.raw?.["VALOR_ARMACAO"] || "",
-      valorLente: o.valorLente || o.raw?.["VALOR LENTE"] || o.raw?.["VALOR_LENTE"] || "",
-      valorTotal: o.valorTotal,
-      valorEntrada: o.raw?.["VALOR ENTRADA"] || "0,00",
-      restante: o.raw?.["RESTANTE"] || "0,00",
-      dataEntrega: o.dtEntrega,
-      formasPagamento: cleanBoletoDisplay(o.raw?.["FORMAS_PAGAMENTO"] || o.raw?.["MEIO_PAGAMENTO"] || ""),
-      observacoes: o.raw?.["OBSERVACOES"] || o.obsEntrega || "",
-      odEsf: o.odEsf || o.raw?.["OD_ESF"] || "",
-      odCil: o.odCil || o.raw?.["OD_CIL"] || "",
-      odEixo: o.odEixo || o.raw?.["OD_EIXO"] || "",
-      odDnp: o.odDnp || o.raw?.["OD_DNP"] || "",
-      odAlt: o.odAlt || o.raw?.["OD_ALT"] || "",
-      oeEsf: o.oeEsf || o.raw?.["OE_ESF"] || "",
-      oeCil: o.oeCil || o.raw?.["OE_CIL"] || "",
-      oeEixo: o.oeEixo || o.raw?.["OE_EIXO"] || "",
-      oeDnp: o.oeDnp || o.raw?.["OE_DNP"] || "",
-      oeAlt: o.oeAlt || o.raw?.["OE_ALT"] || "",
-      adicao: o.adicao || o.raw?.["ADICAO"] || "",
-      osIndex: o.osIndex || (idx + 1),
-      totalOS: ordersToPrint.length,
-      isMultiOS: true
-    }));
+    const mappedMulti = ordersToPrint.map((o, idx) => {
+      const orderTargetClient = (clientsData || []).find(c => isSameClient(c, o.raw || {}))
+        || (clientsData || []).find(c => {
+          const cpfOrder = String(o.raw?.["CPF / CNPJ"] || o.raw?.["CPF"] || o.clientCPF || "").replace(/\D/g, "");
+          const cpfC = String(c["CPF / CNPJ"] || c["CPF"] || "").replace(/\D/g, "");
+          return cpfOrder && cpfC && cpfOrder === cpfC;
+        })
+        || (clientsData || []).find(c => {
+          const n1 = String(c["Nome Completo"] || c["NOME"] || "").trim().toLowerCase();
+          const n2 = String(o.clientName || o.raw?.["CLIENTE"] || "").trim().toLowerCase();
+          return n1 && n2 && n1 === n2;
+        })
+        || o.clientData
+        || o.matchedClient
+        || targetClient;
+
+      const pacName = o.pacienteNome || o.raw?.["PACIENTE"] || o.raw?.["NOME_BENEFICIARIO"] || o.raw?.["nomePessoa"] || "";
+      const respName = o.responsavelNome || o.raw?.["RESPONSAVEL_NOME"] || o.raw?.["RESPONSAVEL_LEGAL"] || orderTargetClient?.["Responsável Legal"] || orderTargetClient?.["RESPONSAVEL_LEGAL"] || primaryRespName;
+      const respCpf = o.responsavelCpf || o.raw?.["RESPONSAVEL_CPF"] || orderTargetClient?.["Responsável CPF"] || orderTargetClient?.["RESPONSAVEL_CPF"] || primaryRespCpf;
+
+      const pAro = o.raw?.["PONTE_ARO"] || o.ponteAro || "";
+      const dMaior = o.raw?.["DIAGONAL_MAIOR"] || o.diagonalMaior || "";
+      const aVert = o.raw?.["ALTURA_VERTICAL"] || o.alturaVertical || "";
+      const pte = o.raw?.["PONTE"] || o.ponte || "";
+      const ar = o.raw?.["ARO"] || o.aro || "";
+
+      return {
+        ...o.raw,
+        raw: o.raw,
+        numeroOS: o.osNumber,
+        selectedCity: o.unit,
+        unidade: o.unit,
+        pacienteNome: pacName,
+        PACIENTE: pacName,
+        nomePessoa: pacName,
+        NOME_BENEFICIARIO: pacName,
+        beneficiario: pacName,
+        responsavelNome: respName,
+        responsavelCpf: respCpf,
+        laboratorio: o.laboratorio || o.raw?.["LABORATORIO"] || "",
+        medico: o.medico || o.raw?.["MEDICO"] || "",
+        lente: o.lente || o.raw?.["LENTE"] || o.product,
+        armacao: o.armacao || o.raw?.["ARMAÇÃO"] || "",
+        itens: o.itens || o.raw?.itens || orderTargetClient?.itens || [],
+        detalhes: o.detalhes || o.raw?.["DETALHES"] || o.raw?.["detalhes"] || o.raw?.["DETALHE DO PRODUTO"] || orderTargetClient?.["DETALHES"] || "",
+        cor: o.cor || o.raw?.["COR"] || o.raw?.["Cor"] || orderTargetClient?.["Cor"] || "",
+        tratamento: o.tratamento || o.raw?.["TRATAMENTO"] || o.raw?.["Tratamento"] || orderTargetClient?.["Tratamento"] || "",
+        material: o.material || o.raw?.["MATERIAL"] || o.raw?.["Material"] || orderTargetClient?.["MATERIAL"] || "",
+        referenciaSku: o.referenciaSku || o.raw?.["REFERENCIA_SKU"] || o.raw?.["CODIGO"] || orderTargetClient?.["REFERENCIA_SKU"] || "",
+        valorArmacao: o.valorArmacao || o.raw?.["VALOR ARMAÇÃO"] || o.raw?.["VALOR_ARMACAO"] || "",
+        valorLente: o.valorLente || o.raw?.["VALOR LENTE"] || o.raw?.["VALOR_LENTE"] || "",
+        valorTotal: o.valorTotal,
+        valorEntrada: o.raw?.["VALOR ENTRADA"] || "0,00",
+        restante: o.raw?.["RESTANTE"] || "0,00",
+        dataEntrega: o.dtEntrega,
+        formasPagamento: cleanBoletoDisplay(o.raw?.["FORMAS_PAGAMENTO"] || o.raw?.["MEIO_PAGAMENTO"] || ""),
+        observacoes: o.raw?.["OBSERVACOES"] || o.obsEntrega || "",
+        odEsf: o.odEsf || o.raw?.["OD_ESF"] || "",
+        odCil: o.odCil || o.raw?.["OD_CIL"] || "",
+        odEixo: o.odEixo || o.raw?.["OD_EIXO"] || "",
+        odDnp: o.odDnp || o.raw?.["OD_DNP"] || "",
+        odAlt: o.odAlt || o.raw?.["OD_ALT"] || "",
+        oeEsf: o.oeEsf || o.raw?.["OE_ESF"] || "",
+        oeCil: o.oeCil || o.raw?.["OE_CIL"] || "",
+        oeEixo: o.oeEixo || o.raw?.["OE_EIXO"] || "",
+        oeDnp: o.oeDnp || o.raw?.["OE_DNP"] || "",
+        oeAlt: o.oeAlt || o.raw?.["OE_ALT"] || "",
+        odPertoEsf: o.odPertoEsf || o.raw?.["OD_PERTO_ESF"] || "",
+        odPertoCil: o.odPertoCil || o.raw?.["OD_PERTO_CIL"] || "",
+        odPertoEixo: o.odPertoEixo || o.raw?.["OD_PERTO_EIXO"] || "",
+        odPertoDnp: o.odPertoDnp || o.raw?.["OD_PERTO_DNP"] || "",
+        odPertoAlt: o.odPertoAlt || o.raw?.["OD_PERTO_ALT"] || "",
+        oePertoEsf: o.oePertoEsf || o.raw?.["OE_PERTO_ESF"] || "",
+        oePertoCil: o.oePertoCil || o.raw?.["OE_PERTO_CIL"] || "",
+        oePertoEixo: o.oePertoEixo || o.raw?.["OE_PERTO_EIXO"] || "",
+        oePertoDnp: o.oePertoDnp || o.raw?.["OE_PERTO_DNP"] || "",
+        oePertoAlt: o.oePertoAlt || o.raw?.["OE_PERTO_ALT"] || "",
+        adicao: o.adicao || o.raw?.["ADICAO"] || "",
+        ponteAro: pAro,
+        diagonalMaior: dMaior,
+        alturaVertical: aVert,
+        ponte: pte,
+        aro: ar,
+        PONTE_ARO: pAro,
+        DIAGONAL_MAIOR: dMaior,
+        ALTURA_VERTICAL: aVert,
+        PONTE: pte,
+        ARO: ar,
+        osIndex: o.osIndex || (idx + 1),
+        totalOS: ordersToPrint.length,
+        isMultiOS: true,
+        clientData: orderTargetClient
+      };
+    });
 
     setOsDataForLabPrint({
       ...mappedMulti[0],
@@ -1893,40 +2334,135 @@ const OSManagement = ({
     const linked = getLinkedOrdersForSale(order);
     const ordersToPrint = linked.length > 0 ? linked : [order];
     const clientMatch = clientsData.find(c => isSameClient(c, {
-      'Nome Completo': order.clientName,
-      'WhatsApp': order.clientPhone,
-      'CPF / CNPJ': order.clientCPF
+      'Nome Completo': order.clientName || order.raw?.["CLIENTE"],
+      'WhatsApp': order.clientPhone || order.raw?.["TELEFONE"],
+      'CPF / CNPJ': order.clientCPF || order.raw?.["CPF"] || order.raw?.["CPF / CNPJ"]
     })) || {};
 
-    const multiItems = ordersToPrint.map((o, idx) => ({
-      ...clientMatch,
-      ...o.raw,
-      numeroOS: o.osNumber,
-      osNumber: o.osNumber,
-      clientName: o.clientName,
-      armacao: o.armacao,
-      lente: o.lente,
-      unidade: o.unit,
-      dtEntrega: formatDate(o.dtEntrega),
-      odEsf: o.odEsf || o.raw?.OD_ESF || o.raw?.odEsf || clientMatch?.['OD_ESF'] || '',
-      odCil: o.odCil || o.raw?.OD_CIL || o.raw?.odCil || clientMatch?.['OD_CIL'] || '',
-      odEixo: o.odEixo || o.raw?.OD_EIXO || o.raw?.odEixo || clientMatch?.['OD_EIXO'] || '',
-      odDnp: o.odDnp || o.raw?.OD_DNP || o.raw?.odDnp || clientMatch?.['OD_DNP'] || '',
-      odAlt: o.odAlt || o.raw?.OD_ALT || o.raw?.odAlt || clientMatch?.['OD_ALT'] || '',
-      oeEsf: o.oeEsf || o.raw?.OE_ESF || o.raw?.oeEsf || clientMatch?.['OE_ESF'] || '',
-      oeCil: o.oeCil || o.raw?.OE_CIL || o.raw?.oeCil || clientMatch?.['OE_CIL'] || '',
-      oeEixo: o.oeEixo || o.raw?.OE_EIXO || o.raw?.oeEixo || clientMatch?.['OE_EIXO'] || '',
-      oeDnp: o.oeDnp || o.raw?.OE_DNP || o.raw?.oeDnp || clientMatch?.['OE_DNP'] || '',
-      oeAlt: o.oeAlt || o.raw?.OE_ALT || o.raw?.oeAlt || clientMatch?.['OE_ALT'] || '',
-      adicao: o.adicao || o.raw?.ADICAO || o.raw?.adicao || clientMatch?.['ADICAO'] || '',
-      osIndex: o.osIndex || (idx + 1),
-      totalOS: ordersToPrint.length
-    }));
+    const multiItems = ordersToPrint.map((o, idx) => {
+      const oClient = clientsData.find(c => isSameClient(c, {
+        'Nome Completo': o.clientName || o.raw?.["CLIENTE"],
+        'WhatsApp': o.clientPhone || o.raw?.["TELEFONE"],
+        'CPF / CNPJ': o.clientCPF || o.raw?.["CPF"] || o.raw?.["CPF / CNPJ"]
+      })) || clientMatch;
+
+      return {
+        ...oClient,
+        ...o.raw,
+        numeroOS: o.osNumber,
+        osNumber: o.osNumber,
+        clientName: o.clientName || o.raw?.["CLIENTE"] || oClient?.["Nome Completo"] || "",
+        pacienteNome: o.pacienteNome || o.raw?.["PACIENTE"] || o.raw?.["NOME_BENEFICIARIO"] || o.raw?.["nomePessoa"] || "",
+        PACIENTE: o.pacienteNome || o.raw?.["PACIENTE"] || o.raw?.["NOME_BENEFICIARIO"] || o.raw?.["nomePessoa"] || "",
+        laboratorio: o.laboratorio || o.raw?.["LABORATORIO"] || "",
+        armacao: o.armacao || o.raw?.["ARMAÇÃO"] || "",
+        lente: o.lente || o.raw?.["LENTE"] || o.product || "",
+        unidade: o.unit || o.raw?.["UNIDADE"] || "",
+        dtEntrega: formatDate(o.dtEntrega || o.raw?.["PREVISAO_ENTREGA"] || o.raw?.["DATA_ENTREGA"] || o.raw?.["Previsão Entrega"]),
+        dataEntrega: formatDate(o.dtEntrega || o.raw?.["PREVISAO_ENTREGA"] || o.raw?.["DATA_ENTREGA"] || o.raw?.["Previsão Entrega"]),
+        PREVISAO_ENTREGA: formatDate(o.dtEntrega || o.raw?.["PREVISAO_ENTREGA"] || o.raw?.["DATA_ENTREGA"] || o.raw?.["Previsão Entrega"]),
+        odEsf: o.odEsf || o.raw?.OD_ESF || o.raw?.odEsf || oClient?.['OD_ESF'] || '',
+        odCil: o.odCil || o.raw?.OD_CIL || o.raw?.odCil || oClient?.['OD_CIL'] || '',
+        odEixo: o.odEixo || o.raw?.OD_EIXO || o.raw?.odEixo || oClient?.['OD_EIXO'] || '',
+        odDnp: o.odDnp || o.raw?.OD_DNP || o.raw?.odDnp || oClient?.['OD_DNP'] || '',
+        odAlt: o.odAlt || o.raw?.OD_ALT || o.raw?.odAlt || oClient?.['OD_ALT'] || '',
+        oeEsf: o.oeEsf || o.raw?.OE_ESF || o.raw?.oeEsf || oClient?.['OE_ESF'] || '',
+        oeCil: o.oeCil || o.raw?.OE_CIL || o.raw?.oeCil || oClient?.['OE_CIL'] || '',
+        oeEixo: o.oeEixo || o.raw?.OE_EIXO || o.raw?.oeEixo || oClient?.['OE_EIXO'] || '',
+        oeDnp: o.oeDnp || o.raw?.OE_DNP || o.raw?.oeDnp || oClient?.['OE_DNP'] || '',
+        oeAlt: o.oeAlt || o.raw?.OE_ALT || o.raw?.oeAlt || oClient?.['OE_ALT'] || '',
+        adicao: o.adicao || o.raw?.ADICAO || o.raw?.adicao || oClient?.['ADICAO'] || '',
+        osIndex: o.osIndex || (idx + 1),
+        totalOS: ordersToPrint.length
+      };
+    });
 
     setLabelModalData({
       ...multiItems[0],
       multiItems
     });
+  };
+
+  // Impressão de Comprovante de Pagamento / Venda ao Consumidor
+  const handlePrintReceipt = (order) => {
+    setOsDataForPrint(null);
+    setPrintClient(null);
+    setOsDataForLabPrint(null);
+    setPrintLabClient(null);
+
+    const targetClient = (clientsData || []).find(c => isSameClient(c, order.raw || {}))
+      || (clientsData || []).find(c => {
+        const cpfOrder = String(order.raw?.["CPF / CNPJ"] || order.raw?.["CPF"] || order.clientCPF || "").replace(/\D/g, "");
+        const cpfC = String(c["CPF / CNPJ"] || c["CPF"] || "").replace(/\D/g, "");
+        return cpfOrder && cpfC && cpfOrder === cpfC;
+      })
+      || (clientsData || []).find(c => {
+        const n1 = String(c["Nome Completo"] || c["NOME"] || "").trim().toLowerCase();
+        const n2 = String(order.clientName || order.raw?.["CLIENTE"] || "").trim().toLowerCase();
+        return n1 && n2 && n1 === n2;
+      })
+      || order.clientData
+      || order.matchedClient
+      || {};
+
+    const orderParcelas = extractOrderInstallments(order);
+    const respName = order.responsavelNome || targetClient["Responsável Nome"] || targetClient["Responsável"] || targetClient["RESPONSAVEL_NOME"] || targetClient["RESPONSAVEL"] || order.raw?.["RESPONSAVEL_NOME"] || order.raw?.["RESPONSAVEL"] || order.raw?.["responsavelNome"] || "";
+    const respCpf = order.responsavelCpf || targetClient["Responsável CPF"] || targetClient["RESPONSAVEL_CPF"] || order.raw?.["RESPONSAVEL_CPF"] || order.raw?.["responsavelCpf"] || "";
+    const pacName = order.pacienteNome || order.raw?.["PACIENTE"] || order.raw?.["NOME_BENEFICIARIO"] || order.raw?.["nomePessoa"] || "";
+
+    let orderItens = [];
+    try {
+      if (Array.isArray(order.itens)) orderItens = order.itens;
+      else if (Array.isArray(order.raw?.itens)) orderItens = order.raw.itens;
+      else if (order.raw?.ITENS_JSON) {
+        orderItens = typeof order.raw.ITENS_JSON === 'string' ? JSON.parse(order.raw.ITENS_JSON) : order.raw.ITENS_JSON;
+      } else if (targetClient?.itens) {
+        orderItens = targetClient.itens;
+      }
+    } catch (_) {
+      orderItens = [];
+    }
+
+    const receiptPayload = {
+      ...order.raw,
+      numeroOS: order.osNumber,
+      'OS DA VENDA': order.osNumber,
+      OS: order.osNumber,
+      VENDA_OS: order.osNumber,
+      CLIENTE: order.clientName || targetClient["Nome Completo"] || order.raw?.["CLIENTE"],
+      clientName: order.clientName || targetClient["Nome Completo"],
+      CPF: order.clientCPF || targetClient["CPF / CNPJ"] || targetClient["CPF"],
+      clientCPF: order.clientCPF || targetClient["CPF / CNPJ"] || targetClient["CPF"],
+      TELEFONE: order.clientPhone || targetClient["WhatsApp"] || targetClient["TELEFONE"],
+      cidade: order.unit,
+      CIDADE: order.unit,
+      vendedor: order.raw?.["VENDEDOR"] || order.vendedor || currentUser?.username || 'Yasmin Ótica',
+      VENDEDOR: order.raw?.["VENDEDOR"] || order.vendedor || currentUser?.username || 'Yasmin Ótica',
+      valorTotal: order.valorTotal || order.raw?.["VALOR TOTAL"] || '0,00',
+      valorEntrada: order.raw?.["VALOR ENTRADA"] || '0,00',
+      restante: order.raw?.["RESTANTE"] || '0,00',
+      formaPagamento: order.raw?.["FORMAS_PAGAMENTO"] || order.formasPagamento || '',
+      FORMAS_PAGAMENTO: order.raw?.["FORMAS_PAGAMENTO"] || order.formasPagamento || '',
+      pacienteNome: pacName,
+      PACIENTE: pacName,
+      responsavelNome: respName,
+      responsavelCpf: respCpf,
+      RESPONSAVEL_NOME: respName,
+      RESPONSAVEL_CPF: respCpf,
+      'Responsável Nome': respName,
+      'Responsável CPF': respCpf,
+      parcelas: orderParcelas,
+      PARCELAS_JSON: JSON.stringify(orderParcelas),
+      itens: orderItens,
+      ITENS_JSON: order.raw?.ITENS_JSON || JSON.stringify(orderItens),
+      produto: order.product || order.raw?.["PRODUTO"] || 'Óculos Completo',
+      clientData: targetClient
+    };
+
+    setReceiptPrintData(receiptPayload);
+    setTimeout(() => {
+      window.print();
+    }, 350);
   };
 
   return (
@@ -2602,6 +3138,15 @@ const OSManagement = ({
                         >
                           <Printer size={15} />
                           <span className="hidden sm:inline">Imprimir OS</span>
+                        </button>
+
+                        <button
+                          onClick={() => handlePrintReceipt(order)}
+                          className="p-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl transition-colors border border-emerald-500/20 flex items-center gap-1 text-xs font-bold"
+                          title="Imprimir Comprovante / Recibo da Venda ao Consumidor"
+                        >
+                          <Receipt size={15} />
+                          <span className="hidden sm:inline">Recibo</span>
                         </button>
 
                         <button
@@ -3519,6 +4064,14 @@ const OSManagement = ({
                                 title="Imprimir Ordem de Serviço"
                               >
                                 <Printer size={15} />
+                              </button>
+
+                              <button
+                                onClick={() => handlePrintReceipt(order)}
+                                className="p-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl transition-colors border border-emerald-500/20"
+                                title="Imprimir Comprovante / Recibo da Venda ao Consumidor"
+                              >
+                                <Receipt size={15} />
                               </button>
 
                               <button
@@ -4824,6 +5377,9 @@ const OSManagement = ({
       )}
       {osDataForLabPrint && printLabClient && (
         <PrintableLabOS clientData={printLabClient} osData={osDataForLabPrint} />
+      )}
+      {receiptPrintData && (
+        <PrintableReceipt saleData={receiptPrintData} clientData={receiptPrintData?.clientData || {}} />
       )}
 
       {/* Modal de Confirmação de Exclusão de OS com Opção de Dívida */}

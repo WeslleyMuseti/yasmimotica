@@ -244,6 +244,11 @@ const EditOSModal = ({
     tratamento: '',
     referenciaSku: '',
     detalhes: '',
+    ponteAro: '',
+    diagonalMaior: '',
+    alturaVertical: '',
+    ponte: '',
+    aro: '',
     boletoTitularTipo: 'cliente',
     boletoTitularType: 'cliente',
     boletoPagadorNome: '',
@@ -286,9 +291,12 @@ const EditOSModal = ({
         osData['BOLETO_PAGADOR_NOME'] ||
         osData['boletoPagadorNome'] ||
         osData['Responsável Nome'] ||
-        osData['Responsável'] ||
+        osData['Responsável Legal'] ||
+        osData['RESPONSAVEL_LEGAL'] ||
         osData['RESPONSAVEL_NOME'] ||
+        osData['Responsável'] ||
         osData['RESPONSAVEL'] ||
+        osData['responsavelNome'] ||
         ''
       ).trim();
       const respC = String(
@@ -296,6 +304,7 @@ const EditOSModal = ({
         osData['boletoPagadorCpf'] ||
         osData['Responsável CPF'] ||
         osData['RESPONSAVEL_CPF'] ||
+        osData['responsavelCpf'] ||
         ''
       ).trim();
       const initialTitular = osData['BOLETO_TITULAR_TIPO'] || osData['boletoTitularTipo'] || osData['TITULAR_BOLETO'] || (respN ? 'responsavel' : 'cliente');
@@ -353,7 +362,13 @@ const EditOSModal = ({
         oePertoDnp: osData['OE_PERTO_DNP'] || osData['oePertoDnp'] || '',
         oePertoAlt: osData['OE_PERTO_ALT'] || osData['oePertoAlt'] || '',
         // Adição
-        adicao: osData['ADICAO'] || osData['adicao'] || osData['ADIÇÃO'] || ''
+        adicao: osData['ADICAO'] || osData['adicao'] || osData['ADIÇÃO'] || '',
+        // Medidas da Armação (Laboratório)
+        ponteAro: osData['PONTE_ARO'] || osData['ponteAro'] || '',
+        diagonalMaior: osData['DIAGONAL_MAIOR'] || osData['diagonalMaior'] || '',
+        alturaVertical: osData['ALTURA_VERTICAL'] || osData['alturaVertical'] || '',
+        ponte: osData['PONTE'] || osData['ponte'] || '',
+        aro: osData['ARO'] || osData['aro'] || ''
       });
 
       // Inicializa pagamentos a partir dos dados existentes da OS
@@ -556,17 +571,34 @@ const EditOSModal = ({
       ? osData.allLinkedOS.map(num => String(num).trim().toLowerCase() === oldOSNumber.toLowerCase() ? finalNumeroOS : num)
       : [finalNumeroOS];
 
-    const isRespTitular = (formData.boletoTitularType === 'responsavel' || formData.boletoTitularTipo === 'responsavel') && Boolean(
+    const effectiveRespName = String(
       formData.customRespName ||
       formData.boletoPagadorNome ||
+      osData?.['RESPONSAVEL_NOME'] ||
+      osData?.['RESPONSAVEL_LEGAL'] ||
       osData?.['Responsável Nome'] ||
-      osData?.['Responsável']
-    );
+      osData?.['Responsável Legal'] ||
+      osData?.['Responsável'] ||
+      osData?.['RESPONSAVEL'] ||
+      osData?.responsavelNome ||
+      ''
+    ).trim();
+
+    const effectiveRespCpf = String(
+      formData.customRespCpf ||
+      formData.boletoPagadorCpf ||
+      osData?.['RESPONSAVEL_CPF'] ||
+      osData?.['Responsável CPF'] ||
+      osData?.responsavelCpf ||
+      ''
+    ).trim();
+
+    const isRespTitular = (formData.boletoTitularType === 'responsavel' || formData.boletoTitularTipo === 'responsavel') && Boolean(effectiveRespName);
     const titularPagadorName = isRespTitular
-      ? (formData.customRespName || formData.boletoPagadorNome || osData?.['Responsável Nome'] || osData?.['Responsável'] || 'Responsável')
+      ? effectiveRespName
       : (osData?.['CLIENTE'] || 'Cliente');
     const titularPagadorCpf = isRespTitular
-      ? (formData.customRespCpf || formData.boletoPagadorCpf || osData?.['Responsável CPF'] || '')
+      ? effectiveRespCpf
       : (osData?.['CPF'] || '');
 
     if (isSecondary) {
@@ -621,6 +653,24 @@ const EditOSModal = ({
         'boletoPagadorCpf': titularPagadorCpf,
         'TITULAR_BOLETO': isRespTitular ? 'Responsável' : 'Cliente',
         'titularBoleto': isRespTitular ? 'Responsável' : 'Cliente',
+        'RESPONSAVEL_NOME': effectiveRespName,
+        'RESPONSAVEL_CPF': effectiveRespCpf,
+        'RESPONSAVEL_LEGAL': effectiveRespName,
+        'Responsável Nome': effectiveRespName,
+        'Responsável CPF': effectiveRespCpf,
+        'Responsável Legal': effectiveRespName,
+        'responsavelNome': effectiveRespName,
+        'responsavelCpf': effectiveRespCpf,
+        'PONTE_ARO': formData.ponteAro || osData['PONTE_ARO'] || osData['ponteAro'] || '',
+        'DIAGONAL_MAIOR': formData.diagonalMaior || osData['DIAGONAL_MAIOR'] || osData['diagonalMaior'] || '',
+        'ALTURA_VERTICAL': formData.alturaVertical || osData['ALTURA_VERTICAL'] || osData['alturaVertical'] || '',
+        'PONTE': formData.ponte || osData['PONTE'] || osData['ponte'] || '',
+        'ARO': formData.aro || osData['ARO'] || osData['aro'] || '',
+        'ponteAro': formData.ponteAro || osData['PONTE_ARO'] || osData['ponteAro'] || '',
+        'diagonalMaior': formData.diagonalMaior || osData['DIAGONAL_MAIOR'] || osData['diagonalMaior'] || '',
+        'alturaVertical': formData.alturaVertical || osData['ALTURA_VERTICAL'] || osData['alturaVertical'] || '',
+        'ponte': formData.ponte || osData['PONTE'] || osData['ponte'] || '',
+        'aro': formData.aro || osData['ARO'] || osData['aro'] || '',
         'LABORATORIO': formData.laboratorio,
         'MEDICO': formData.medico,
         'DATA  DA VENDA': secNormDate.brDate,
@@ -782,6 +832,24 @@ const EditOSModal = ({
       'boletoPagadorCpf': titularPagadorCpf,
       'TITULAR_BOLETO': isRespTitular ? 'Responsável' : 'Cliente',
       'titularBoleto': isRespTitular ? 'Responsável' : 'Cliente',
+      'RESPONSAVEL_NOME': effectiveRespName,
+      'RESPONSAVEL_CPF': effectiveRespCpf,
+      'RESPONSAVEL_LEGAL': effectiveRespName,
+      'Responsável Nome': effectiveRespName,
+      'Responsável CPF': effectiveRespCpf,
+      'Responsável Legal': effectiveRespName,
+      'responsavelNome': effectiveRespName,
+      'responsavelCpf': effectiveRespCpf,
+      'PONTE_ARO': formData.ponteAro || osData['PONTE_ARO'] || osData['ponteAro'] || '',
+      'DIAGONAL_MAIOR': formData.diagonalMaior || osData['DIAGONAL_MAIOR'] || osData['diagonalMaior'] || '',
+      'ALTURA_VERTICAL': formData.alturaVertical || osData['ALTURA_VERTICAL'] || osData['alturaVertical'] || '',
+      'PONTE': formData.ponte || osData['PONTE'] || osData['ponte'] || '',
+      'ARO': formData.aro || osData['ARO'] || osData['aro'] || '',
+      'ponteAro': formData.ponteAro || osData['PONTE_ARO'] || osData['ponteAro'] || '',
+      'diagonalMaior': formData.diagonalMaior || osData['DIAGONAL_MAIOR'] || osData['diagonalMaior'] || '',
+      'alturaVertical': formData.alturaVertical || osData['ALTURA_VERTICAL'] || osData['alturaVertical'] || '',
+      'ponte': formData.ponte || osData['PONTE'] || osData['ponte'] || '',
+      'aro': formData.aro || osData['ARO'] || osData['aro'] || '',
       'LABORATORIO': formData.laboratorio,
       'MEDICO': formData.medico,
       'DATA  DA VENDA': normDate.brDate,
@@ -1456,6 +1524,66 @@ const EditOSModal = ({
                     </div>
                   </div>
 
+                </div>
+
+                {/* ─── 3. MEDIDAS DA ARMAÇÃO (LABORATÓRIO) ─── */}
+                <div className="bg-slate-950/70 p-4 rounded-2xl border border-sky-500/25 space-y-3">
+                  <h4 className="text-xs font-black uppercase tracking-widest text-sky-300 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-sky-400" />
+                    3. Medidas Técnicas da Armação (Laboratório)
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-3">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Ponte + Aro</label>
+                      <input
+                        type="text"
+                        value={formData.ponteAro || ''}
+                        onChange={e => handleChange('ponteAro', e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-sky-500"
+                        placeholder="Ex: 17-54"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Diagonal Maior (mm)</label>
+                      <input
+                        type="text"
+                        value={formData.diagonalMaior || ''}
+                        onChange={e => handleChange('diagonalMaior', e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-sky-500"
+                        placeholder="Ex: 55"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Altura Vertical (mm)</label>
+                      <input
+                        type="text"
+                        value={formData.alturaVertical || ''}
+                        onChange={e => handleChange('alturaVertical', e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-sky-500"
+                        placeholder="Ex: 38"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Ponte (mm)</label>
+                      <input
+                        type="text"
+                        value={formData.ponte || ''}
+                        onChange={e => handleChange('ponte', e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-sky-500"
+                        placeholder="Ex: 17"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Aro (mm)</label>
+                      <input
+                        type="text"
+                        value={formData.aro || ''}
+                        onChange={e => handleChange('aro', e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono text-center focus:outline-none focus:border-sky-500"
+                        placeholder="Ex: 54"
+                      />
+                    </div>
+                  </div>
                 </div>
 
               </div>

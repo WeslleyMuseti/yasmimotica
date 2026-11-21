@@ -1176,19 +1176,27 @@ function App() {
     const delKey = getItemKey(rowToDelete);
     addDeletedKey(delKey);
 
+    const isSalesSheet = ['Registro_Vendas', 'BD MARKETING', 'VENDAS'].includes(sheetName);
+
     // 1. Atualiza imediatamente o estado local em memória e IndexedDB
     setData(prev => {
-      if (!prev || !prev[sheetName]) return prev;
-      const nextData = {
-        ...prev,
-        [sheetName]: prev[sheetName].filter(r => {
+      if (!prev) return prev;
+      const targetSheets = isSalesSheet 
+        ? ['Registro_Vendas', 'BD MARKETING', 'VENDAS'].filter(s => Array.isArray(prev[s]))
+        : (prev[sheetName] ? [sheetName] : []);
+
+      if (targetSheets.length === 0) return prev;
+
+      const nextData = { ...prev };
+      targetSheets.forEach(s => {
+        nextData[s] = prev[s].filter(r => {
           if (r === rowToDelete) return false;
           if (rowToDelete.id && r.id && r.id === rowToDelete.id) return false;
           const rKey = getItemKey(r);
           return rKey !== delKey;
-        })
-      };
-      saveCollectionToIndexedDb(sheetName, nextData[sheetName]).catch(() => {});
+        });
+        saveCollectionToIndexedDb(s, nextData[s]).catch(() => {});
+      });
       saveMasterCache(nextData).catch(() => {});
       return nextData;
     });
@@ -1197,6 +1205,12 @@ function App() {
     if (isConfigured && rowToDelete.id) {
       try {
         await deleteDocument(sheetName, rowToDelete.id);
+        if (isSalesSheet) {
+          const otherSales = ['Registro_Vendas', 'BD MARKETING'].filter(s => s !== sheetName);
+          for (const s of otherSales) {
+            await deleteDocument(s, rowToDelete.id).catch(() => {});
+          }
+        }
       } catch (err) {
         console.warn("Erro ao deletar no Firestore:", err);
       }

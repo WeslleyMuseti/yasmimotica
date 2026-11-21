@@ -23,6 +23,7 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
     operador = 'Yasmin Ótica',
     clienteNome = 'Cliente',
     responsavelNome = '',
+    responsavelCpf = '',
     clienteCpf = '',
     clienteTelefone = '',
     clienteEndereco = '',
@@ -165,6 +166,12 @@ const PrintableReparcelamentoReceipt = ({ receiptData }) => {
             <span className="text-[10px] font-semibold text-slate-500 block">CPF / CNPJ:</span>
             <span className="font-mono font-bold text-slate-800">{clienteCpf || 'Não informado'}</span>
           </div>
+          {responsavelCpf && (
+            <div>
+              <span className="text-[10px] font-semibold text-slate-500 block">CPF do Responsável:</span>
+              <span className="font-mono font-bold text-slate-800">{responsavelCpf}</span>
+            </div>
+          )}
           {clienteEndereco && (
             <div className="col-span-2 sm:col-span-3">
               <span className="text-[10px] font-semibold text-slate-500 block">Endereço Residencial:</span>

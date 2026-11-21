@@ -71,6 +71,38 @@ const PrintableReceipt = ({ saleData, clientData }) => {
     return [];
   })();
 
+  const effectiveItens = (() => {
+    let items = saleData.itens;
+    if (typeof items === 'string' && items.trim().startsWith('[')) {
+      try { items = JSON.parse(items); } catch (_) { items = []; }
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      const rawItens = saleData.ITENS_JSON || saleData['ITENS_JSON'] || saleData.itens_json || saleData.raw?.ITENS_JSON;
+      if (typeof rawItens === 'string' && rawItens.trim().startsWith('[')) {
+        try { items = JSON.parse(rawItens); } catch (_) { items = []; }
+      } else if (Array.isArray(rawItens)) {
+        items = rawItens;
+      }
+    }
+    return Array.isArray(items) ? items : [];
+  })();
+
+  const effectiveParcelas = (() => {
+    let p = saleData.parcelas;
+    if (typeof p === 'string' && p.trim().startsWith('[')) {
+      try { p = JSON.parse(p); } catch (_) { p = []; }
+    }
+    if (!Array.isArray(p) || p.length === 0) {
+      const pJson = saleData.PARCELAS_JSON || saleData['PARCELAS_JSON'] || saleData.raw?.PARCELAS_JSON;
+      if (typeof pJson === 'string' && pJson.trim().startsWith('[')) {
+        try { p = JSON.parse(pJson); } catch (_) { p = []; }
+      } else if (Array.isArray(pJson)) {
+        p = pJson;
+      }
+    }
+    return Array.isArray(p) ? p : [];
+  })();
+
   const fallbackFormaPagamento = (
     saleData.formaPagamento ||
     saleData.FORMAS_PAGAMENTO ||
@@ -127,31 +159,73 @@ const PrintableReceipt = ({ saleData, clientData }) => {
           </div>
 
           {/* Dados do Cliente */}
-          <div className="border-b border-black pb-3 mb-3 text-[11px]">
-            <p><strong>Cliente:</strong> {safeClient['Nome Completo'] || safeClient['NOME'] || safeClient['Cliente'] || 'Cliente não identificado'}</p>
-            {(safeClient['Responsável Nome'] || safeClient['responsavelNome']) && (
-              <p><strong>Responsável Legal:</strong> {safeClient['Responsável Nome'] || safeClient['responsavelNome']}</p>
-            )}
-            {(safeClient['Responsável CPF'] || safeClient['CPF / CNPJ'] || safeClient['CPF']) && (
-              <p><strong>CPF:</strong> {safeClient['Responsável CPF'] || safeClient['CPF / CNPJ'] || safeClient['CPF']}</p>
-            )}
-            {safeClient['WhatsApp'] && (
-              <p><strong>WhatsApp:</strong> {safeClient['WhatsApp']}</p>
-            )}
-            {saleData.cidade && (
-              <p><strong>Unidade / Loja:</strong> {saleData.cidade}</p>
-            )}
-            {saleData.vendedor && (
-              <p><strong>Atendente:</strong> {saleData.vendedor}</p>
-            )}
-          </div>
+          {(() => {
+            const clientName = safeClient['Nome Completo'] || safeClient['NOME'] || safeClient['Cliente'] || saleData['CLIENTE'] || saleData.clientName || 'Cliente não identificado';
+            const clientCpf = safeClient['CPF / CNPJ'] || safeClient['CPF'] || saleData['CPF'] || saleData.clientCPF || '';
+            const respName = String(
+              safeClient['Responsável Nome'] ||
+              safeClient['Responsável Legal'] ||
+              safeClient['RESPONSAVEL_LEGAL'] ||
+              safeClient['RESPONSAVEL_NOME'] ||
+              safeClient['responsavelNome'] ||
+              saleData['RESPONSAVEL_NOME'] ||
+              saleData['RESPONSAVEL_LEGAL'] ||
+              saleData['Responsável Nome'] ||
+              saleData.responsavelNome ||
+              ''
+            ).trim();
+            const respCpf = String(
+              safeClient['Responsável CPF'] ||
+              safeClient['RESPONSAVEL_CPF'] ||
+              safeClient['responsavelCpf'] ||
+              saleData['RESPONSAVEL_CPF'] ||
+              saleData['Responsável CPF'] ||
+              saleData.responsavelCpf ||
+              ''
+            ).trim();
+            const pacName = String(
+              saleData.pacienteNome ||
+              saleData.PACIENTE ||
+              saleData.NOME_BENEFICIARIO ||
+              saleData.nomePessoa ||
+              safeClient.pacienteNome ||
+              safeClient.PACIENTE ||
+              ''
+            ).trim();
+            const phone = safeClient['WhatsApp'] || safeClient['TELEFONE'] || saleData.TELEFONE || '';
+
+            return (
+              <div className="border-b border-black pb-3 mb-3 text-[11px] space-y-0.5">
+                <p><strong>Cliente:</strong> {clientName}</p>
+                {clientCpf && <p><strong>CPF do Cliente:</strong> {clientCpf}</p>}
+                {pacName && pacName.toLowerCase() !== clientName.toLowerCase() && (
+                  <p><strong>Paciente / Beneficiário:</strong> {pacName}</p>
+                )}
+                {respName && (
+                  <p><strong>Responsável Legal:</strong> {respName}</p>
+                )}
+                {respCpf && (
+                  <p><strong>CPF do Responsável:</strong> {respCpf}</p>
+                )}
+                {phone && (
+                  <p><strong>WhatsApp:</strong> {phone}</p>
+                )}
+                {(saleData.cidade || saleData.CIDADE) && (
+                  <p><strong>Unidade / Loja:</strong> {saleData.cidade || saleData.CIDADE}</p>
+                )}
+                {(saleData.vendedor || saleData.VENDEDOR) && (
+                  <p><strong>Atendente:</strong> {saleData.vendedor || saleData.VENDEDOR}</p>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Itens Comprados */}
           <div className="border-b border-black pb-3 mb-3">
             <p className="font-bold uppercase text-[11px] mb-2">Itens da Compra:</p>
             <div className="space-y-1.5 text-[11px]">
-              {saleData.itens && saleData.itens.length > 0 ? (
-                saleData.itens.map((item, idx) => (
+              {effectiveItens && effectiveItens.length > 0 ? (
+                effectiveItens.map((item, idx) => (
                   <div key={idx} className="flex justify-between items-start">
                     <div className="flex-1 pr-2">
                       <p className="font-bold">{item.qtd || 1}x {item.nome || item.descricao}</p>
@@ -231,7 +305,7 @@ const PrintableReceipt = ({ saleData, clientData }) => {
           </div>
 
           {/* Parcelamento Boleto se houver */}
-          {saleData.parcelas && saleData.parcelas.length > 0 && (
+          {effectiveParcelas && effectiveParcelas.length > 0 && (
             <div className="border-b border-black pb-3 mb-3 text-[10px]">
               <div className="flex justify-between items-center mb-1 flex-wrap">
                 <p className="font-bold uppercase">Parcelamento no Boleto:</p>
@@ -245,7 +319,7 @@ const PrintableReceipt = ({ saleData, clientData }) => {
                 )}
               </div>
               <div className="grid grid-cols-2 gap-1">
-                {saleData.parcelas.map((parc, idx) => (
+                {effectiveParcelas.map((parc, idx) => (
                   <div key={idx} className="flex justify-between pr-2">
                     <span>{parc.numero}ª {parc.vencimento}:</span>
                     <span>{fmtMoeda(parc.valor)}</span>

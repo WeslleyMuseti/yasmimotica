@@ -569,6 +569,11 @@ const OSGeneratorModal = ({
     odPertoEsf: '', odPertoCil: '', odPertoEixo: '', odPertoDnp: '', odPertoAlt: '', odPertoDp: '', odPertoOpa: '',
     oePertoEsf: '', oePertoCil: '', oePertoEixo: '', oePertoDnp: '', oePertoAlt: '', oePertoDp: '', oePertoOpa: '',
     adicao: '',
+    ponteAro: '',
+    diagonalMaior: '',
+    alturaVertical: '',
+    ponte: '',
+    aro: '',
     valorTotal: '',
     valorEntrada: '',
     restante: '',
@@ -808,6 +813,11 @@ const OSGeneratorModal = ({
           oePertoAlt: i === 0 ? (clientData['OE_PERTO_ALT'] || clientData['oePertoAlt'] || '') : '',
           oePertoDp: '', oePertoOpa: '',
           adicao: i === 0 ? (clientData['ADICAO'] || clientData['adicao'] || '') : '',
+          ponteAro: i === 0 ? (clientData['PONTE_ARO'] || clientData['ponteAro'] || '') : '',
+          diagonalMaior: i === 0 ? (clientData['DIAGONAL_MAIOR'] || clientData['diagonalMaior'] || '') : '',
+          alturaVertical: i === 0 ? (clientData['ALTURA_VERTICAL'] || clientData['alturaVertical'] || '') : '',
+          ponte: i === 0 ? (clientData['PONTE'] || clientData['ponte'] || '') : '',
+          aro: i === 0 ? (clientData['ARO'] || clientData['aro'] || '') : '',
           observacoes: i === 0 ? (clientData['observacoes'] || clientData['OBSERVACOES'] || '') : '',
           selectedCity: targetCity,
           unidade: targetCity,
@@ -868,6 +878,11 @@ const OSGeneratorModal = ({
         oePertoDnp: clientData['OE_PERTO_DNP'] || clientData['oePertoDnp'] || '',
         oePertoAlt: clientData['OE_PERTO_ALT'] || clientData['oePertoAlt'] || '',
         adicao: clientData['ADICAO'] || clientData['adicao'] || '',
+        ponteAro: clientData['PONTE_ARO'] || clientData['ponteAro'] || '',
+        diagonalMaior: clientData['DIAGONAL_MAIOR'] || clientData['diagonalMaior'] || '',
+        alturaVertical: clientData['ALTURA_VERTICAL'] || clientData['alturaVertical'] || '',
+        ponte: clientData['PONTE'] || clientData['ponte'] || '',
+        aro: clientData['ARO'] || clientData['aro'] || '',
         valorTotal: effectiveTotal,
         valorEntrada: vEntrada,
         restante: effectiveRestante,
@@ -1032,6 +1047,11 @@ const OSGeneratorModal = ({
         oePertoDp: source.oePertoDp,
         oePertoOpa: source.oePertoOpa,
         adicao: source.adicao,
+        ponteAro: source.ponteAro,
+        diagonalMaior: source.diagonalMaior,
+        alturaVertical: source.alturaVertical,
+        ponte: source.ponte,
+        aro: source.aro,
         laboratorio: source.laboratorio || os.laboratorio
       };
     }));
@@ -1414,12 +1434,37 @@ const OSGeneratorModal = ({
       if (!allow) return;
     }
 
-    const isRespTitular = boletoTitularType === 'responsavel' && Boolean(customRespName || safeClient['Responsável Nome'] || safeClient['Responsável']);
+    const effectiveRespName = String(
+      customRespName ||
+      safeClient['Responsável Nome'] ||
+      safeClient['Responsável Legal'] ||
+      safeClient['RESPONSAVEL_LEGAL'] ||
+      safeClient['RESPONSAVEL_NOME'] ||
+      safeClient['Responsável'] ||
+      safeClient['RESPONSAVEL'] ||
+      safeClient['responsavelNome'] ||
+      saleData?.['RESPONSAVEL_NOME'] ||
+      saleData?.['RESPONSAVEL_LEGAL'] ||
+      saleData?.['Responsável Nome'] ||
+      ''
+    ).trim();
+
+    const effectiveRespCpf = String(
+      customRespCpf ||
+      safeClient['Responsável CPF'] ||
+      safeClient['RESPONSAVEL_CPF'] ||
+      safeClient['responsavelCpf'] ||
+      saleData?.['RESPONSAVEL_CPF'] ||
+      saleData?.['Responsável CPF'] ||
+      ''
+    ).trim();
+
+    const isRespTitular = boletoTitularType === 'responsavel' && Boolean(effectiveRespName);
     const titularPagadorName = isRespTitular
-      ? (customRespName || safeClient['Responsável Nome'] || safeClient['Responsável'] || 'Responsável')
+      ? effectiveRespName
       : (safeClient['Nome Completo'] || safeClient['CLIENTE'] || 'Cliente');
     const titularPagadorCpf = isRespTitular
-      ? (customRespCpf || safeClient['Responsável CPF'] || safeClient['RESPONSAVEL_CPF'] || '')
+      ? (effectiveRespCpf || safeClient['CPF / CNPJ'] || safeClient['CPF'] || '')
       : (safeClient['CPF / CNPJ'] || safeClient['CPF'] || '');
 
     if (osList.length <= 1) {
@@ -1452,6 +1497,24 @@ const OSGeneratorModal = ({
         PACIENTE: finalNomePessoa,
         NOME_BENEFICIARIO: finalNomePessoa,
         CLIENTE_BENEFICIARIO: finalNomePessoa,
+        RESPONSAVEL_LEGAL: effectiveRespName,
+        RESPONSAVEL_NOME: effectiveRespName,
+        'Responsável Nome': effectiveRespName,
+        'Responsável Legal': effectiveRespName,
+        responsavelNome: effectiveRespName,
+        RESPONSAVEL_CPF: effectiveRespCpf,
+        'Responsável CPF': effectiveRespCpf,
+        responsavelCpf: effectiveRespCpf,
+        PONTE_ARO: activeOS.ponteAro || activeOS.PONTE_ARO || formData.ponteAro || '',
+        DIAGONAL_MAIOR: activeOS.diagonalMaior || activeOS.DIAGONAL_MAIOR || formData.diagonalMaior || '',
+        ALTURA_VERTICAL: activeOS.alturaVertical || activeOS.ALTURA_VERTICAL || formData.alturaVertical || '',
+        PONTE: activeOS.ponte || activeOS.PONTE || formData.ponte || '',
+        ARO: activeOS.aro || activeOS.ARO || formData.aro || '',
+        ponteAro: activeOS.ponteAro || activeOS.PONTE_ARO || formData.ponteAro || '',
+        diagonalMaior: activeOS.diagonalMaior || activeOS.DIAGONAL_MAIOR || formData.diagonalMaior || '',
+        alturaVertical: activeOS.alturaVertical || activeOS.ALTURA_VERTICAL || formData.alturaVertical || '',
+        ponte: activeOS.ponte || activeOS.PONTE || formData.ponte || '',
+        aro: activeOS.aro || activeOS.ARO || formData.aro || '',
         RESPONSAVEL_LEGAL_INADIMPLENTE: !!responsavelDebtCheck?.isInadimplente,
         RESPONSAVEL_LEGAL_DEBITO: responsavelDebtCheck?.totalAberto || 0,
         dataVenda: finalDataVendaBr,
@@ -1520,6 +1583,14 @@ const OSGeneratorModal = ({
         descontoVoucher: formData.descontoVoucher || safeClient['DESCONTO_VOUCHER'] || safeClient['descontoVoucher'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || '',
         VOUCHER: formData.voucher || safeClient['VOUCHER'] || safeClient['voucher'] || saleData?.['VOUCHER'] || saleData?.voucher || '',
         DESCONTO_VOUCHER: formData.descontoVoucher || safeClient['DESCONTO_VOUCHER'] || safeClient['descontoVoucher'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || '',
+        RESPONSAVEL_LEGAL: effectiveRespName,
+        RESPONSAVEL_NOME: effectiveRespName,
+        'Responsável Nome': effectiveRespName,
+        'Responsável Legal': effectiveRespName,
+        responsavelNome: effectiveRespName,
+        RESPONSAVEL_CPF: effectiveRespCpf,
+        'Responsável CPF': effectiveRespCpf,
+        responsavelCpf: effectiveRespCpf,
         RESPONSAVEL_LEGAL_INADIMPLENTE: !!responsavelDebtCheck?.isInadimplente,
         RESPONSAVEL_LEGAL_DEBITO: responsavelDebtCheck?.totalAberto || 0,
         boletoTitularTipo: boletoTitularType,
@@ -1560,6 +1631,24 @@ const OSGeneratorModal = ({
             PACIENTE: finalBeneficiario,
             NOME_BENEFICIARIO: finalBeneficiario,
             CLIENTE_BENEFICIARIO: finalBeneficiario,
+            RESPONSAVEL_LEGAL: effectiveRespName,
+            RESPONSAVEL_NOME: effectiveRespName,
+            'Responsável Nome': effectiveRespName,
+            'Responsável Legal': effectiveRespName,
+            responsavelNome: effectiveRespName,
+            RESPONSAVEL_CPF: effectiveRespCpf,
+            'Responsável CPF': effectiveRespCpf,
+            responsavelCpf: effectiveRespCpf,
+            PONTE_ARO: item.ponteAro || item.PONTE_ARO || formData.ponteAro || '',
+            DIAGONAL_MAIOR: item.diagonalMaior || item.DIAGONAL_MAIOR || formData.diagonalMaior || '',
+            ALTURA_VERTICAL: item.alturaVertical || item.ALTURA_VERTICAL || formData.alturaVertical || '',
+            PONTE: item.ponte || item.PONTE || formData.ponte || '',
+            ARO: item.aro || item.ARO || formData.aro || '',
+            ponteAro: item.ponteAro || item.PONTE_ARO || formData.ponteAro || '',
+            diagonalMaior: item.diagonalMaior || item.DIAGONAL_MAIOR || formData.diagonalMaior || '',
+            alturaVertical: item.alturaVertical || item.ALTURA_VERTICAL || formData.alturaVertical || '',
+            ponte: item.ponte || item.PONTE || formData.ponte || '',
+            aro: item.aro || item.ARO || formData.aro || '',
             RESPONSAVEL_LEGAL_INADIMPLENTE: !!responsavelDebtCheck?.isInadimplente,
             RESPONSAVEL_LEGAL_DEBITO: responsavelDebtCheck?.totalAberto || 0,
             dataVenda: itemDataVendaBr,
@@ -2268,6 +2357,70 @@ const OSGeneratorModal = ({
                   placeholder="Observações do produto, especificações da armação ou lente, garantias..."
                   className="w-full bg-slate-900/80 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-fuchsia-500"
                 />
+              </div>
+
+              {/* Medidas da Armação para Montagem no Laboratório */}
+              <div className="pt-3 border-t border-white/5 space-y-2">
+                <span className="text-[10px] uppercase text-sky-400 font-black tracking-wider block">
+                  Medidas Técnicas da Armação (Laboratório)
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase text-slate-400 font-bold tracking-wider">Ponte + Aro</label>
+                    <input
+                      type="text"
+                      name="ponteAro"
+                      value={currentOS.ponteAro || ''}
+                      onChange={e => handleCurrentOSChange('ponteAro', e.target.value)}
+                      placeholder="Ex: 17-54"
+                      className="w-full bg-slate-900/80 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white text-center font-mono focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase text-slate-400 font-bold tracking-wider">Diagonal Maior</label>
+                    <input
+                      type="text"
+                      name="diagonalMaior"
+                      value={currentOS.diagonalMaior || ''}
+                      onChange={e => handleCurrentOSChange('diagonalMaior', e.target.value)}
+                      placeholder="Ex: 55"
+                      className="w-full bg-slate-900/80 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white text-center font-mono focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase text-slate-400 font-bold tracking-wider">Altura Vertical</label>
+                    <input
+                      type="text"
+                      name="alturaVertical"
+                      value={currentOS.alturaVertical || ''}
+                      onChange={e => handleCurrentOSChange('alturaVertical', e.target.value)}
+                      placeholder="Ex: 38"
+                      className="w-full bg-slate-900/80 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white text-center font-mono focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase text-slate-400 font-bold tracking-wider">Ponte (mm)</label>
+                    <input
+                      type="text"
+                      name="ponte"
+                      value={currentOS.ponte || ''}
+                      onChange={e => handleCurrentOSChange('ponte', e.target.value)}
+                      placeholder="Ex: 17"
+                      className="w-full bg-slate-900/80 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white text-center font-mono focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase text-slate-400 font-bold tracking-wider">Aro (mm)</label>
+                    <input
+                      type="text"
+                      name="aro"
+                      value={currentOS.aro || ''}
+                      onChange={e => handleCurrentOSChange('aro', e.target.value)}
+                      placeholder="Ex: 54"
+                      className="w-full bg-slate-900/80 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white text-center font-mono focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
