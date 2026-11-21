@@ -156,6 +156,17 @@ const PrintableReceipt = ({ saleData, clientData }) => {
                     <div className="flex-1 pr-2">
                       <p className="font-bold">{item.qtd || 1}x {item.nome || item.descricao}</p>
                       {item.detalhes && <p className="text-[10px] text-gray-600">{item.detalhes}</p>}
+                      {(() => {
+                        const extraSpecs = [
+                          (item.referenciaSku && !String(item.detalhes || '').includes(String(item.referenciaSku))) ? `Ref: ${item.referenciaSku}` : '',
+                          (item.cor && !String(item.detalhes || '').toLowerCase().includes(String(item.cor).toLowerCase())) ? `Cor: ${item.cor}` : '',
+                          (item.material && !String(item.detalhes || '').toLowerCase().includes(String(item.material).toLowerCase())) ? `Material: ${item.material}` : '',
+                          (item.tratamento && !String(item.detalhes || '').toLowerCase().includes(String(item.tratamento).toLowerCase())) ? `Trat: ${item.tratamento}` : ''
+                        ].filter(Boolean).join(' | ');
+                        return extraSpecs ? (
+                          <p className="text-[9.5px] text-gray-600 italic">{extraSpecs}</p>
+                        ) : null;
+                      })()}
                     </div>
                     <p className="font-bold shrink-0">{fmtMoeda((item.preco || 0) * (item.qtd || 1))}</p>
                   </div>
@@ -222,7 +233,17 @@ const PrintableReceipt = ({ saleData, clientData }) => {
           {/* Parcelamento Boleto se houver */}
           {saleData.parcelas && saleData.parcelas.length > 0 && (
             <div className="border-b border-black pb-3 mb-3 text-[10px]">
-              <p className="font-bold uppercase mb-1">Parcelamento no Boleto:</p>
+              <div className="flex justify-between items-center mb-1 flex-wrap">
+                <p className="font-bold uppercase">Parcelamento no Boleto:</p>
+                {(saleData.boletoTitularTipo || saleData.BOLETO_TITULAR_TIPO) && (
+                  <span className="font-bold text-[9px] uppercase">
+                    Titular: {(saleData.boletoTitularTipo || saleData.BOLETO_TITULAR_TIPO) === 'responsavel'
+                      ? `Responsável (${saleData.boletoPagadorNome || saleData.BOLETO_PAGADOR_NOME || 'Responsável'})`
+                      : `Cliente (${saleData.boletoPagadorNome || saleData.BOLETO_PAGADOR_NOME || saleData.CLIENTE || 'Cliente'})`
+                    }
+                  </span>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-1">
                 {saleData.parcelas.map((parc, idx) => (
                   <div key={idx} className="flex justify-between pr-2">

@@ -5,7 +5,7 @@ import {
   Trash2, MapPin, ArrowLeft, ArrowUpDown, ChevronRight, ShieldAlert,
   Sparkles, CheckCircle2, AlertCircle, ShoppingBag, Phone, X, Check, PackageCheck, Tag,
   Glasses, ChevronDown, ChevronUp, LayoutGrid, Table as TableIcon, CreditCard, DollarSign,
-  ShieldCheck, XCircle, FileText, Receipt, FlaskConical, Layers, Link, Edit2
+  ShieldCheck, XCircle, FileText, Receipt, FlaskConical, Layers, Link, Edit2, Users
 } from "lucide-react";
 import PrintableOS from "./PrintableOS";
 import PrintableLabOS from "./PrintableLabOS";
@@ -429,25 +429,61 @@ const OSManagement = ({
     const oldOSNum = String(editingOrder.osNumber || rawSale['OS DA VENDA'] || rawSale['OS'] || rawSale['VENDA_OS'] || '').trim();
     const newOSNum = String(finalizedRow['OS DA VENDA'] || finalizedRow['OS'] || finalizedRow.numeroOS || '').trim();
     const receberList = data?.['CONTAS_RECEBER'] || [];
+    const isOSRenamed = Boolean(oldOSNum && newOSNum && oldOSNum !== '—' && oldOSNum.toLowerCase() !== newOSNum.toLowerCase());
 
-    // Se o número da OS foi alterado, propaga o novo número para todas as duplicatas existentes para não perder a dívida real
-    if (oldOSNum && newOSNum && oldOSNum !== '—' && oldOSNum.toLowerCase() !== newOSNum.toLowerCase() && Array.isArray(receberList) && onUpdateRow) {
-      const targetOS = oldOSNum.toLowerCase();
-      const linkedInvoices = receberList.filter(inv => isMatchingOS(inv, targetOS));
+    const isRespTitular = (
+      finalizedRow.BOLETO_TITULAR_TIPO === 'responsavel' ||
+      finalizedRow.boletoTitularTipo === 'responsavel' ||
+      finalizedRow.TITULAR_BOLETO === 'Responsável'
+    ) && Boolean(
+      finalizedRow.BOLETO_PAGADOR_NOME ||
+      finalizedRow.boletoPagadorNome ||
+      finalizedRow['Responsável Nome'] ||
+      finalizedRow['Responsável']
+    );
+
+    const titularPagadorName = isRespTitular
+      ? (finalizedRow.BOLETO_PAGADOR_NOME || finalizedRow.boletoPagadorNome || finalizedRow['Responsável Nome'] || finalizedRow['Responsável'] || 'Responsável')
+      : (finalizedRow.CLIENTE || rawSale.CLIENTE || 'Cliente');
+
+    const titularPagadorCpf = isRespTitular
+      ? (finalizedRow.BOLETO_PAGADOR_CPF || finalizedRow.boletoPagadorCpf || finalizedRow['Responsável CPF'] || '')
+      : (finalizedRow.CPF || rawSale.CPF || '');
+
+    // Sincroniza número da OS, pagador e titular no Contas a Receber
+    if (Array.isArray(receberList) && onUpdateRow && (oldOSNum || newOSNum)) {
+      const linkedInvoices = receberList.filter(inv =>
+        (oldOSNum && isMatchingOS(inv, oldOSNum.toLowerCase())) ||
+        (newOSNum && isMatchingOS(inv, newOSNum.toLowerCase()))
+      );
+
       for (const inv of linkedInvoices) {
         try {
           const updatedInv = {
             ...inv,
-            OS: newOSNum,
-            'OS DA VENDA': newOSNum,
-            VENDA_OS: newOSNum,
-            osNumero: newOSNum,
-            DESCRICAO: String(inv.DESCRICAO || '').replace(new RegExp(oldOSNum, 'gi'), newOSNum),
-            DOCUMENTO: String(inv.DOCUMENTO || '').replace(new RegExp(oldOSNum, 'gi'), newOSNum)
+            ...(isOSRenamed ? {
+              OS: newOSNum,
+              'OS DA VENDA': newOSNum,
+              VENDA_OS: newOSNum,
+              osNumero: newOSNum,
+              DESCRICAO: String(inv.DESCRICAO || '').replace(new RegExp(oldOSNum, 'gi'), newOSNum),
+              DOCUMENTO: String(inv.DOCUMENTO || '').replace(new RegExp(oldOSNum, 'gi'), newOSNum)
+            } : {}),
+            CLIENTE: titularPagadorName,
+            'NOME CLIENTE': titularPagadorName,
+            NOME: titularPagadorName,
+            PAGADOR: titularPagadorName,
+            PAGADOR_NOME: titularPagadorName,
+            PAGADOR_CPF: titularPagadorCpf,
+            CLIENTE_CPF: titularPagadorCpf,
+            CPF: titularPagadorCpf,
+            PAGADOR_TIPO: isRespTitular ? 'Responsável' : 'Cliente',
+            TITULAR_PARCELA: titularPagadorName,
+            TITULAR_TIPO: isRespTitular ? 'responsavel' : 'cliente'
           };
           await onUpdateRow('CONTAS_RECEBER', inv, updatedInv);
         } catch (updateErr) {
-          console.warn('Aviso ao sincronizar novo número de OS no Contas a Receber:', updateErr);
+          console.warn('Aviso ao sincronizar duplicata no Contas a Receber:', updateErr);
         }
       }
     }
@@ -803,7 +839,13 @@ const OSManagement = ({
         material: sale["MATERIAL"] || sale["Material"] || matchedClient?.["MATERIAL"] || "",
         referenciaSku: sale["REFERENCIA_SKU"] || sale["referenciaSku"] || sale["CODIGO"] || matchedClient?.["REFERENCIA_SKU"] || "",
         valorArmacao: sale["VALOR ARMAÇÃO"] || sale["VALOR_ARMACAO"] || sale["valorArmacao"] || matchedClient?.["VALOR ARMAÇÃO"] || "",
-        valorLente: sale["VALOR LENTE"] || sale["VALOR_LENTE"] || sale["valorLente"] || matchedClient?.["VALOR LENTE"] || ""
+        valorLente: sale["VALOR LENTE"] || sale["VALOR_LENTE"] || sale["valorLente"] || matchedClient?.["VALOR LENTE"] || "",
+        boletoTitularTipo: sale["BOLETO_TITULAR_TIPO"] || sale["boletoTitularTipo"] || sale["TITULAR_BOLETO"] || matchedClient?.["BOLETO_TITULAR_TIPO"] || "cliente",
+        boletoPagadorNome: sale["BOLETO_PAGADOR_NOME"] || sale["boletoPagadorNome"] || sale["PAGADOR_BOLETO"] || "",
+        boletoPagadorCpf: sale["BOLETO_PAGADOR_CPF"] || sale["boletoPagadorCpf"] || "",
+        titularBoleto: sale["TITULAR_BOLETO"] || sale["titularBoleto"] || "",
+        responsavelNome: sale["RESPONSAVEL_NOME"] || sale["RESPONSAVEL"] || sale["Responsável Nome"] || sale["Responsável"] || matchedClient?.["Responsável Nome"] || matchedClient?.["Responsável"] || "",
+        responsavelCpf: sale["RESPONSAVEL_CPF"] || sale["Responsável CPF"] || matchedClient?.["Responsável CPF"] || ""
       });
     });
 
@@ -951,6 +993,41 @@ const OSManagement = ({
       const clientCpf = order.clientCPF || order.raw?.CLIENTE_CPF || '';
       const clientName = order.clientName || order.raw?.CLIENTE || 'Cliente';
 
+      const isRespTitular = (
+        order.boletoTitularTipo === 'responsavel' ||
+        order.raw?.BOLETO_TITULAR_TIPO === 'responsavel' ||
+        order.raw?.boletoTitularTipo === 'responsavel' ||
+        order.raw?.TITULAR_BOLETO === 'Responsável'
+      ) && Boolean(
+        order.boletoPagadorNome ||
+        order.raw?.BOLETO_PAGADOR_NOME ||
+        order.raw?.boletoPagadorNome ||
+        order.responsavelNome ||
+        order.clientData?.['Responsável Nome'] ||
+        order.clientData?.['Responsável']
+      );
+
+      const titularPagadorName = isRespTitular
+        ? (order.boletoPagadorNome || order.raw?.BOLETO_PAGADOR_NOME || order.raw?.boletoPagadorNome || order.responsavelNome || order.clientData?.['Responsável Nome'] || order.clientData?.['Responsável'] || 'Responsável')
+        : clientName;
+
+      const titularPagadorCpf = isRespTitular
+        ? (order.boletoPagadorCpf || order.raw?.BOLETO_PAGADOR_CPF || order.raw?.boletoPagadorCpf || order.responsavelCpf || order.clientData?.['Responsável CPF'] || '')
+        : clientCpf;
+
+      let targetClientId = clientId;
+      if (isRespTitular) {
+        const respClientInDB = Array.isArray(clientsData) ? clientsData.find(c => {
+          const cCpf = String(c['CPF / CNPJ'] || c['CPF'] || '').replace(/\D/g, '');
+          const rCpf = String(titularPagadorCpf || '').replace(/\D/g, '');
+          if (rCpf.length >= 7 && cCpf === rCpf) return true;
+          const cName = String(c['Nome Completo'] || c['NOME'] || '').trim().toLowerCase();
+          const rName = String(titularPagadorName || '').trim().toLowerCase();
+          return cName && rName && cName === rName;
+        }) : null;
+        targetClientId = respClientInDB ? (respClientInDB.id || respClientInDB._id || '') : '';
+      }
+
       const existingReceber = data?.['CONTAS_RECEBER'] || [];
       const targetOs = String(order.osNumber).trim().toLowerCase();
 
@@ -1004,12 +1081,20 @@ const OSManagement = ({
               const isoVenc = toIsoDate(p.vencimento) || todayIso;
               newlyCreatedPendingSum += parseCurrency(valP);
               itemsToCreate.push({
-                CLIENTE_ID: clientId,
-                CLIENTE_CPF: clientCpf,
-                CPF: clientCpf,
-                CLIENTE: clientName,
-                'NOME CLIENTE': clientName,
-                NOME: clientName,
+                CLIENTE_ID: targetClientId,
+                CLIENTE_CPF: titularPagadorCpf || clientCpf,
+                CPF: titularPagadorCpf || clientCpf,
+                CLIENTE: titularPagadorName,
+                'NOME CLIENTE': titularPagadorName,
+                NOME: titularPagadorName,
+                PAGADOR: titularPagadorName,
+                PAGADOR_NOME: titularPagadorName,
+                PAGADOR_CPF: titularPagadorCpf || clientCpf,
+                PAGADOR_TIPO: isRespTitular ? 'Responsável' : 'Cliente',
+                TITULAR_PARCELA: titularPagadorName,
+                TITULAR_TIPO: isRespTitular ? 'responsavel' : 'cliente',
+                RESPONSAVEL_NOME: order.responsavelNome || order.clientData?.['Responsável Nome'] || order.clientData?.['Responsável'] || '',
+                PACIENTE: clientName,
                 DESCRICAO: `OS #${order.osNumber} - Parcela ${numP}/${totP} (${order.product || 'Óculos Completo'})`,
                 VENDA_OS: order.osNumber,
                 OS: order.osNumber,
@@ -1023,7 +1108,7 @@ const OSManagement = ({
                 LOJA: order.unit,
                 UNIDADE: order.unit,
                 MEIO_PAGAMENTO: 'Boleto',
-                OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}`,
+                OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}${isRespTitular ? ` (Titular: Responsável ${titularPagadorName})` : ''}`,
                 DATA_CADASTRO: todayStr
               });
             }
@@ -1039,12 +1124,20 @@ const OSManagement = ({
               ? (/boleto|carnê|carne/i.test(order.formaRestante) ? 'Boleto' : order.formaRestante)
               : (/boleto|carnê|carne/i.test(order.formasPagamento || '') ? 'Boleto' : 'A Prazo');
             itemsToCreate.push({
-              CLIENTE_ID: clientId,
-              CLIENTE_CPF: clientCpf,
-              CPF: clientCpf,
-              CLIENTE: clientName,
-              'NOME CLIENTE': clientName,
-              NOME: clientName,
+              CLIENTE_ID: targetClientId,
+              CLIENTE_CPF: titularPagadorCpf || clientCpf,
+              CPF: titularPagadorCpf || clientCpf,
+              CLIENTE: titularPagadorName,
+              'NOME CLIENTE': titularPagadorName,
+              NOME: titularPagadorName,
+              PAGADOR: titularPagadorName,
+              PAGADOR_NOME: titularPagadorName,
+              PAGADOR_CPF: titularPagadorCpf || clientCpf,
+              PAGADOR_TIPO: isRespTitular ? 'Responsável' : 'Cliente',
+              TITULAR_PARCELA: titularPagadorName,
+              TITULAR_TIPO: isRespTitular ? 'responsavel' : 'cliente',
+              RESPONSAVEL_NOME: order.responsavelNome || order.clientData?.['Responsável Nome'] || order.clientData?.['Responsável'] || '',
+              PACIENTE: clientName,
               DESCRICAO: `Venda OS #${order.osNumber} - ${order.product || 'Óculos Completo'}${order.formaRestante ? ` (${order.formaRestante})` : ''}`,
               VENDA_OS: order.osNumber,
               OS: order.osNumber,
@@ -1058,7 +1151,7 @@ const OSManagement = ({
               LOJA: order.unit,
               UNIDADE: order.unit,
               MEIO_PAGAMENTO: resolvedMeioRestante,
-              OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}. Total: R$ ${order.valorTotal}, Sinal: R$ ${order.valorEntrada}${order.formaRestante ? `, Forma Restante: ${order.formaRestante}` : ''}`,
+              OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}. Total: R$ ${order.valorTotal}, Sinal: R$ ${order.valorEntrada}${order.formaRestante ? `, Forma Restante: ${order.formaRestante}` : ''}${isRespTitular ? ` (Titular: Responsável ${titularPagadorName})` : ''}`,
               DATA_CADASTRO: todayStr
             });
           }
@@ -1075,21 +1168,32 @@ const OSManagement = ({
         }
       }
 
-      // 3. Atualizar débito na ficha do cliente em CLIENTES_CADASTRADOS
+      // 3. Atualizar débito na ficha do titular em CLIENTES_CADASTRADOS
       const matchedClient = clientsData.find(c => isSameClient(c, order.raw || {})) || order.clientData || order.matchedClient;
-      if (matchedClient && onUpdateRow && !order.raw?.DUPLICATAS_GERADAS && !isSecondaryUnified) {
-        const curDebt = parseCurrency(matchedClient['Valor Devido']);
+      const targetDebtClient = isRespTitular
+        ? (Array.isArray(clientsData) ? clientsData.find(c => {
+            const cCpf = String(c['CPF / CNPJ'] || c['CPF'] || '').replace(/\D/g, '');
+            const rCpf = String(titularPagadorCpf || '').replace(/\D/g, '');
+            if (rCpf.length >= 7 && cCpf === rCpf) return true;
+            const cName = String(c['Nome Completo'] || c['NOME'] || '').trim().toLowerCase();
+            const rName = String(titularPagadorName || '').trim().toLowerCase();
+            return cName && rName && cName === rName;
+          }) : null)
+        : matchedClient;
+
+      if (targetDebtClient && onUpdateRow && !order.raw?.DUPLICATAS_GERADAS && !isSecondaryUnified) {
+        const curDebt = parseCurrency(targetDebtClient['Valor Devido']);
         const amountToAdd = newlyCreatedPendingSum > 0 ? newlyCreatedPendingSum : restVal;
         if (amountToAdd > 0) {
           const newDebt = (curDebt + amountToAdd).toFixed(2).replace('.', ',');
-          await onUpdateRow('CLIENTES_CADASTRADOS', matchedClient, {
-            ...matchedClient,
+          await onUpdateRow('CLIENTES_CADASTRADOS', targetDebtClient, {
+            ...targetDebtClient,
             'Valor Devido': newDebt,
             'Status de Pagamento': 'Inadimplente'
           });
         } else if (curDebt <= 0) {
-          await onUpdateRow('CLIENTES_CADASTRADOS', matchedClient, {
-            ...matchedClient,
+          await onUpdateRow('CLIENTES_CADASTRADOS', targetDebtClient, {
+            ...targetDebtClient,
             'Status de Pagamento': 'Em dia'
           });
         }
@@ -2322,6 +2426,19 @@ const OSManagement = ({
                             <span>🎟️</span> Voucher: {order.voucher} {parseCurrency(order.descontoVoucher) > 0 ? `(-R$ ${formatMoney(order.descontoVoucher)})` : ''}
                           </span>
                         )}
+                        {order.boletoTitularTipo && (
+                          <span 
+                            className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg border flex items-center gap-1 shadow-xs ${
+                              order.boletoTitularTipo === 'responsavel'
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            }`}
+                            title={`Titular do Carnê / Boleto: ${order.boletoTitularTipo === 'responsavel' ? 'Responsável Legal' : 'Cliente Titular'} (${order.boletoPagadorNome || ''})`}
+                          >
+                            <Users size={11} className={order.boletoTitularTipo === 'responsavel' ? 'text-amber-400' : 'text-emerald-400'} />
+                            Titular Boleto: {order.boletoTitularTipo === 'responsavel' ? 'Responsável' : 'Cliente'}
+                          </span>
+                        )}
                       </div>
 
                       {/* Badge de Prazo */}
@@ -2770,6 +2887,11 @@ const OSManagement = ({
                             <p className="text-white font-bold leading-snug">
                               {order.armacao || "Armação própria do cliente"}
                             </p>
+                            {(order.referenciaSku || order.cor) && (
+                              <p className="text-[10px] text-amber-300/80 font-mono mt-0.5">
+                                {[order.referenciaSku ? `Ref/SKU: ${order.referenciaSku}` : '', order.cor ? `Cor: ${order.cor}` : ''].filter(Boolean).join(' | ')}
+                              </p>
+                            )}
                           </div>
                           <div>
                             <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400 block mb-0.5">
@@ -2778,7 +2900,39 @@ const OSManagement = ({
                             <p className="text-indigo-200 font-bold leading-snug">
                               {order.lente || order.product || "Lente oftálmica"}
                             </p>
+                            {(order.material || order.tratamento) && (
+                              <p className="text-[10px] text-indigo-300/80 mt-0.5">
+                                {[order.material ? `Material: ${order.material}` : '', order.tratamento ? `Tratamento: ${order.tratamento}` : ''].filter(Boolean).join(' | ')}
+                              </p>
+                            )}
                           </div>
+                          {order.detalhes && (
+                            <div className="pt-1.5 border-t border-white/5">
+                              <span className="text-[9.5px] font-black uppercase tracking-wider text-slate-400 block mb-0.5">
+                                Descrição / Detalhes:
+                              </span>
+                              <p className="text-[11px] text-slate-300 bg-white/[0.02] p-1.5 rounded-lg border border-white/5 leading-snug">
+                                {order.detalhes}
+                              </p>
+                            </div>
+                          )}
+                          {Array.isArray(order.itens) && order.itens.length > 0 && (
+                            <div className="pt-1.5 border-t border-white/5 space-y-1">
+                              <span className="text-[9.5px] font-black uppercase tracking-wider text-emerald-400 block mb-0.5">
+                                Itens Vinculados ({order.itens.length}):
+                              </span>
+                              {order.itens.map((it, idx) => (
+                                <div key={idx} className="text-[10.5px] text-slate-300">
+                                  • <strong className="text-white">{it.qtd || it.quantidade || 1}x {it.nome || it.produto || it.PRODUTO}</strong>
+                                  {(it.detalhes || it.descricao) && (
+                                    <span className="text-slate-400 italic block text-[9.5px] pl-2">
+                                      {it.detalhes || it.descricao}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           {order.laboratorio && (
                             <div>
                               <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400 block mb-0.5">
@@ -2955,6 +3109,23 @@ const OSManagement = ({
                               <p className="text-[11px] text-slate-200 bg-black/40 p-2 rounded-xl border border-white/5 whitespace-pre-wrap leading-tight font-mono font-bold">
                                 {order.formasPagamentoLimpa}
                               </p>
+                            </div>
+                          )}
+                          {(order.boletoTitularTipo || order.raw?.BOLETO_TITULAR_TIPO) && (
+                            <div className="mt-2 p-2 rounded-xl bg-indigo-950/40 border border-indigo-500/30 flex items-center justify-between text-xs">
+                              <span className="text-[10px] font-black uppercase text-indigo-300 flex items-center gap-1.5">
+                                <Users size={12} className="text-amber-400" />
+                                Titular Boleto:
+                              </span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                (order.boletoTitularTipo || order.raw?.BOLETO_TITULAR_TIPO) === 'responsavel'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              }`}>
+                                {(order.boletoTitularTipo || order.raw?.BOLETO_TITULAR_TIPO) === 'responsavel'
+                                  ? `🛡️ Responsável (${order.boletoPagadorNome || order.raw?.BOLETO_PAGADOR_NOME || 'Responsável'})`
+                                  : `👤 Cliente (${order.boletoPagadorNome || order.raw?.BOLETO_PAGADOR_NOME || order.clientName})`}
+                              </span>
                             </div>
                           )}
                         </div>
@@ -3166,6 +3337,18 @@ const OSManagement = ({
                                 <p className="text-[10px] text-slate-300 font-bold whitespace-pre-wrap leading-tight bg-white/[0.03] p-1.5 rounded-lg border border-white/5 font-mono">
                                   {order.formasPagamentoLimpa}
                                 </p>
+                              </div>
+                            )}
+                            {(order.boletoTitularTipo || order.raw?.BOLETO_TITULAR_TIPO) && (
+                              <div className="mt-1">
+                                <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${
+                                  (order.boletoTitularTipo || order.raw?.BOLETO_TITULAR_TIPO) === 'responsavel'
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                                }`}>
+                                  <Users size={10} className={(order.boletoTitularTipo || order.raw?.BOLETO_TITULAR_TIPO) === 'responsavel' ? 'text-amber-400' : 'text-emerald-400'} />
+                                  Titular: {(order.boletoTitularTipo || order.raw?.BOLETO_TITULAR_TIPO) === 'responsavel' ? 'Responsável' : 'Cliente'}
+                                </span>
                               </div>
                             )}
                           </td>

@@ -4,7 +4,7 @@ import {
   X, Save, Printer, User, Eye, FileText, Calendar, DollarSign, 
   Activity, CheckCircle2, AlertTriangle, Trash2, Plus, CreditCard, 
   QrCode, Glasses, Layers, Copy, Info, MapPin, Tag, FlaskConical, ClipboardList,
-  AlertOctagon, Sparkles, Ticket
+  AlertOctagon, Sparkles, Ticket, Users
 } from 'lucide-react';
 import { resolveOSUnit } from '../reparcelamentoUtils';
 
@@ -180,6 +180,11 @@ const OSGeneratorModal = ({
   // Lista de Ordens de Serviço para suportar 1 ou MÚLTIPLAS OS na mesma venda
   const [osList, setOsList] = useState([]);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
+
+  // Titular do Boleto / Carnê (Cliente Titular vs Responsável Legal)
+  const [boletoTitularType, setBoletoTitularType] = useState('cliente');
+  const [customRespName, setCustomRespName] = useState('');
+  const [customRespCpf, setCustomRespCpf] = useState('');
 
   // 🎟️ Dados e Controle de Vouchers / Cupons na OS
   const vouchersData = useMemo(() => {
@@ -577,7 +582,15 @@ const OSGeneratorModal = ({
     responsavel: '',
     voucher: '',
     rg: '',
-    laboratorio: ''
+    laboratorio: '',
+    cor: '',
+    material: '',
+    tratamento: '',
+    referenciaSku: '',
+    detalhes: '',
+    boletoTitularTipo: 'cliente',
+    boletoPagadorNome: '',
+    boletoPagadorCpf: ''
   });
 
   // Calcula o prefixo da unidade selecionada
@@ -678,10 +691,36 @@ const OSGeneratorModal = ({
         : calculateNextBaseOS(targetCity, salesData);
       setBaseOSNumber(nextBase);
 
+      // Sincronizar responsável e titular do boleto ao abrir
+      const respN = String(
+        saleData?.['BOLETO_PAGADOR_NOME'] ||
+        clientData?.['Responsável Nome'] ||
+        clientData?.['Responsável'] ||
+        clientData?.['RESPONSAVEL'] ||
+        saleData?.['RESPONSAVEL_NOME'] ||
+        safeClient['Responsável Nome'] ||
+        safeClient['Responsável'] ||
+        ''
+      ).trim();
+      const respC = String(
+        saleData?.['BOLETO_PAGADOR_CPF'] ||
+        clientData?.['Responsável CPF'] ||
+        clientData?.['RESPONSAVEL_CPF'] ||
+        saleData?.['RESPONSAVEL_CPF'] ||
+        safeClient['Responsável CPF'] ||
+        ''
+      ).trim();
+      setCustomRespName(respN);
+      setCustomRespCpf(respC);
+      const initialTitular = saleData?.['BOLETO_TITULAR_TIPO'] || saleData?.['boletoTitularTipo'] || clientData?.['BOLETO_TITULAR_TIPO'] || clientData?.['boletoTitularTipo'] || 'cliente';
+      setBoletoTitularType(initialTitular);
+
       // Detectar itens ópticos do carrinho para sugerir 1 ou múltiplas OS
       const rawItens = clientData.itens || clientData.cart || saleData?.itens || saleData?.cart || [];
       const extractedFrames = [];
+      const extractedFramesData = [];
       const extractedLenses = [];
+      const extractedLensesData = [];
       if (Array.isArray(rawItens) && rawItens.length > 0) {
         rawItens.forEach(item => {
           const qtd = Math.max(1, parseInt(item.qtd || 1, 10));
@@ -693,8 +732,26 @@ const OSGeneratorModal = ({
           const isFrame = !isLens && (t === 'armacoes' || sheet === 'CAD_ARMACOES' || /armaç[aã]o/i.test(name) || (item.rawProduct && item.rawProduct['MODELO'] && t !== 'brindes' && t !== 'avulso'));
 
           for (let i = 0; i < qtd; i++) {
-            if (isFrame) extractedFrames.push(name || '');
-            if (isLens) extractedLenses.push(name || '');
+            if (isFrame) {
+              extractedFrames.push(name || '');
+              extractedFramesData.push({
+                nome: name,
+                cor: item.cor || item.rawProduct?.COR || item.rawProduct?.Cor || '',
+                material: item.material || item.rawProduct?.MATERIAL || item.rawProduct?.Material || '',
+                referenciaSku: item.referenciaSku || item.rawProduct?.REFERENCIA_SKU || item.rawProduct?.CODIGO || item.ref || '',
+                detalhes: item.detalhes || item.descricao || ''
+              });
+            }
+            if (isLens) {
+              extractedLenses.push(name || '');
+              extractedLensesData.push({
+                nome: name,
+                material: item.material || item.rawProduct?.MATERIAL || item.rawProduct?.Material || '',
+                tratamento: item.tratamento || item.rawProduct?.TRATAMENTO || item.rawProduct?.Tratamento || '',
+                referenciaSku: item.referenciaSku || item.rawProduct?.REFERENCIA_SKU || item.rawProduct?.CODIGO || item.ref || '',
+                detalhes: item.detalhes || item.descricao || ''
+              });
+            }
           }
         });
       }
@@ -721,6 +778,11 @@ const OSGeneratorModal = ({
           laboratorio: clientData['LABORATORIO'] || clientData['laboratorio'] || '',
           lente: extractedLenses[i] || (i === 0 ? (clientData['Marca de Lente'] || clientData['Lente'] || clientData['lente'] || '') : ''),
           armacao: extractedFrames[i] || (i === 0 ? (clientData['Modelo de Armação'] || clientData['Armação'] || clientData['armacao'] || '') : ''),
+          cor: extractedFramesData[i]?.cor || clientData['COR'] || clientData['cor'] || '',
+          material: extractedLensesData[i]?.material || extractedFramesData[i]?.material || clientData['MATERIAL'] || clientData['material'] || '',
+          tratamento: extractedLensesData[i]?.tratamento || clientData['TRATAMENTO'] || clientData['tratamento'] || '',
+          referenciaSku: extractedFramesData[i]?.referenciaSku || extractedLensesData[i]?.referenciaSku || clientData['REFERENCIA_SKU'] || clientData['referenciaSku'] || '',
+          detalhes: [extractedFramesData[i]?.detalhes, extractedLensesData[i]?.detalhes, clientData['detalhes'], clientData['DETALHES']].filter(Boolean).filter((v, idx, arr) => arr.indexOf(v) === idx).join(' | '),
           odEsf: i === 0 ? (clientData['OD_ESF'] || clientData['odEsf'] || '') : '',
           odCil: i === 0 ? (clientData['OD_CIL'] || clientData['odCil'] || '') : '',
           odEixo: i === 0 ? (clientData['OD_EIXO'] || clientData['odEixo'] || '') : '',
@@ -777,6 +839,14 @@ const OSGeneratorModal = ({
         dataEntrega: ensureIsoDate(clientData['dataEntrega'] || clientData['PREVISAO_ENTREGA'] || '') || clientData['dataEntrega'] || clientData['PREVISAO_ENTREGA'] || '',
         lente: extractedLenses[0] || clientData['Marca de Lente'] || clientData['Lente'] || clientData['lente'] || '',
         armacao: extractedFrames[0] || clientData['Modelo de Armação'] || clientData['Armação'] || clientData['armacao'] || '',
+        cor: extractedFramesData[0]?.cor || clientData['COR'] || clientData['cor'] || '',
+        material: extractedLensesData[0]?.material || extractedFramesData[0]?.material || clientData['MATERIAL'] || clientData['material'] || '',
+        tratamento: extractedLensesData[0]?.tratamento || clientData['TRATAMENTO'] || clientData['tratamento'] || '',
+        referenciaSku: extractedFramesData[0]?.referenciaSku || extractedLensesData[0]?.referenciaSku || clientData['REFERENCIA_SKU'] || clientData['referenciaSku'] || '',
+        detalhes: [extractedFramesData[0]?.detalhes, extractedLensesData[0]?.detalhes, clientData['detalhes'], clientData['DETALHES']].filter(Boolean).filter((v, idx, arr) => arr.indexOf(v) === idx).join(' | '),
+        boletoTitularTipo: clientData['boletoTitularTipo'] || clientData['BOLETO_TITULAR_TIPO'] || saleData?.['BOLETO_TITULAR_TIPO'] || saleData?.['boletoTitularTipo'] || 'cliente',
+        boletoPagadorNome: clientData['boletoPagadorNome'] || clientData['BOLETO_PAGADOR_NOME'] || saleData?.['BOLETO_PAGADOR_NOME'] || saleData?.['boletoPagadorNome'] || '',
+        boletoPagadorCpf: clientData['boletoPagadorCpf'] || clientData['BOLETO_PAGADOR_CPF'] || saleData?.['BOLETO_PAGADOR_CPF'] || saleData?.['boletoPagadorCpf'] || '',
         odEsf: clientData['OD_ESF'] || clientData['odEsf'] || '',
         odCil: clientData['OD_CIL'] || clientData['odCil'] || '',
         odEixo: clientData['OD_EIXO'] || clientData['odEixo'] || '',
@@ -971,25 +1041,44 @@ const OSGeneratorModal = ({
 
   // Manipulador de campos para a OS ativa
   const handleCurrentOSChange = (field, value) => {
+    let extraFields = {};
+    if (field === 'armacao') {
+      const selected = filteredArmacoes.find(a => `${a.MARCA || a.marca || ''} ${a.MODELO || a.modelo || ''}`.trim() === value);
+      if (selected) {
+        if (selected.COR || selected.Cor) extraFields.cor = selected.COR || selected.Cor;
+        if (selected.MATERIAL || selected.Material) extraFields.material = selected.MATERIAL || selected.Material;
+        if (selected.REFERENCIA_SKU || selected.CODIGO) extraFields.referenciaSku = selected.REFERENCIA_SKU || selected.CODIGO;
+      }
+    } else if (field === 'lente') {
+      const selected = filteredLentes.find(l => `${l.MARCA || l.marca || ''} ${l.MODELO || l.modelo || ''}`.trim() === value);
+      if (selected) {
+        if (selected.TRATAMENTO || selected.Tratamento) extraFields.tratamento = selected.TRATAMENTO || selected.Tratamento;
+        if (selected.MATERIAL || selected.Material) extraFields.material = selected.MATERIAL || selected.Material;
+        if (selected.REFERENCIA_SKU || selected.CODIGO) extraFields.referenciaSku = selected.REFERENCIA_SKU || selected.CODIGO;
+      }
+    }
+
     setOsList(prev => {
       const nextList = prev.map((item, idx) => {
         if (idx !== activeTabIndex) return item;
-        return { ...item, [field]: value };
+        return { ...item, [field]: value, ...extraFields };
       });
       return nextList;
     });
 
+    if (['armacao', 'lente', 'cor', 'material', 'tratamento', 'referenciaSku', 'detalhes'].includes(field)) {
+      if (activeTabIndex === 0) {
+        setFormData(prev => ({ ...prev, [field]: value, ...extraFields }));
+      }
+    }
+
     // Se for alteração de armação ou lente
     if (field === 'armacao' || field === 'lente') {
-      if (activeTabIndex === 0) {
-        setFormData(prev => ({ ...prev, [field]: value }));
-      }
-
       // Se o valor total estiver zerado ou sem valor prévio manual, busca no catálogo
       if (!isManualTotal || parseCurrency(formData.valorTotal) === 0) {
         const simulatedList = osList.map((item, idx) => {
           if (idx !== activeTabIndex) return item;
-          return { ...item, [field]: value };
+          return { ...item, [field]: value, ...extraFields };
         });
         const autoSum = calculateTotalFromOSList(simulatedList);
         const totalFmt = autoSum > 0 ? formatCurrency(autoSum) : '0,00';
@@ -1325,6 +1414,14 @@ const OSGeneratorModal = ({
       if (!allow) return;
     }
 
+    const isRespTitular = boletoTitularType === 'responsavel' && Boolean(customRespName || safeClient['Responsável Nome'] || safeClient['Responsável']);
+    const titularPagadorName = isRespTitular
+      ? (customRespName || safeClient['Responsável Nome'] || safeClient['Responsável'] || 'Responsável')
+      : (safeClient['Nome Completo'] || safeClient['CLIENTE'] || 'Cliente');
+    const titularPagadorCpf = isRespTitular
+      ? (customRespCpf || safeClient['Responsável CPF'] || safeClient['RESPONSAVEL_CPF'] || '')
+      : (safeClient['CPF / CNPJ'] || safeClient['CPF'] || '');
+
     if (osList.length <= 1) {
       const activeOS = osList[0] || {};
       const titularNome = safeClient['Nome Completo'] || safeClient['CLIENTE'] || safeClient['Nome'] || '';
@@ -1333,6 +1430,24 @@ const OSGeneratorModal = ({
       const singleData = {
         ...formData,
         ...activeOS,
+        cor: activeOS.cor || formData.cor || '',
+        material: activeOS.material || formData.material || '',
+        tratamento: activeOS.tratamento || formData.tratamento || '',
+        referenciaSku: activeOS.referenciaSku || formData.referenciaSku || '',
+        detalhes: activeOS.detalhes || formData.detalhes || '',
+        COR: activeOS.cor || formData.cor || '',
+        MATERIAL: activeOS.material || formData.material || '',
+        TRATAMENTO: activeOS.tratamento || formData.tratamento || '',
+        REFERENCIA_SKU: activeOS.referenciaSku || formData.referenciaSku || '',
+        DETALHES: activeOS.detalhes || formData.detalhes || '',
+        boletoTitularTipo: boletoTitularType,
+        BOLETO_TITULAR_TIPO: boletoTitularType,
+        boletoPagadorNome: titularPagadorName,
+        BOLETO_PAGADOR_NOME: titularPagadorName,
+        boletoPagadorCpf: titularPagadorCpf,
+        BOLETO_PAGADOR_CPF: titularPagadorCpf,
+        TITULAR_BOLETO: isRespTitular ? 'Responsável' : 'Cliente',
+        titularBoleto: isRespTitular ? 'Responsável' : 'Cliente',
         nomePessoa: finalNomePessoa,
         PACIENTE: finalNomePessoa,
         NOME_BENEFICIARIO: finalNomePessoa,
@@ -1407,6 +1522,14 @@ const OSGeneratorModal = ({
         DESCONTO_VOUCHER: formData.descontoVoucher || safeClient['DESCONTO_VOUCHER'] || safeClient['descontoVoucher'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || '',
         RESPONSAVEL_LEGAL_INADIMPLENTE: !!responsavelDebtCheck?.isInadimplente,
         RESPONSAVEL_LEGAL_DEBITO: responsavelDebtCheck?.totalAberto || 0,
+        boletoTitularTipo: boletoTitularType,
+        BOLETO_TITULAR_TIPO: boletoTitularType,
+        boletoPagadorNome: titularPagadorName,
+        BOLETO_PAGADOR_NOME: titularPagadorName,
+        boletoPagadorCpf: titularPagadorCpf,
+        BOLETO_PAGADOR_CPF: titularPagadorCpf,
+        TITULAR_BOLETO: isRespTitular ? 'Responsável' : 'Cliente',
+        titularBoleto: isRespTitular ? 'Responsável' : 'Cliente',
         orders: osList.map((item, idx) => {
           const itemDataVendaIso = item.dataVenda || finalDataVendaIso;
           const itemDataVendaBr = ensureBrDate(itemDataVendaIso);
@@ -1415,6 +1538,24 @@ const OSGeneratorModal = ({
           return {
             ...formData,
             ...item,
+            cor: item.cor || formData.cor || '',
+            material: item.material || formData.material || '',
+            tratamento: item.tratamento || formData.tratamento || '',
+            referenciaSku: item.referenciaSku || formData.referenciaSku || '',
+            detalhes: item.detalhes || formData.detalhes || '',
+            COR: item.cor || formData.cor || '',
+            MATERIAL: item.material || formData.material || '',
+            TRATAMENTO: item.tratamento || formData.tratamento || '',
+            REFERENCIA_SKU: item.referenciaSku || formData.referenciaSku || '',
+            DETALHES: item.detalhes || formData.detalhes || '',
+            boletoTitularTipo: boletoTitularType,
+            BOLETO_TITULAR_TIPO: boletoTitularType,
+            boletoPagadorNome: titularPagadorName,
+            BOLETO_PAGADOR_NOME: titularPagadorName,
+            boletoPagadorCpf: titularPagadorCpf,
+            BOLETO_PAGADOR_CPF: titularPagadorCpf,
+            TITULAR_BOLETO: isRespTitular ? 'Responsável' : 'Cliente',
+            titularBoleto: isRespTitular ? 'Responsável' : 'Cliente',
             nomePessoa: finalBeneficiario,
             PACIENTE: finalBeneficiario,
             NOME_BENEFICIARIO: finalBeneficiario,
@@ -2068,6 +2209,66 @@ const OSGeneratorModal = ({
                   </datalist>
                 </div>
               </div>
+
+              {/* Descrições, Especificações e Detalhes Adicionais do Produto */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-white/5">
+                <div className="space-y-1">
+                  <label className="text-[9.5px] uppercase text-slate-400 font-bold tracking-wider">Ref / SKU</label>
+                  <input
+                    type="text"
+                    name="referenciaSku"
+                    value={currentOS.referenciaSku || ''}
+                    onChange={e => handleCurrentOSChange('referenciaSku', e.target.value)}
+                    placeholder="Código ou Referência"
+                    className="w-full bg-slate-900/80 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-fuchsia-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9.5px] uppercase text-slate-400 font-bold tracking-wider">Cor da Armação</label>
+                  <input
+                    type="text"
+                    name="cor"
+                    value={currentOS.cor || ''}
+                    onChange={e => handleCurrentOSChange('cor', e.target.value)}
+                    placeholder="Ex: Preto Fosco, Dourado"
+                    className="w-full bg-slate-900/80 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-fuchsia-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9.5px] uppercase text-slate-400 font-bold tracking-wider">Material</label>
+                  <input
+                    type="text"
+                    name="material"
+                    value={currentOS.material || ''}
+                    onChange={e => handleCurrentOSChange('material', e.target.value)}
+                    placeholder="Ex: Acetato, Titânio"
+                    className="w-full bg-slate-900/80 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-fuchsia-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9.5px] uppercase text-slate-400 font-bold tracking-wider">Tratamento da Lente</label>
+                  <input
+                    type="text"
+                    name="tratamento"
+                    value={currentOS.tratamento || ''}
+                    onChange={e => handleCurrentOSChange('tratamento', e.target.value)}
+                    placeholder="Ex: Antirreflexo, Blue Light"
+                    className="w-full bg-slate-900/80 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-fuchsia-500"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1 pt-1">
+                <label className="text-[9.5px] uppercase text-slate-400 font-bold tracking-wider">Descrição Detalhada / Especificações do Produto</label>
+                <input
+                  type="text"
+                  name="detalhes"
+                  value={currentOS.detalhes || ''}
+                  onChange={e => handleCurrentOSChange('detalhes', e.target.value)}
+                  placeholder="Observações do produto, especificações da armação ou lente, garantias..."
+                  className="w-full bg-slate-900/80 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-fuchsia-500"
+                />
+              </div>
             </div>
 
             {/* Bloco 3: Financeiro & Cobrança Unificada */}
@@ -2309,6 +2510,101 @@ const OSGeneratorModal = ({
                       </div>
                     </div>
                   </div>
+
+                  {/* SELETOR DE TITULAR DO BOLETO / CARNÊ (CLIENTE TITULAR vs RESPONSÁVEL LEGAL) */}
+                  {(payments.some(p => p.method === 'Boleto' || p.metodo === 'carne' || p.metodo === 'boleto') || formData.formaPagamentoRestante === 'Boleto' || payMethod === 'Boleto' || isBoletoOrCarne) && (
+                    <div className="p-3 bg-slate-950/80 rounded-xl border border-indigo-500/40 space-y-2 mt-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase text-indigo-300 flex items-center gap-1.5">
+                          <Users size={12} className="text-amber-400" />
+                          Titular / Pagador das Parcelas do Boleto:
+                        </span>
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                          {boletoTitularType === 'responsavel' ? '🛡️ Responsável Legal' : '👤 Cliente Titular'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setBoletoTitularType('cliente')}
+                          className={`p-2 rounded-xl border text-left transition-all ${
+                            boletoTitularType === 'cliente'
+                              ? 'bg-emerald-500/20 border-emerald-500/50 text-white shadow-sm'
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase">👤 Cliente Titular</span>
+                            {boletoTitularType === 'cliente' && <CheckCircle2 size={12} className="text-emerald-400" />}
+                          </div>
+                          <p className="text-[10px] font-bold text-slate-200 truncate mt-0.5">
+                            {safeClient['Nome Completo'] || safeClient['CLIENTE'] || 'Cliente'}
+                          </p>
+                          {(safeClient['CPF / CNPJ'] || safeClient['CPF']) && (
+                            <p className="text-[9px] text-slate-400 font-mono">
+                              CPF: {safeClient['CPF / CNPJ'] || safeClient['CPF']}
+                            </p>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setBoletoTitularType('responsavel')}
+                          className={`p-2 rounded-xl border text-left transition-all ${
+                            boletoTitularType === 'responsavel'
+                              ? 'bg-amber-500/20 border-amber-500/50 text-white shadow-sm'
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase">🛡️ Responsável</span>
+                            {boletoTitularType === 'responsavel' && <CheckCircle2 size={12} className="text-amber-400" />}
+                          </div>
+                          <p className="text-[10px] font-bold text-amber-200 truncate mt-0.5">
+                            {customRespName || safeClient['Responsável Nome'] || safeClient['Responsável'] || 'Informar Responsável'}
+                          </p>
+                          {(customRespCpf || safeClient['Responsável CPF']) ? (
+                            <p className="text-[9px] text-amber-300/70 font-mono">
+                              CPF: {customRespCpf || safeClient['Responsável CPF']}
+                            </p>
+                          ) : (
+                            <p className="text-[9px] text-slate-500">(Clique para preencher)</p>
+                          )}
+                        </button>
+                      </div>
+
+                      {boletoTitularType === 'responsavel' && (
+                        <div className="bg-slate-900 p-2.5 rounded-lg border border-amber-500/30 space-y-2 mt-1">
+                          <span className="text-[10px] font-bold text-amber-300 block">
+                            Dados do Responsável Legal / Financeiro:
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <label className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5">Nome do Responsável</label>
+                              <input
+                                type="text"
+                                value={customRespName}
+                                onChange={e => setCustomRespName(e.target.value)}
+                                placeholder="Nome completo do responsável"
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5">CPF do Responsável</label>
+                              <input
+                                type="text"
+                                value={customRespCpf}
+                                onChange={e => setCustomRespCpf(e.target.value)}
+                                placeholder="000.000.000-00"
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Status de Cobertura */}
                   <div className={`p-3.5 rounded-xl border flex items-center justify-between text-xs font-bold transition-all ${

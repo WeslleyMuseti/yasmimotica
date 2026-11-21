@@ -6,7 +6,7 @@ import {
   Sparkles, RefreshCw, X, ShieldCheck, Calendar, Phone,
   UserPlus, ClipboardList, Glasses, Layers, Tag, Check,
   Lock, Unlock, ArrowDownRight, ArrowUpRight, Building, Wallet, History, Receipt,
-  Ticket, Percent, AlertOctagon, Star, Gift, Loader2, Info, Clock
+  Ticket, Percent, AlertOctagon, Star, Gift, Loader2, Info, Clock, Users
 } from 'lucide-react';
 import PrintableOS from './PrintableOS';
 import PrintableReceipt from './PrintableReceipt';
@@ -105,7 +105,7 @@ const POSRegister = ({
   const [visibleProductLimit, setVisibleProductLimit] = useState(300);
 
   // Item Avulso
-  const [customItem, setCustomItem] = useState({ nome: '', preco: '', qtd: 1, categoria: 'Outros' });
+  const [customItem, setCustomItem] = useState({ nome: '', preco: '', qtd: 1, categoria: 'Outros', detalhes: '' });
 
   // Desconto Global & Vouchers
   const [discountInput, setDiscountInput] = useState('');
@@ -147,6 +147,36 @@ const POSRegister = ({
     const d = new Date();
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   });
+
+  // Titular das Parcelas do Boleto / Carnê (Cliente Titular vs Responsável Legal)
+  const [boletoTitularType, setBoletoTitularType] = useState('cliente'); // 'cliente' | 'responsavel'
+  const [customRespName, setCustomRespName] = useState('');
+  const [customRespCpf, setCustomRespCpf] = useState('');
+
+  // Sincronizar dados do responsável quando o cliente selecionado mudar
+  useEffect(() => {
+    if (selectedClient) {
+      const respN = String(
+        selectedClient['Responsável Nome'] || 
+        selectedClient['Responsável'] || 
+        selectedClient['RESPONSAVEL'] || 
+        selectedClient['responsavelNome'] || 
+        ''
+      ).trim();
+      const respC = String(
+        selectedClient['Responsável CPF'] || 
+        selectedClient['RESPONSAVEL_CPF'] || 
+        selectedClient['responsavelCpf'] || 
+        ''
+      ).trim();
+      setCustomRespName(respN);
+      setCustomRespCpf(respC);
+    } else {
+      setCustomRespName('');
+      setCustomRespCpf('');
+      setBoletoTitularType('cliente');
+    }
+  }, [selectedClient]);
 
   const getInstallmentDate = (firstDateStr, offset) => {
     if (!firstDateStr) {
@@ -726,35 +756,63 @@ const POSRegister = ({
     if (effectiveType === 'armacoes') {
       name = `${product['MARCA'] || ''} ${product['MODELO'] || product['PRODUTO'] || 'Armação'}`.trim();
       const extra = [];
-      if (product['REFERENCIA_SKU']) extra.push(`Ref: ${product['REFERENCIA_SKU']}`);
-      if (product['COR']) extra.push(`Cor: ${product['COR']}`);
+      if (product['REFERENCIA_SKU'] || product['CODIGO'] || product['sku']) extra.push(`Ref: ${product['REFERENCIA_SKU'] || product['CODIGO'] || product['sku']}`);
+      if (product['COR'] || product['Cor'] || product['cor']) extra.push(`Cor: ${product['COR'] || product['Cor'] || product['cor']}`);
+      if (product['MATERIAL'] || product['Material']) extra.push(`Material: ${product['MATERIAL'] || product['Material']}`);
+      if (product['TAMANHO'] || product['Tamanho']) extra.push(`Tam: ${product['TAMANHO'] || product['Tamanho']}`);
+      if (product['DESCRICAO'] || product['descricao'] || product['DETALHES'] || product['detalhes'] || product['ESPECIFICACOES']) {
+        const d = product['DESCRICAO'] || product['descricao'] || product['DETALHES'] || product['detalhes'] || product['ESPECIFICACOES'];
+        if (!extra.some(x => String(x).toLowerCase().includes(String(d).toLowerCase()))) extra.push(d);
+      }
       if (product['UNIDADE']) extra.push(`Loja: ${product['UNIDADE']}`);
       details = extra.join(' | ');
     } else if (effectiveType === 'lentes') {
       name = `${product['MARCA'] || ''} ${product['MODELO'] || product['LENTE'] || product['PRODUTO'] || 'Lente'}`.trim();
       const extra = [];
-      if (product['MATERIAL']) extra.push(product['MATERIAL']);
-      if (product['INDICE_REFRACAO']) extra.push(`Índice: ${product['INDICE_REFRACAO']}`);
-      if (product['TRATAMENTO']) extra.push(product['TRATAMENTO']);
+      if (product['MATERIAL'] || product['Material']) extra.push(`Material: ${product['MATERIAL'] || product['Material']}`);
+      if (product['INDICE_REFRACAO'] || product['Indice']) extra.push(`Índice: ${product['INDICE_REFRACAO'] || product['Indice']}`);
+      if (product['TRATAMENTO'] || product['Tratamento']) extra.push(`Tratamento: ${product['TRATAMENTO'] || product['Tratamento']}`);
+      if (product['DESCRICAO'] || product['descricao'] || product['DETALHES'] || product['detalhes'] || product['ESPECIFICACOES']) {
+        const d = product['DESCRICAO'] || product['descricao'] || product['DETALHES'] || product['detalhes'] || product['ESPECIFICACOES'];
+        if (!extra.some(x => String(x).toLowerCase().includes(String(d).toLowerCase()))) extra.push(d);
+      }
       extra.push(isLenteFisica(product) ? 'Lente Física' : 'Lente Digital');
+      if (product['REFERENCIA_SKU'] || product['CODIGO']) extra.push(`Ref: ${product['REFERENCIA_SKU'] || product['CODIGO']}`);
       details = extra.join(' | ');
     } else if (effectiveType === 'acessorios') {
       name = `${product['MARCA'] ? product['MARCA'] + ' ' : ''}${product['NOME'] || product['MODELO'] || product['PRODUTO'] || 'Acessório'}`.trim();
       const extra = [];
       if (product['CATEGORIA']) extra.push(`Cat: ${product['CATEGORIA']}`);
-      if (product['REFERENCIA_SKU']) extra.push(`Ref: ${product['REFERENCIA_SKU']}`);
+      if (product['REFERENCIA_SKU'] || product['CODIGO']) extra.push(`Ref: ${product['REFERENCIA_SKU'] || product['CODIGO']}`);
+      if (product['COR'] || product['Cor']) extra.push(`Cor: ${product['COR'] || product['Cor']}`);
+      if (product['DESCRICAO'] || product['descricao'] || product['DETALHES'] || product['detalhes']) {
+        const d = product['DESCRICAO'] || product['descricao'] || product['DETALHES'] || product['detalhes'];
+        if (!extra.some(x => String(x).toLowerCase().includes(String(d).toLowerCase()))) extra.push(d);
+      }
       if (product['UNIDADE']) extra.push(`Loja: ${product['UNIDADE']}`);
       details = extra.join(' | ');
     } else if (effectiveType === 'brindes') {
       name = product['NOME'] || product['MODELO'] || product['PRODUTO'] || 'Brinde / Cortesia';
       const extra = [];
       if (product['CATEGORIA']) extra.push(`Cat: ${product['CATEGORIA']}`);
-      if (product['COR']) extra.push(`Cor: ${product['COR']}`);
-      if (product['REFERENCIA_SKU']) extra.push(`Ref: ${product['REFERENCIA_SKU']}`);
+      if (product['COR'] || product['Cor']) extra.push(`Cor: ${product['COR'] || product['Cor']}`);
+      if (product['REFERENCIA_SKU'] || product['CODIGO']) extra.push(`Ref: ${product['REFERENCIA_SKU'] || product['CODIGO']}`);
+      if (product['DESCRICAO'] || product['descricao'] || product['DETALHES'] || product['detalhes']) {
+        const d = product['DESCRICAO'] || product['descricao'] || product['DETALHES'] || product['detalhes'];
+        if (!extra.some(x => String(x).toLowerCase().includes(String(d).toLowerCase()))) extra.push(d);
+      }
       if (product['UNIDADE']) extra.push(`Loja: ${product['UNIDADE']}`);
       details = extra.join(' | ');
     } else {
       name = product['PRODUTO'] || product['DESCRICAO'] || product['NOME'] || 'Produto do Estoque';
+      const extra = [];
+      if (product['DESCRICAO'] || product['descricao'] || product['DETALHES'] || product['detalhes'] || product['ESPECIFICACOES']) {
+        extra.push(product['DESCRICAO'] || product['descricao'] || product['DETALHES'] || product['detalhes'] || product['ESPECIFICACOES']);
+      }
+      if (product['REFERENCIA_SKU'] || product['CODIGO'] || product['sku']) extra.push(`Ref: ${product['REFERENCIA_SKU'] || product['CODIGO'] || product['sku']}`);
+      if (product['COR'] || product['Cor']) extra.push(`Cor: ${product['COR'] || product['Cor']}`);
+      if (product['UNIDADE']) extra.push(`Loja: ${product['UNIDADE']}`);
+      details = extra.join(' | ');
     }
 
     const price = cleanVal(product['PRECO_VENDA'] || product['VALOR'] || product['PRECO'] || product['VALOR UNITARIO'] || 0);
@@ -770,6 +828,13 @@ const POSRegister = ({
         type: effectiveType,
         nome: name,
         detalhes: details,
+        descricao: product['DESCRICAO'] || product['descricao'] || product['DETALHES'] || product['detalhes'] || details,
+        cor: product['COR'] || product['Cor'] || product['cor'] || '',
+        material: product['MATERIAL'] || product['Material'] || product['material'] || '',
+        tratamento: product['TRATAMENTO'] || product['Tratamento'] || product['tratamento'] || '',
+        referenciaSku: product['REFERENCIA_SKU'] || product['referenciaSku'] || product['CODIGO'] || product['sku'] || '',
+        marca: product['MARCA'] || product['Marca'] || '',
+        modelo: product['MODELO'] || product['Modelo'] || '',
         imagem: product['IMAGEM'] || null,
         preco: price,
         qtd: 1,
@@ -782,19 +847,21 @@ const POSRegister = ({
     e.preventDefault();
     if (!customItem.nome || !customItem.preco) return;
     const price = cleanVal(customItem.preco);
+    const itemDetails = customItem.detalhes ? `${customItem.categoria || 'Serviço Avulso'} - ${customItem.detalhes}` : (customItem.categoria || 'Serviço Avulso');
     setCart(prev => [
       ...prev,
       {
         id: `custom_${Date.now()}`,
         type: 'avulso',
         nome: customItem.nome,
-        detalhes: customItem.categoria || 'Serviço Avulso',
+        detalhes: itemDetails,
+        descricao: itemDetails,
         preco: price,
         qtd: Number(customItem.qtd) || 1,
         categoria: customItem.categoria
       }
     ]);
-    setCustomItem({ nome: '', preco: '', qtd: 1, categoria: 'Outros' });
+    setCustomItem({ nome: '', preco: '', qtd: 1, categoria: 'Outros', detalhes: '' });
   };
 
   const updateCartQty = (id, delta) => {
@@ -1228,6 +1295,14 @@ const POSRegister = ({
       }
     } else if (method === 'carne' || method === 'boleto') {
       const vParc = n > 0 ? valorNumerico / n : valorNumerico;
+      const isResp = boletoTitularType === 'responsavel' && Boolean(customRespName || selectedClient?.['Responsável Nome'] || selectedClient?.['Responsável'] || selectedClient?.['responsavelNome']);
+      const pagadorNome = isResp 
+        ? (customRespName || selectedClient?.['Responsável Nome'] || selectedClient?.['Responsável'] || selectedClient?.['responsavelNome'] || 'Responsável') 
+        : (selectedClient?.['Nome Completo'] || selectedClient?.['NOME'] || 'Cliente');
+      const pagadorCpf = isResp 
+        ? (customRespCpf || selectedClient?.['Responsável CPF'] || selectedClient?.['RESPONSAVEL_CPF'] || selectedClient?.['responsavelCpf'] || '') 
+        : (selectedClient?.['CPF / CNPJ'] || selectedClient?.['CPF'] || '');
+
       for (let i = 1; i <= n; i++) {
         const rawDue = customDates[i] || getInstallmentDate(dueDate, i - 1);
         const formattedDue = formatSafeDate(rawDue);
@@ -1235,12 +1310,26 @@ const POSRegister = ({
           numero: i,
           totalParcelas: n,
           vencimento: formattedDue,
-          valor: vParc.toFixed(2).replace('.', ',')
+          valor: vParc.toFixed(2).replace('.', ','),
+          titularTipo: isResp ? 'responsavel' : 'cliente',
+          titularNome: pagadorNome,
+          titularCpf: pagadorCpf,
+          pagador: pagadorNome,
+          pagadorTipo: isResp ? 'Responsável' : 'Cliente'
         });
       }
       const vencsTexto = parcelasDetalhe.map(p => `${p.numero}ª ${p.vencimento}`).join(', ');
       texto = `📄 Boleto (${n}x de ${fmtMoeda(vParc)} | Venc: ${vencsTexto}): ${fmtMoeda(valorNumerico)}`;
     }
+
+    const isBoletoPay = method === 'carne' || method === 'boleto';
+    const isRespFinal = isBoletoPay && boletoTitularType === 'responsavel' && Boolean(customRespName || selectedClient?.['Responsável Nome'] || selectedClient?.['Responsável'] || selectedClient?.['responsavelNome']);
+    const pagadorNomeFinal = isRespFinal 
+      ? (customRespName || selectedClient?.['Responsável Nome'] || selectedClient?.['Responsável'] || selectedClient?.['responsavelNome'] || 'Responsável') 
+      : (selectedClient?.['Nome Completo'] || selectedClient?.['NOME'] || 'Cliente');
+    const pagadorCpfFinal = isRespFinal 
+      ? (customRespCpf || selectedClient?.['Responsável CPF'] || selectedClient?.['RESPONSAVEL_CPF'] || selectedClient?.['responsavelCpf'] || '') 
+      : (selectedClient?.['CPF / CNPJ'] || selectedClient?.['CPF'] || '');
 
     return {
       id: `pay_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
@@ -1250,7 +1339,10 @@ const POSRegister = ({
       texto,
       parcelas: parcelasDetalhe,
       troco: trocoLocal,
-      valorRecebido: cleanVal(cashReceivedVal)
+      valorRecebido: cleanVal(cashReceivedVal),
+      boletoTitularTipo: isBoletoPay ? (isRespFinal ? 'responsavel' : 'cliente') : undefined,
+      boletoPagadorNome: isBoletoPay ? pagadorNomeFinal : undefined,
+      boletoPagadorCpf: isBoletoPay ? pagadorCpfFinal : undefined
     };
   };
 
@@ -1461,6 +1553,42 @@ const POSRegister = ({
 
     const saleId = `venda_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
+    // Identificar pagador titular do boleto (Cliente Titular vs Responsável Legal)
+    const effectiveRespName = String(
+      customRespName ||
+      selectedClient?.['Responsável Nome'] || 
+      selectedClient?.['Responsável'] || 
+      selectedClient?.['RESPONSAVEL'] || 
+      selectedClient?.['responsavelNome'] || 
+      ''
+    ).trim();
+
+    const effectiveRespCpf = String(
+      customRespCpf ||
+      selectedClient?.['Responsável CPF'] || 
+      selectedClient?.['RESPONSAVEL_CPF'] || 
+      selectedClient?.['responsavelCpf'] || 
+      ''
+    ).trim();
+
+    const hasBoletoInPayments = effectivePayments.some(p => p.metodo === 'carne' || p.metodo === 'boleto');
+    const isRespTitular = hasBoletoInPayments && boletoTitularType === 'responsavel' && Boolean(effectiveRespName);
+    const titularPagadorName = isRespTitular ? effectiveRespName : clientName;
+    const titularPagadorCpf = isRespTitular ? (effectiveRespCpf || clientCpf) : clientCpf;
+
+    // Identificar itens de armação e lente vendidos para pré-carregar na OS
+    const armacaoItem = cart.find(i => i.type === 'armacoes' || i.type === 'geral' || (i.rawProduct && (i.rawProduct.MARCA || i.rawProduct.MODELO)));
+    const lenteItem = cart.find(i => i.type === 'lentes');
+    const todosItensNomes = cart.map(i => `${i.qtd > 1 ? `${i.qtd}x ` : ''}${i.nome}`).join(' + ');
+    const todosItensDetalhes = cart.map(i => i.detalhes).filter(Boolean).join(' | ');
+
+    const armacaoDetalhes = armacaoItem?.detalhes || armacaoItem?.descricao || '';
+    const armacaoCor = armacaoItem?.cor || armacaoItem?.rawProduct?.['COR'] || armacaoItem?.rawProduct?.['Cor'] || '';
+    const armacaoRef = armacaoItem?.referenciaSku || armacaoItem?.rawProduct?.['REFERENCIA_SKU'] || armacaoItem?.rawProduct?.['CODIGO'] || '';
+    const lenteDetalhes = lenteItem?.detalhes || lenteItem?.descricao || '';
+    const lenteTratamento = lenteItem?.tratamento || lenteItem?.rawProduct?.['TRATAMENTO'] || lenteItem?.rawProduct?.['Tratamento'] || '';
+    const lenteMaterial = lenteItem?.material || lenteItem?.rawProduct?.['MATERIAL'] || lenteItem?.rawProduct?.['Material'] || '';
+
     const newSale = {
       id: saleId,
       dataHora: nowIso,
@@ -1483,6 +1611,30 @@ const POSRegister = ({
       'Data da Venda': todayStr,
       'data_venda': todayStr,
       'PRODUTO': descricaoItens,
+      'itens': [...cart],
+      'ITENS_JSON': JSON.stringify(cart),
+      'DETALHES': todosItensDetalhes,
+      'detalhes': todosItensDetalhes,
+      'COR': armacaoCor,
+      'TRATAMENTO': lenteTratamento,
+      'MATERIAL': lenteMaterial,
+      'REFERENCIA_SKU': armacaoRef,
+      'BOLETO_TITULAR_TIPO': boletoTitularType,
+      'boletoTitularTipo': boletoTitularType,
+      'BOLETO_PAGADOR_NOME': titularPagadorName,
+      'boletoPagadorNome': titularPagadorName,
+      'BOLETO_PAGADOR_CPF': titularPagadorCpf,
+      'boletoPagadorCpf': titularPagadorCpf,
+      'TITULAR_BOLETO': isRespTitular ? 'Responsável' : 'Cliente',
+      'titularBoleto': isRespTitular ? 'Responsável' : 'Cliente',
+      ...(isRespTitular ? {
+        'RESPONSAVEL_LEGAL': effectiveRespName,
+        'RESPONSAVEL_NOME': effectiveRespName,
+        'responsavelNome': effectiveRespName,
+        'RESPONSAVEL_CPF': effectiveRespCpf,
+        'responsavelCpf': effectiveRespCpf,
+        'RESPONSAVEL': effectiveRespName
+      } : {}),
       'VALOR TOTAL': totalFinal,
       'VALOR DA VENDA': totalFinal,
       'VALOR ENTRADA': valorEntradaFmt,
@@ -1509,11 +1661,6 @@ const POSRegister = ({
       'descontoPercentual': discountType === 'PORCENTAGEM' ? cleanVal(discountInput) : 0
     };
 
-    // Identificar itens de armação e lente vendidos para pré-carregar na OS
-    const armacaoItem = cart.find(i => i.type === 'armacoes' || i.type === 'geral' || (i.rawProduct && (i.rawProduct.MARCA || i.rawProduct.MODELO)));
-    const lenteItem = cart.find(i => i.type === 'lentes');
-    const todosItensNomes = cart.map(i => `${i.qtd > 1 ? `${i.qtd}x ` : ''}${i.nome}`).join(' + ');
-
     const clientForOS = {
       ...selectedClient,
       'VOUCHER': appliedVouchers.map(v => v.sequentialCode || v.CODIGO || v.codigo).join(', '),
@@ -1530,6 +1677,36 @@ const POSRegister = ({
       'Marca de Lente': lenteItem ? lenteItem.nome : (selectedClient['Marca de Lente'] || ''),
       'Armação': armacaoItem ? armacaoItem.nome : (selectedClient['Modelo de Armação'] || ''),
       'Lente': lenteItem ? lenteItem.nome : (selectedClient['Marca de Lente'] || ''),
+      'itens': [...cart],
+      'ITENS_JSON': JSON.stringify(cart),
+      'DETALHES': todosItensDetalhes,
+      'detalhes': todosItensDetalhes,
+      'COR': armacaoCor,
+      'TRATAMENTO': lenteTratamento,
+      'MATERIAL': lenteMaterial,
+      'REFERENCIA_SKU': armacaoRef,
+      'detalhesArmacao': armacaoDetalhes,
+      'detalhesLente': lenteDetalhes,
+      'corArmacao': armacaoCor,
+      'tratamentoLente': lenteTratamento,
+      'materialLente': lenteMaterial,
+      'BOLETO_TITULAR_TIPO': boletoTitularType,
+      'boletoTitularTipo': boletoTitularType,
+      'BOLETO_PAGADOR_NOME': titularPagadorName,
+      'boletoPagadorNome': titularPagadorName,
+      'BOLETO_PAGADOR_CPF': titularPagadorCpf,
+      'boletoPagadorCpf': titularPagadorCpf,
+      'TITULAR_BOLETO': isRespTitular ? 'Responsável' : 'Cliente',
+      'titularBoleto': isRespTitular ? 'Responsável' : 'Cliente',
+      ...(isRespTitular ? {
+        'Responsável Nome': effectiveRespName,
+        'Responsável CPF': effectiveRespCpf,
+        'RESPONSAVEL_NOME': effectiveRespName,
+        'responsavelNome': effectiveRespName,
+        'RESPONSAVEL_CPF': effectiveRespCpf,
+        'responsavelCpf': effectiveRespCpf,
+        'RESPONSAVEL': effectiveRespName
+      } : {}),
       'PRODUTO': todosItensNomes || 'Óculos Completo',
       'Valor Devido': valorTotalFmt,
       'valorTotal': valorTotalFmt,
@@ -1563,6 +1740,14 @@ const POSRegister = ({
     const finalSaleData = {
       ...newSale,
       itens: [...cart],
+      BOLETO_TITULAR_TIPO: boletoTitularType,
+      boletoTitularTipo: boletoTitularType,
+      BOLETO_PAGADOR_NOME: titularPagadorName,
+      boletoPagadorNome: titularPagadorName,
+      BOLETO_PAGADOR_CPF: titularPagadorCpf,
+      boletoPagadorCpf: titularPagadorCpf,
+      TITULAR_BOLETO: isRespTitular ? 'Responsável' : 'Cliente',
+      titularBoleto: isRespTitular ? 'Responsável' : 'Cliente',
       subtotal,
       desconto: discount,
       descontoTipo: discountType,
@@ -1754,13 +1939,40 @@ const POSRegister = ({
           const parcelasItems = [];
           for (const pay of effectivePayments) {
             if ((pay.metodo === 'carne' || pay.metodo === 'boleto') && pay.parcelas && pay.parcelas.length > 0) {
+              const isRespTitularItem = (pay.boletoTitularTipo || boletoTitularType) === 'responsavel' && Boolean(effectiveRespName);
+              const targetTitularName = isRespTitularItem ? effectiveRespName : clientName;
+              const targetTitularCpf = isRespTitularItem ? (effectiveRespCpf || clientCpf) : clientCpf;
+              
+              let targetClientId = clientId;
+              if (isRespTitularItem) {
+                const respClientInDB = Array.isArray(clientsData) ? clientsData.find(c => {
+                  const cCpf = String(c['CPF / CNPJ'] || c['CPF'] || '').replace(/\D/g, '');
+                  const rCpf = String(targetTitularCpf || '').replace(/\D/g, '');
+                  if (rCpf.length >= 7 && cCpf === rCpf) return true;
+                  const cName = String(c['Nome Completo'] || c['NOME'] || '').trim().toLowerCase();
+                  const rName = String(targetTitularName || '').trim().toLowerCase();
+                  return cName && rName && cName === rName;
+                }) : null;
+                targetClientId = respClientInDB ? (respClientInDB.id || respClientInDB._id || '') : '';
+              }
+
               for (const p of pay.parcelas) {
                 parcelasItems.push({
-                  'CLIENTE_ID': clientId,
-                  'CLIENTE_CPF': clientCpf,
-                  'CPF': clientCpf,
-                  'CLIENTE': clientName,
-                  'NOME CLIENTE': clientName,
+                  'CLIENTE_ID': targetClientId,
+                  'CLIENTE_CPF': targetTitularCpf,
+                  'CPF': targetTitularCpf,
+                  'CLIENTE': targetTitularName,
+                  'NOME CLIENTE': targetTitularName,
+                  'NOME': targetTitularName,
+                  'PAGADOR': targetTitularName,
+                  'PAGADOR_NOME': targetTitularName,
+                  'PAGADOR_CPF': targetTitularCpf,
+                  'PAGADOR_TIPO': isRespTitularItem ? 'Responsável' : 'Cliente',
+                  'TITULAR_PARCELA': targetTitularName,
+                  'TITULAR_TIPO': isRespTitularItem ? 'responsavel' : 'cliente',
+                  'RESPONSAVEL_NOME': effectiveRespName || '',
+                  'PACIENTE': clientName,
+                  'NOME_BENEFICIARIO': clientName,
                   'DOCUMENTO': `BOLETO ${p.numero}/${p.totalParcelas} - PDV`,
                   'VALOR': typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
                   'DATA_VENCIMENTO': p.vencimento,
@@ -1768,7 +1980,7 @@ const POSRegister = ({
                   'STATUS': 'Pendente',
                   'CIDADE': city,
                   'MEIO_PAGAMENTO': 'Boleto',
-                  'DESCRICAO': `Venda PDV - Parcela ${p.numero}/${p.totalParcelas} (${descricaoItens})`
+                  'DESCRICAO': `Venda PDV - Parcela ${p.numero}/${p.totalParcelas} (${descricaoItens})${isRespTitularItem ? ` [Resp: ${effectiveRespName} / Titular: ${clientName}]` : ''}`
                 });
               }
             }
@@ -1885,6 +2097,22 @@ const POSRegister = ({
         'CLIENTE_ID': clientId,
         'CLIENTE_CPF': clientCpf,
         'CPF': clientCpf,
+        'itens': completedSale?.itens || cart || [],
+        'ITENS_JSON': JSON.stringify(completedSale?.itens || cart || []),
+        'DETALHES': singleData.detalhes || completedSale?.DETALHES || todosItensDetalhes || '',
+        'detalhes': singleData.detalhes || completedSale?.detalhes || todosItensDetalhes || '',
+        'COR': singleData.cor || completedSale?.COR || armacaoCor || '',
+        'TRATAMENTO': singleData.tratamento || completedSale?.TRATAMENTO || lenteTratamento || '',
+        'MATERIAL': singleData.material || completedSale?.MATERIAL || lenteMaterial || '',
+        'REFERENCIA_SKU': singleData.referenciaSku || completedSale?.REFERENCIA_SKU || armacaoRef || '',
+        'BOLETO_TITULAR_TIPO': singleData.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType,
+        'boletoTitularTipo': singleData.boletoTitularTipo || completedSale?.boletoTitularTipo || boletoTitularType,
+        'BOLETO_PAGADOR_NOME': singleData.boletoPagadorNome || completedSale?.BOLETO_PAGADOR_NOME || titularPagadorName,
+        'boletoPagadorNome': singleData.boletoPagadorNome || completedSale?.boletoPagadorNome || titularPagadorName,
+        'BOLETO_PAGADOR_CPF': singleData.boletoPagadorCpf || completedSale?.BOLETO_PAGADOR_CPF || titularPagadorCpf,
+        'boletoPagadorCpf': singleData.boletoPagadorCpf || completedSale?.boletoPagadorCpf || titularPagadorCpf,
+        'TITULAR_BOLETO': (singleData.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' ? 'Responsável' : 'Cliente',
+        'titularBoleto': (singleData.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' ? 'Responsável' : 'Cliente',
         'DATA': singleSaleDate,
         'DATA  DA VENDA': singleSaleDate,
         'DATA DA VENDA': singleSaleDate,
@@ -2163,6 +2391,22 @@ const POSRegister = ({
             ? osGeneratedData.parcelas
             : (savedClientForOS?.parcelas || completedSale?.parcelas || [])
       ),
+      'itens': completedSale?.itens || cart || [],
+      'ITENS_JSON': JSON.stringify(completedSale?.itens || cart || []),
+      'DETALHES': primaryOS.detalhes || completedSale?.DETALHES || todosItensDetalhes || '',
+      'detalhes': primaryOS.detalhes || completedSale?.detalhes || todosItensDetalhes || '',
+      'COR': primaryOS.cor || completedSale?.COR || armacaoCor || '',
+      'TRATAMENTO': primaryOS.tratamento || completedSale?.TRATAMENTO || lenteTratamento || '',
+      'MATERIAL': primaryOS.material || completedSale?.MATERIAL || lenteMaterial || '',
+      'REFERENCIA_SKU': primaryOS.referenciaSku || completedSale?.REFERENCIA_SKU || armacaoRef || '',
+      'BOLETO_TITULAR_TIPO': primaryOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType,
+      'boletoTitularTipo': primaryOS.boletoTitularTipo || completedSale?.boletoTitularTipo || boletoTitularType,
+      'BOLETO_PAGADOR_NOME': primaryOS.boletoPagadorNome || completedSale?.BOLETO_PAGADOR_NOME || titularPagadorName,
+      'boletoPagadorNome': primaryOS.boletoPagadorNome || completedSale?.boletoPagadorNome || titularPagadorName,
+      'BOLETO_PAGADOR_CPF': primaryOS.boletoPagadorCpf || completedSale?.BOLETO_PAGADOR_CPF || titularPagadorCpf,
+      'boletoPagadorCpf': primaryOS.boletoPagadorCpf || completedSale?.boletoPagadorCpf || titularPagadorCpf,
+      'TITULAR_BOLETO': (primaryOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' ? 'Responsável' : 'Cliente',
+      'titularBoleto': (primaryOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' ? 'Responsável' : 'Cliente',
       'PREVISAO_ENTREGA': primaryOS.dataEntrega || todayStr,
       'NOME CLIENTE': clientName,
       'CLIENTE': clientName,
@@ -2250,6 +2494,22 @@ const POSRegister = ({
       'OS DA VENDA': secOS.numeroOS,
       'OS': secOS.numeroOS,
       'VENDA_OS': secOS.numeroOS,
+      'itens': completedSale?.itens || cart || [],
+      'ITENS_JSON': JSON.stringify(completedSale?.itens || cart || []),
+      'DETALHES': secOS.detalhes || completedSale?.DETALHES || '',
+      'detalhes': secOS.detalhes || completedSale?.detalhes || '',
+      'COR': secOS.cor || '',
+      'TRATAMENTO': secOS.tratamento || '',
+      'MATERIAL': secOS.material || '',
+      'REFERENCIA_SKU': secOS.referenciaSku || '',
+      'BOLETO_TITULAR_TIPO': secOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType,
+      'boletoTitularTipo': secOS.boletoTitularTipo || completedSale?.boletoTitularTipo || boletoTitularType,
+      'BOLETO_PAGADOR_NOME': secOS.boletoPagadorNome || completedSale?.BOLETO_PAGADOR_NOME || titularPagadorName,
+      'boletoPagadorNome': secOS.boletoPagadorNome || completedSale?.boletoPagadorNome || titularPagadorName,
+      'BOLETO_PAGADOR_CPF': secOS.boletoPagadorCpf || completedSale?.BOLETO_PAGADOR_CPF || titularPagadorCpf,
+      'boletoPagadorCpf': secOS.boletoPagadorCpf || completedSale?.boletoPagadorCpf || titularPagadorCpf,
+      'TITULAR_BOLETO': (secOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' ? 'Responsável' : 'Cliente',
+      'titularBoleto': (secOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' ? 'Responsável' : 'Cliente',
       STATUS_OS: 'Aguardando Confirmação',
       'SITUAÇÃO': 'Aguardando Confirmação',
       PRODUTO: [secOS.armacao, secOS.lente].filter(Boolean).join(' + ') || secOS.label || `Óculos ${idx + 2}`,
@@ -3125,7 +3385,10 @@ const POSRegister = ({
                     const brand = prod['MARCA'] || prod['marca'] || '';
                     const model = prod['NOME'] || prod['MODELO'] || prod['modelo'] || prod['PRODUTO'] || prod['DESCRICAO'] || '';
                     const sku = prod['REFERENCIA_SKU'] || prod['CODIGO'] || prod['SKU'] || '';
-                    const cor = prod['COR'] || '';
+                    const cor = prod['COR'] || prod['Cor'] || prod['cor'] || '';
+                    const material = prod['MATERIAL'] || prod['Material'] || prod['material'] || '';
+                    const tratamento = prod['TRATAMENTO'] || prod['Tratamento'] || prod['tratamento'] || '';
+                    const descricaoProd = prod['DESCRICAO'] || prod['descricao'] || prod['DETALHES'] || prod['detalhes'] || prod['ESPECIFICACOES'] || '';
                     const categoria = prod['CATEGORIA'] || '';
                     const unit = prod['UNIDADE'] || prod['CIDADE'] || prod['LOJA'] || 'Central';
                     const imagem = prod['IMAGEM'] || null;
@@ -3173,7 +3436,17 @@ const POSRegister = ({
                               )}
                               {cor && (
                                 <span className="text-[9px] font-bold text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded">
-                                  {cor}
+                                  Cor: {cor}
+                                </span>
+                              )}
+                              {material && (
+                                <span className="text-[9px] font-bold text-amber-300/80 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                                  Mat: {material}
+                                </span>
+                              )}
+                              {tratamento && (
+                                <span className="text-[9px] font-bold text-cyan-300/80 bg-cyan-500/10 px-1.5 py-0.5 rounded">
+                                  Trat: {tratamento}
                                 </span>
                               )}
                               {unit && (
@@ -3187,6 +3460,11 @@ const POSRegister = ({
                                 </span>
                               )}
                             </div>
+                            {descricaoProd && descricaoProd !== title && (
+                              <p className="text-[9.5px] text-slate-400 italic mt-1 line-clamp-2 leading-tight" title={descricaoProd}>
+                                {descricaoProd}
+                              </p>
+                            )}
                           </div>
                         </div>
 
@@ -3327,6 +3605,16 @@ const POSRegister = ({
                     />
                   </div>
                 </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Detalhes / Especificações Adicionais (Opcional)</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Cor preta fosca, material acetato, tratamento antirreflexo..."
+                    value={customItem.detalhes || ''}
+                    onChange={e => setCustomItem({ ...customItem, detalhes: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
+                  />
+                </div>
                 <button
                   type="submit"
                   className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl transition-all"
@@ -3388,7 +3676,22 @@ const POSRegister = ({
                     )}
                     <div className="min-w-0">
                       <p className="font-extrabold text-white text-xs truncate">{item.nome}</p>
-                      <p className="text-[10px] text-amber-400 font-bold">{fmtMoeda(item.preco)} un</p>
+                      {(() => {
+                        const specs = [
+                          item.detalhes,
+                          (item.descricao && item.descricao !== item.nome && item.descricao !== item.detalhes) ? item.descricao : '',
+                          (item.referenciaSku && !String(item.detalhes || '').includes(String(item.referenciaSku))) ? `Ref: ${item.referenciaSku}` : '',
+                          (item.cor && !String(item.detalhes || '').toLowerCase().includes(String(item.cor).toLowerCase())) ? `Cor: ${item.cor}` : '',
+                          (item.material && !String(item.detalhes || '').toLowerCase().includes(String(item.material).toLowerCase())) ? `Material: ${item.material}` : '',
+                          (item.tratamento && !String(item.detalhes || '').toLowerCase().includes(String(item.tratamento).toLowerCase())) ? `Tratamento: ${item.tratamento}` : ''
+                        ].filter(Boolean).filter((val, i, arr) => arr.indexOf(val) === i).join(' | ');
+                        return specs ? (
+                          <p className="text-[10px] text-slate-400 font-medium truncate mt-0.5" title={specs}>
+                            {specs}
+                          </p>
+                        ) : null;
+                      })()}
+                      <p className="text-[10px] text-amber-400 font-bold mt-0.5">{fmtMoeda(item.preco)} un</p>
                     </div>
                   </div>
 
@@ -3858,6 +4161,99 @@ const POSRegister = ({
                             </div>
                           </div>
                         )}
+
+                        {/* SELETOR DE TITULAR DAS PARCELAS DO BOLETO (CLIENTE TITULAR vs RESPONSÁVEL LEGAL) */}
+                        <div className="p-3 bg-slate-900/95 rounded-xl border border-indigo-500/40 space-y-2 mt-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase text-indigo-300 flex items-center gap-1.5">
+                              <Users size={12} className="text-amber-400" />
+                              Titular / Pagador das Parcelas:
+                            </span>
+                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                              {boletoTitularType === 'responsavel' ? '🛡️ Responsável Legal' : '👤 Cliente Titular'}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setBoletoTitularType('cliente')}
+                              className={`p-2 rounded-xl border text-left transition-all ${
+                                boletoTitularType === 'cliente'
+                                  ? 'bg-emerald-500/20 border-emerald-500/50 text-white shadow-sm'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-black uppercase">👤 Cliente Titular</span>
+                                {boletoTitularType === 'cliente' && <CheckCircle2 size={12} className="text-emerald-400" />}
+                              </div>
+                              <p className="text-[10px] font-bold text-slate-200 truncate mt-0.5">
+                                {selectedClient?.['Nome Completo'] || selectedClient?.['NOME'] || 'Cliente'}
+                              </p>
+                              {(selectedClient?.['CPF / CNPJ'] || selectedClient?.['CPF']) && (
+                                <p className="text-[9px] text-slate-400 font-mono">
+                                  CPF: {selectedClient?.['CPF / CNPJ'] || selectedClient?.['CPF']}
+                                </p>
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setBoletoTitularType('responsavel')}
+                              className={`p-2 rounded-xl border text-left transition-all ${
+                                boletoTitularType === 'responsavel'
+                                  ? 'bg-amber-500/20 border-amber-500/50 text-white shadow-sm'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-black uppercase">🛡️ Responsável</span>
+                                {boletoTitularType === 'responsavel' && <CheckCircle2 size={12} className="text-amber-400" />}
+                              </div>
+                              <p className="text-[10px] font-bold text-amber-200 truncate mt-0.5">
+                                {customRespName || selectedClient?.['Responsável Nome'] || selectedClient?.['Responsável'] || selectedClient?.['responsavelNome'] || 'Informar Responsável'}
+                              </p>
+                              {(customRespCpf || selectedClient?.['Responsável CPF']) ? (
+                                <p className="text-[9px] text-amber-300/70 font-mono">
+                                  CPF: {customRespCpf || selectedClient?.['Responsável CPF']}
+                                </p>
+                              ) : (
+                                <p className="text-[9px] text-slate-500">(Clique para preencher)</p>
+                              )}
+                            </button>
+                          </div>
+
+                          {boletoTitularType === 'responsavel' && (
+                            <div className="bg-slate-950 p-2.5 rounded-lg border border-amber-500/30 space-y-2 mt-1">
+                              <span className="text-[10px] font-bold text-amber-300 block">
+                                Dados do Responsável Legal / Financeiro:
+                              </span>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <label className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5">Nome do Responsável</label>
+                                  <input
+                                    type="text"
+                                    value={customRespName}
+                                    onChange={e => setCustomRespName(e.target.value)}
+                                    placeholder="Nome completo do responsável"
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5">CPF do Responsável</label>
+                                  <input
+                                    type="text"
+                                    value={customRespCpf}
+                                    onChange={e => setCustomRespCpf(e.target.value)}
+                                    placeholder="000.000.000-00"
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </>
                     )}
                   </div>
@@ -3909,26 +4305,36 @@ const POSRegister = ({
                     const isRestanteItem = isBoletoItem || p.stage === 'restante';
                     return (
                       <div key={p.id} className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center text-xs">
-                        <div className="min-w-0 pr-2 flex items-center gap-1.5">
-                          {!isBoletoItem ? (
-                            <button
-                              type="button"
-                              onClick={() => togglePaymentStage(p.id)}
-                              title="Clique para alternar entre Entrada (Pago Hoje) e Restante (Falta)"
-                              className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-black uppercase border transition-all ${
-                                isRestanteItem
-                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                              }`}
-                            >
-                              {isRestanteItem ? 'Restante' : 'Entrada'}
-                            </button>
-                          ) : (
-                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                              Restante
-                            </span>
+                        <div className="min-w-0 pr-2">
+                          <div className="flex items-center gap-1.5">
+                            {!isBoletoItem ? (
+                              <button
+                                type="button"
+                                onClick={() => togglePaymentStage(p.id)}
+                                title="Clique para alternar entre Entrada (Pago Hoje) e Restante (Falta)"
+                                className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-black uppercase border transition-all ${
+                                  isRestanteItem
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                                }`}
+                              >
+                                {isRestanteItem ? 'Restante' : 'Entrada'}
+                              </button>
+                            ) : (
+                              <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                Restante
+                              </span>
+                            )}
+                            <p className="font-bold text-white truncate">{p.texto}</p>
+                          </div>
+                          {isBoletoItem && (
+                            <p className={`text-[9.5px] font-semibold mt-0.5 pl-1 flex items-center gap-1 ${
+                              (p.boletoTitularTipo || boletoTitularType) === 'responsavel' ? 'text-amber-300' : 'text-emerald-300'
+                            }`}>
+                              <Users size={11} className="shrink-0 text-amber-400" />
+                              Titular do Boleto: {(p.boletoTitularTipo || boletoTitularType) === 'responsavel' ? '🛡️ Responsável' : '👤 Cliente'} ({p.boletoPagadorNome || (boletoTitularType === 'responsavel' ? (customRespName || selectedClient?.['Responsável Nome'] || 'Responsável') : (selectedClient?.['Nome Completo'] || selectedClient?.['NOME'] || 'Cliente'))})
+                            </p>
                           )}
-                          <p className="font-bold text-white truncate">{p.texto}</p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className={`font-black ${isRestanteItem ? 'text-amber-400' : 'text-emerald-400'}`}>{fmtMoeda(p.valor)}</span>
@@ -3944,6 +4350,57 @@ const POSRegister = ({
                       </div>
                     );
                   })}
+
+                  {payments.some(p => p.metodo === 'carne' || p.metodo === 'boleto') && currentMethod !== 'carne' && (
+                    <div className="p-2.5 bg-indigo-950/40 rounded-xl border border-indigo-500/30 space-y-2 mt-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase text-indigo-300 flex items-center gap-1.5">
+                          <Users size={12} className="text-amber-400" />
+                          Titular do Carnê / Boleto:
+                        </span>
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBoletoTitularType('cliente');
+                              setPayments(prev => prev.map(pay => (pay.metodo === 'carne' || pay.metodo === 'boleto') ? {
+                                ...pay,
+                                boletoTitularTipo: 'cliente',
+                                boletoPagadorNome: selectedClient?.['Nome Completo'] || selectedClient?.['NOME'] || 'Cliente',
+                                boletoPagadorCpf: selectedClient?.['CPF / CNPJ'] || selectedClient?.['CPF'] || ''
+                              } : pay));
+                            }}
+                            className={`px-2 py-0.5 rounded text-[9px] font-bold border transition-all ${
+                              boletoTitularType === 'cliente'
+                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-black'
+                                : 'bg-slate-900 text-slate-400 border-slate-800'
+                            }`}
+                          >
+                            👤 Cliente
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBoletoTitularType('responsavel');
+                              setPayments(prev => prev.map(pay => (pay.metodo === 'carne' || pay.metodo === 'boleto') ? {
+                                ...pay,
+                                boletoTitularTipo: 'responsavel',
+                                boletoPagadorNome: customRespName || selectedClient?.['Responsável Nome'] || 'Responsável',
+                                boletoPagadorCpf: customRespCpf || selectedClient?.['Responsável CPF'] || ''
+                              } : pay));
+                            }}
+                            className={`px-2 py-0.5 rounded text-[9px] font-bold border transition-all ${
+                              boletoTitularType === 'responsavel'
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-black'
+                                : 'bg-slate-900 text-slate-400 border-slate-800'
+                            }`}
+                          >
+                            🛡️ Responsável
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -4092,6 +4549,61 @@ const POSRegister = ({
                 Cliente: <span className="text-white">{completedSale.CLIENTE}</span>
               </p>
               <p className="text-2xl font-black text-emerald-400 mt-2">{fmtMoeda(completedSale.valorTotal)}</p>
+              {/* Itens da Venda com Descrições e Detalhes */}
+              {completedSale.itens && completedSale.itens.length > 0 && (
+                <div className="mt-2 space-y-1 text-left bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs">
+                  <span className="text-[10px] font-black uppercase text-indigo-400 block mb-1">
+                    Itens da Venda ({completedSale.itens.length}):
+                  </span>
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto erp-scroll pr-1">
+                    {completedSale.itens.map((it, idx) => (
+                      <div key={idx} className="border-b border-slate-900 last:border-0 pb-1 last:pb-0">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-bold text-white">
+                            {it.qtd || it.quantidade || 1}x {it.nome || it.produto || it.PRODUTO}
+                          </span>
+                          <span className="font-semibold text-emerald-400">
+                            {fmtMoeda((cleanVal(it.preco || it.valor) || 0) * (it.qtd || it.quantidade || 1))}
+                          </span>
+                        </div>
+                        {(it.detalhes || it.descricao || it.cor || it.material || it.tratamento || it.referenciaSku) && (
+                          <p className="text-[10px] text-slate-400 italic">
+                            {[
+                              it.detalhes,
+                              (it.descricao && it.descricao !== it.nome && it.descricao !== it.detalhes) ? it.descricao : '',
+                              it.referenciaSku ? `Ref: ${it.referenciaSku}` : '',
+                              it.cor ? `Cor: ${it.cor}` : '',
+                              it.material ? `Material: ${it.material}` : '',
+                              it.tratamento ? `Tratamento: ${it.tratamento}` : ''
+                            ].filter(Boolean).filter((val, i, arr) => arr.indexOf(val) === i).join(' | ')}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Titular Selecionado do Boleto / Carnê */}
+              {(completedSale.boletoTitularTipo || completedSale.BOLETO_TITULAR_TIPO) && (
+                <div className="mt-2 p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-500/30 text-left text-xs flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase text-indigo-300 flex items-center gap-1.5">
+                    <Users size={13} className="text-amber-400" />
+                    Titular das Parcelas / Carnê:
+                  </span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    (completedSale.boletoTitularTipo || completedSale.BOLETO_TITULAR_TIPO) === 'responsavel'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  }`}>
+                    {(completedSale.boletoTitularTipo || completedSale.BOLETO_TITULAR_TIPO) === 'responsavel'
+                      ? `🛡️ Responsável (${completedSale.boletoPagadorNome || completedSale.BOLETO_PAGADOR_NOME || 'Responsável Legal'})`
+                      : `👤 Cliente Titular (${completedSale.boletoPagadorNome || completedSale.BOLETO_PAGADOR_NOME || completedSale.CLIENTE})`
+                    }
+                  </span>
+                </div>
+              )}
+
               <div className="mt-2 space-y-1 text-left bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs">
                 <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Pagamentos Efetuados:</span>
                 {completedSale.pagamentosLista && completedSale.pagamentosLista.map((p, idx) => (

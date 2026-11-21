@@ -30,6 +30,7 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
   const tratamento = osData.tratamento || safeClient['Tratamento'] || osData.raw?.['TRATAMENTO'] || '';
   const material = osData.material || safeClient['MATERIAL'] || osData.raw?.['MATERIAL'] || '';
   const cor = osData.cor || safeClient['Cor'] || osData.raw?.['COR'] || '';
+  const referenciaSku = osData.referenciaSku || osData.raw?.['REFERENCIA_SKU'] || osData.raw?.['CODIGO'] || safeClient['REFERENCIA_SKU'] || safeClient['CODIGO'] || '';
   const detalhes = osData.detalhes || osData.raw?.['DETALHES'] || safeClient['DETALHES'] || '';
   const valorEntrada = formatCurrencyPrint(osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? safeClient['VALOR ENTRADA'] ?? safeClient['Valor Entrada']);
   const formaPgto = osData.formasPagamento ? String(osData.formasPagamento).replace(/(?:FORMA DE PAGAMENTO|FORMA_PAGTO|FORMA_PAGAMENTO|MEIO_PAGAMENTO)\s*:\s*/gi, '').split('\n')[0].trim() : '';
@@ -148,7 +149,7 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
                 <td className="border border-slate-400 py-2 px-3 font-bold text-slate-900 text-sm">OD: {osData.odDnp || osData['OD_DNP'] || '---'}</td>
                 <td className="border border-slate-400 py-3 px-3 bg-slate-50 text-center w-32" rowSpan={2}>
                   <div className="font-black text-[10px] text-slate-600 uppercase">Tipo de Armação</div>
-                  <div className="font-black text-xs mt-1 uppercase text-slate-900">{tipoArmacao || '---'}{cor ? ` (Cor: ${cor})` : ''}</div>
+                  <div className="font-black text-xs mt-1 uppercase text-slate-900">{tipoArmacao || '---'}{cor ? ` (Cor: ${cor})` : ''}{referenciaSku ? ` [Ref: ${referenciaSku}]` : ''}</div>
                 </td>
               </tr>
               <tr>

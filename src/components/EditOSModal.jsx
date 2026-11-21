@@ -22,7 +22,8 @@ import {
   FileText,
   ShieldCheck,
   Clock,
-  AlertOctagon
+  AlertOctagon,
+  Users
 } from 'lucide-react';
 import { buildNormalizedDateTime } from '../dateSyncUtils';
 
@@ -237,7 +238,18 @@ const EditOSModal = ({
     oePertoEixo: '',
     oePertoDnp: '',
     oePertoAlt: '',
-    adicao: ''
+    adicao: '',
+    cor: '',
+    material: '',
+    tratamento: '',
+    referenciaSku: '',
+    detalhes: '',
+    boletoTitularTipo: 'cliente',
+    boletoTitularType: 'cliente',
+    boletoPagadorNome: '',
+    boletoPagadorCpf: '',
+    customRespName: '',
+    customRespCpf: ''
   });
 
   const [activeTab, setActiveTab] = useState('geral'); // 'geral', 'receita', 'financeiro'
@@ -270,12 +282,41 @@ const EditOSModal = ({
       const rawFormaRestante = osData['FORMA_RESTANTE'] || osData['formaPagamentoRestante'] || '';
       const rawPaciente = osData['PACIENTE'] || osData['NOME_BENEFICIARIO'] || osData['CLIENTE_BENEFICIARIO'] || osData['nomePessoa'] || osData['beneficiario'] || '';
 
+      const respN = String(
+        osData['BOLETO_PAGADOR_NOME'] ||
+        osData['boletoPagadorNome'] ||
+        osData['Responsável Nome'] ||
+        osData['Responsável'] ||
+        osData['RESPONSAVEL_NOME'] ||
+        osData['RESPONSAVEL'] ||
+        ''
+      ).trim();
+      const respC = String(
+        osData['BOLETO_PAGADOR_CPF'] ||
+        osData['boletoPagadorCpf'] ||
+        osData['Responsável CPF'] ||
+        osData['RESPONSAVEL_CPF'] ||
+        ''
+      ).trim();
+      const initialTitular = osData['BOLETO_TITULAR_TIPO'] || osData['boletoTitularTipo'] || osData['TITULAR_BOLETO'] || (respN ? 'responsavel' : 'cliente');
+
       setFormData({
         numeroOS: numOS,
         status: osData['STATUS_OS'] || osData['SITUAÇÃO'] || 'No Laboratório',
         pacienteNome: rawPaciente,
         armacao: osData['ARMAÇÃO'] || osData['Armação'] || osData['PRODUTO'] || '',
         lente: osData['LENTE'] || osData['Lente'] || '',
+        cor: osData['COR'] || osData['Cor'] || '',
+        material: osData['MATERIAL'] || osData['Material'] || '',
+        tratamento: osData['TRATAMENTO'] || osData['Tratamento'] || '',
+        referenciaSku: osData['REFERENCIA_SKU'] || osData['referenciaSku'] || osData['CODIGO'] || '',
+        detalhes: osData['DETALHES'] || osData['detalhes'] || osData['DETALHES_PRODUTO'] || osData['OBS_PRODUTO'] || '',
+        boletoTitularTipo: initialTitular,
+        boletoTitularType: initialTitular,
+        boletoPagadorNome: respN || osData['CLIENTE'] || '',
+        boletoPagadorCpf: respC || osData['CPF'] || '',
+        customRespName: respN,
+        customRespCpf: respC,
         laboratorio: osData['LABORATORIO'] || osData['Laboratório'] || osData['LAB'] || '',
         medico: osData['MEDICO'] || osData['Médico'] || '',
         dataVenda: osData['DATA  DA VENDA'] || osData['DATA DA VENDA'] || osData['DATA_VENDA'] || osData['Data da Venda'] || osData['data_venda'] || osData['dataVenda'] || osData['DATA'] || osData['Data'] || '',
@@ -430,6 +471,14 @@ const EditOSModal = ({
   }, 0);
 
   const handleChange = (field, value) => {
+    if (field === 'boletoTitularType' || field === 'boletoTitularTipo') {
+      setFormData(prev => ({
+        ...prev,
+        boletoTitularType: value,
+        boletoTitularTipo: value
+      }));
+      return;
+    }
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -507,6 +556,19 @@ const EditOSModal = ({
       ? osData.allLinkedOS.map(num => String(num).trim().toLowerCase() === oldOSNumber.toLowerCase() ? finalNumeroOS : num)
       : [finalNumeroOS];
 
+    const isRespTitular = (formData.boletoTitularType === 'responsavel' || formData.boletoTitularTipo === 'responsavel') && Boolean(
+      formData.customRespName ||
+      formData.boletoPagadorNome ||
+      osData?.['Responsável Nome'] ||
+      osData?.['Responsável']
+    );
+    const titularPagadorName = isRespTitular
+      ? (formData.customRespName || formData.boletoPagadorNome || osData?.['Responsável Nome'] || osData?.['Responsável'] || 'Responsável')
+      : (osData?.['CLIENTE'] || 'Cliente');
+    const titularPagadorCpf = isRespTitular
+      ? (formData.customRespCpf || formData.boletoPagadorCpf || osData?.['Responsável CPF'] || '')
+      : (osData?.['CPF'] || '');
+
     if (isSecondary) {
       const secNormDate = buildNormalizedDateTime(formData.dataVenda, osData.hora || osData.HORA);
       const updatedRow = {
@@ -541,6 +603,24 @@ const EditOSModal = ({
         'ARMAÇÃO': formData.armacao,
         'LENTE': formData.lente,
         'PRODUTO': [formData.armacao, formData.lente].filter(Boolean).join(' + ') || osData['PRODUTO'] || 'Óculos Completo',
+        'COR': formData.cor || '',
+        'cor': formData.cor || '',
+        'MATERIAL': formData.material || '',
+        'material': formData.material || '',
+        'TRATAMENTO': formData.tratamento || '',
+        'tratamento': formData.tratamento || '',
+        'REFERENCIA_SKU': formData.referenciaSku || '',
+        'referenciaSku': formData.referenciaSku || '',
+        'DETALHES': formData.detalhes || '',
+        'detalhes': formData.detalhes || '',
+        'BOLETO_TITULAR_TIPO': formData.boletoTitularType || formData.boletoTitularTipo || 'cliente',
+        'boletoTitularTipo': formData.boletoTitularType || formData.boletoTitularTipo || 'cliente',
+        'BOLETO_PAGADOR_NOME': titularPagadorName,
+        'boletoPagadorNome': titularPagadorName,
+        'BOLETO_PAGADOR_CPF': titularPagadorCpf,
+        'boletoPagadorCpf': titularPagadorCpf,
+        'TITULAR_BOLETO': isRespTitular ? 'Responsável' : 'Cliente',
+        'titularBoleto': isRespTitular ? 'Responsável' : 'Cliente',
         'LABORATORIO': formData.laboratorio,
         'MEDICO': formData.medico,
         'DATA  DA VENDA': secNormDate.brDate,
@@ -684,6 +764,24 @@ const EditOSModal = ({
       'ARMAÇÃO': formData.armacao,
       'LENTE': formData.lente,
       'PRODUTO': formData.lente ? `${formData.armacao || 'Armação'} + ${formData.lente}` : (formData.armacao || osData['PRODUTO'] || 'Óculos Completo'),
+      'COR': formData.cor || '',
+      'cor': formData.cor || '',
+      'MATERIAL': formData.material || '',
+      'material': formData.material || '',
+      'TRATAMENTO': formData.tratamento || '',
+      'tratamento': formData.tratamento || '',
+      'REFERENCIA_SKU': formData.referenciaSku || '',
+      'referenciaSku': formData.referenciaSku || '',
+      'DETALHES': formData.detalhes || '',
+      'detalhes': formData.detalhes || '',
+      'BOLETO_TITULAR_TIPO': formData.boletoTitularType || formData.boletoTitularTipo || 'cliente',
+      'boletoTitularTipo': formData.boletoTitularType || formData.boletoTitularTipo || 'cliente',
+      'BOLETO_PAGADOR_NOME': titularPagadorName,
+      'boletoPagadorNome': titularPagadorName,
+      'BOLETO_PAGADOR_CPF': titularPagadorCpf,
+      'boletoPagadorCpf': titularPagadorCpf,
+      'TITULAR_BOLETO': isRespTitular ? 'Responsável' : 'Cliente',
+      'titularBoleto': isRespTitular ? 'Responsável' : 'Cliente',
       'LABORATORIO': formData.laboratorio,
       'MEDICO': formData.medico,
       'DATA  DA VENDA': normDate.brDate,
@@ -982,6 +1080,71 @@ const EditOSModal = ({
                       placeholder="Marca, Tipo e Tratamentos da Lente"
                     />
                   </div>
+                </div>
+
+                {/* Linha 3.5: Detalhes do Produto (Ref/SKU, Cor, Material, Tratamento, Especificações) */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
+                      Ref / SKU
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.referenciaSku || ''}
+                      onChange={e => handleChange('referenciaSku', e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-mono"
+                      placeholder="Código / Ref"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
+                      Cor da Armação
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.cor || ''}
+                      onChange={e => handleChange('cor', e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                      placeholder="Ex: Preto Fosco"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
+                      Material
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.material || ''}
+                      onChange={e => handleChange('material', e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                      placeholder="Ex: Acetato, Titânio"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
+                      Tratamento
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.tratamento || ''}
+                      onChange={e => handleChange('tratamento', e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                      placeholder="Ex: Antirreflexo"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
+                    Descrição Detalhada / Especificações do Produto
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.detalhes || ''}
+                    onChange={e => handleChange('detalhes', e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-fuchsia-500"
+                    placeholder="Observações do produto, modelo, especificações técnicas..."
+                  />
                 </div>
 
                 {/* Linha 4: Laboratório & Médico */}
@@ -1690,6 +1853,106 @@ const EditOSModal = ({
                         );
                       })}
                     </div>
+
+                    {/* SELETOR DE TITULAR DO BOLETO / CARNÊ NA EDIÇÃO */}
+                    {(payments.some(p => p.metodo === 'carne' || p.metodo === 'boleto') || currentMethod === 'carne') && (
+                      (() => {
+                        const currentTitular = formData.boletoTitularType || formData.boletoTitularTipo || 'cliente';
+                        return (
+                          <div className="p-3 bg-slate-950 rounded-xl border border-indigo-500/30 space-y-2 mt-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-black uppercase text-indigo-300 flex items-center gap-1.5">
+                                <Users size={12} className="text-amber-400" />
+                                Titular / Pagador das Parcelas do Boleto:
+                              </span>
+                              <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                {currentTitular === 'responsavel' ? '🛡️ Responsável Legal' : '👤 Cliente Titular'}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleChange('boletoTitularType', 'cliente')}
+                                className={`p-2 rounded-xl border text-left transition-all ${
+                                  currentTitular === 'cliente'
+                                    ? 'bg-emerald-500/20 border-emerald-500/50 text-white shadow-sm'
+                                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-black uppercase">👤 Cliente Titular</span>
+                                  {currentTitular === 'cliente' && <CheckCircle2 size={12} className="text-emerald-400" />}
+                                </div>
+                                <p className="text-[10px] font-bold text-slate-200 truncate mt-0.5">
+                                  {osData?.['CLIENTE'] || 'Cliente'}
+                                </p>
+                                {osData?.['CPF'] && (
+                                  <p className="text-[9px] text-slate-400 font-mono">
+                                    CPF: {osData?.['CPF']}
+                                  </p>
+                                )}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleChange('boletoTitularType', 'responsavel')}
+                                className={`p-2 rounded-xl border text-left transition-all ${
+                                  currentTitular === 'responsavel'
+                                    ? 'bg-amber-500/20 border-amber-500/50 text-white shadow-sm'
+                                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-black uppercase">🛡️ Responsável</span>
+                                  {currentTitular === 'responsavel' && <CheckCircle2 size={12} className="text-amber-400" />}
+                                </div>
+                                <p className="text-[10px] font-bold text-amber-200 truncate mt-0.5">
+                                  {formData.customRespName || formData.boletoPagadorNome || osData?.['Responsável Nome'] || 'Informar Responsável'}
+                                </p>
+                                {(formData.customRespCpf || formData.boletoPagadorCpf || osData?.['Responsável CPF']) ? (
+                                  <p className="text-[9px] text-amber-300/70 font-mono">
+                                    CPF: {formData.customRespCpf || formData.boletoPagadorCpf || osData?.['Responsável CPF']}
+                                  </p>
+                                ) : (
+                                  <p className="text-[9px] text-slate-500">(Clique para preencher)</p>
+                                )}
+                              </button>
+                            </div>
+
+                            {currentTitular === 'responsavel' && (
+                              <div className="bg-slate-900 p-2.5 rounded-lg border border-amber-500/30 space-y-2 mt-1">
+                                <span className="text-[10px] font-bold text-amber-300 block">
+                                  Dados do Responsável Legal / Financeiro:
+                                </span>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                  <div>
+                                    <label className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5">Nome do Responsável</label>
+                                    <input
+                                      type="text"
+                                      value={formData.customRespName || ''}
+                                      onChange={e => handleChange('customRespName', e.target.value)}
+                                      placeholder="Nome completo do responsável"
+                                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5">CPF do Responsável</label>
+                                    <input
+                                      type="text"
+                                      value={formData.customRespCpf || ''}
+                                      onChange={e => handleChange('customRespCpf', e.target.value)}
+                                      placeholder="000.000.000-00"
+                                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()
+                    )}
                   </div>
                 )}
 

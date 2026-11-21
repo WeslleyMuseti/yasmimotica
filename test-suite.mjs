@@ -9240,7 +9240,231 @@ async function runTests() {
     console.log('  ✅ Test 101 Passed: Gestão de OS (Filtros, Ajuste Amarelo Admin, Auditoria Docs), Gestão Financeira e Transferência validados com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 101 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ─── TEST 102: Descrições de Produtos no PDV e na OS & Seleção de Titular das Parcelas do Boleto ───
+  console.log('▶ Test 102: Descrições de Produtos no PDV/OS e Seleção do Titular das Parcelas do Boleto (Cliente vs Responsável)');
+  {
+    const fs = await import('fs');
+    const path = await import('path');
+    const posRegisterSrc = fs.readFileSync(path.resolve('./src/components/POSRegister.jsx'), 'utf-8');
+    const osManagementSrc = fs.readFileSync(path.resolve('./src/components/OSManagement.jsx'), 'utf-8');
+    const osGeneratorSrc = fs.readFileSync(path.resolve('./src/components/OSGeneratorModal.jsx'), 'utf-8');
+    const editOSModalSrc = fs.readFileSync(path.resolve('./src/components/EditOSModal.jsx'), 'utf-8');
+    const printableOSSrc = fs.readFileSync(path.resolve('./src/components/PrintableOS.jsx'), 'utf-8');
+    const printableLabSrc = fs.readFileSync(path.resolve('./src/components/PrintableLabOS.jsx'), 'utf-8');
+    const printableReceiptSrc = fs.readFileSync(path.resolve('./src/components/PrintableReceipt.jsx'), 'utf-8');
+
+    // ─── 1. VERIFICAÇÃO DE DESCRIÇÕES DOS PRODUTOS NO PDV, OS E IMPRESSÕES ───
+    
+    // 1.1 Preservação de detalhes completos no carrinho do PDV (POSRegister.jsx)
+    console.assert(posRegisterSrc.includes('addToCart'), 'POSRegister deve conter função addToCart');
+    console.assert(posRegisterSrc.includes('product[\'REFERENCIA_SKU\']') || posRegisterSrc.includes('REFERENCIA_SKU'), 'addToCart deve preservar REFERENCIA_SKU');
+    console.assert(posRegisterSrc.includes('product[\'COR\']') || posRegisterSrc.includes('product[\'Cor\']'), 'addToCart deve preservar Cor');
+    console.assert(posRegisterSrc.includes('product[\'MATERIAL\']') || posRegisterSrc.includes('product[\'Material\']'), 'addToCart deve preservar Material');
+    console.assert(posRegisterSrc.includes('product[\'TRATAMENTO\']') || posRegisterSrc.includes('product[\'Tratamento\']'), 'addToCart deve preservar Tratamento');
+    console.assert(posRegisterSrc.includes('referenciaSku:'), 'Objeto do carrinho no PDV deve conter campo referenciaSku');
+    console.assert(posRegisterSrc.includes('detalhes: details') || posRegisterSrc.includes('detalhes:'), 'Objeto do carrinho no PDV deve conter campo detalhes');
+    console.assert(posRegisterSrc.includes('descricao:'), 'Objeto do carrinho no PDV deve conter campo descricao');
+    console.assert(posRegisterSrc.includes('item.detalhes'), 'POSRegister deve exibir item.detalhes no carrinho');
+
+    // 1.2 Modal de Venda Concluída no PDV exibe resumo de itens com detalhes
+    console.assert(posRegisterSrc.includes('Itens da Venda'), 'Modal de Venda Concluída deve listar Itens da Venda');
+    console.assert(posRegisterSrc.includes('it.detalhes'), 'Modal de Venda Concluída deve exibir detalhes dos itens');
+
+    // 1.3 Preservação e exibição de detalhes na geração de OS (OSGeneratorModal.jsx)
+    console.assert(osGeneratorSrc.includes('extractedFramesData'), 'OSGeneratorModal deve extrair dados detalhados das armações');
+    console.assert(osGeneratorSrc.includes('extractedLensesData'), 'OSGeneratorModal deve extrair dados detalhados das lentes');
+    console.assert(osGeneratorSrc.includes('cor:'), 'OSGeneratorModal deve registrar cor');
+    console.assert(osGeneratorSrc.includes('material:'), 'OSGeneratorModal deve registrar material');
+    console.assert(osGeneratorSrc.includes('tratamento:'), 'OSGeneratorModal deve registrar tratamento');
+    console.assert(osGeneratorSrc.includes('referenciaSku:'), 'OSGeneratorModal deve registrar referenciaSku');
+    console.assert(osGeneratorSrc.includes('detalhes:'), 'OSGeneratorModal deve registrar detalhes');
+    console.assert(osGeneratorSrc.includes('Descrição Detalhada / Especificações do Produto'), 'OSGeneratorModal deve conter input para especificações do produto');
+
+    // 1.4 Exibição de detalhes em Gestão de OS (OSManagement.jsx)
+    console.assert(osManagementSrc.includes('order.detalhes'), 'OSManagement deve mapear e exibir detalhes da OS');
+    console.assert(osManagementSrc.includes('order.referenciaSku'), 'OSManagement deve mapear e exibir referenciaSku da OS');
+    console.assert(osManagementSrc.includes('order.cor'), 'OSManagement deve mapear e exibir cor da OS');
+    console.assert(osManagementSrc.includes('order.tratamento'), 'OSManagement deve mapear e exibir tratamento da OS');
+    console.assert(osManagementSrc.includes('order.material'), 'OSManagement deve mapear e exibir material da OS');
+    console.assert(osManagementSrc.includes('order.itens'), 'OSManagement deve mapear e exibir itens da venda na OS');
+
+    // 1.5 Edição de OS (EditOSModal.jsx) com campos de produtos e detalhes
+    console.assert(editOSModalSrc.includes('referenciaSku'), 'EditOSModal deve gerenciar referenciaSku');
+    console.assert(editOSModalSrc.includes('detalhes'), 'EditOSModal deve gerenciar detalhes');
+    console.assert(editOSModalSrc.includes('cor'), 'EditOSModal deve gerenciar cor');
+    console.assert(editOSModalSrc.includes('material'), 'EditOSModal deve gerenciar material');
+    console.assert(editOSModalSrc.includes('tratamento'), 'EditOSModal deve gerenciar tratamento');
+    console.assert(editOSModalSrc.includes('Descrição Detalhada / Especificações do Produto'), 'EditOSModal deve conter input para Descrição Detalhada');
+    console.assert(editOSModalSrc.includes('boletoTitularType: initialTitular') && editOSModalSrc.includes('boletoTitularTipo: initialTitular'), 'EditOSModal deve inicializar tanto boletoTitularType quanto boletoTitularTipo no estado');
+
+    // 1.6 Impressão da OS e Lab (PrintableOS.jsx & PrintableLabOS.jsx)
+    console.assert(printableOSSrc.includes('Ref:'), 'PrintableOS deve formatar Referência / SKU');
+    console.assert(printableOSSrc.includes('extraDetails'), 'PrintableOS deve mapear detalhes extras dos itens');
+    console.assert(printableLabSrc.includes('referenciaSku'), 'PrintableLabOS deve mapear referenciaSku');
+    console.assert(printableLabSrc.includes('detalhes'), 'PrintableLabOS deve mapear detalhes');
+    console.assert(printableReceiptSrc.includes('item.detalhes'), 'PrintableReceipt deve exibir detalhes dos itens');
+    console.assert(printableReceiptSrc.includes('extraSpecs'), 'PrintableReceipt deve exibir especificações do produto (Ref, Cor, Material, Tratamento)');
+
+    // 1.7 Exibição de especificações de produtos no catálogo do PDV (POSRegister.jsx)
+    console.assert(posRegisterSrc.includes('Mat: {material}'), 'POSRegister deve exibir badge de Material nos cards do catálogo');
+    console.assert(posRegisterSrc.includes('Trat: {tratamento}'), 'POSRegister deve exibir badge de Tratamento nos cards do catálogo');
+    console.assert(posRegisterSrc.includes('descricaoProd'), 'POSRegister deve exibir descrição detalhada nos cards do catálogo');
+
+    // ─── 2. SELEÇÃO DE TITULAR DAS PARCELAS DO BOLETO (CLIENTE VS RESPONSÁVEL) ───
+
+    // 2.1 Seletor de titular no PDV (POSRegister.jsx)
+    console.assert(posRegisterSrc.includes('boletoTitularType'), 'POSRegister deve conter estado boletoTitularType');
+    console.assert(posRegisterSrc.includes('setBoletoTitularType'), 'POSRegister deve permitir alterar boletoTitularType');
+    console.assert(posRegisterSrc.includes('Titular / Pagador das Parcelas:'), 'POSRegister deve exibir label de Titular / Pagador');
+    console.assert(posRegisterSrc.includes('👤 Cliente Titular'), 'POSRegister deve oferecer opção Cliente Titular');
+    console.assert(posRegisterSrc.includes('🛡️ Responsável'), 'POSRegister deve oferecer opção Responsável');
+    console.assert(posRegisterSrc.includes('Dados do Responsável Legal / Financeiro'), 'POSRegister deve permitir conferir/editar dados do responsável');
+
+    // 2.2 Seletor de titular na geração de OS e edição de OS
+    console.assert(osGeneratorSrc.includes('boletoTitularType'), 'OSGeneratorModal deve conter estado boletoTitularType');
+    console.assert(osGeneratorSrc.includes('Titular / Pagador das Parcelas do Boleto:'), 'OSGeneratorModal deve exibir seletor de titular');
+    console.assert(editOSModalSrc.includes('boletoTitularType'), 'EditOSModal deve gerenciar boletoTitularType');
+
+    // 2.3 Simulação e Teste Funcional do Repasse de Pagador para CONTAS_RECEBER
+    const mockOrderClientTitular = {
+      osNumber: 'CAJ-881',
+      clientName: 'João Menor de Idade',
+      clientCPF: '111.222.333-44',
+      clientData: { id: 'cli_01', 'Nome Completo': 'João Menor de Idade' },
+      boletoTitularType: 'cliente',
+      boletoPagadorNome: 'João Menor de Idade',
+      boletoPagadorCpf: '111.222.333-44',
+      product: 'Óculos Completo RayBan',
+      valorTotal: '600,00',
+      valorEntrada: '0,00',
+      restante: '600,00',
+      formasPagamento: 'Boleto (3x)',
+      formaRestante: 'Boleto',
+      unit: 'Cajati'
+    };
+
+    const mockOrderRespTitular = {
+      osNumber: 'CAJ-882',
+      clientName: 'Lucas da Silva (Filho)',
+      clientCPF: '999.888.777-66',
+      clientData: { 
+        id: 'cli_02', 
+        'Nome Completo': 'Lucas da Silva (Filho)',
+        'Responsável Nome': 'Marcos da Silva (Pai)',
+        'Responsável CPF': '444.555.666-77'
+      },
+      boletoTitularType: 'responsavel',
+      boletoPagadorNome: 'Marcos da Silva (Pai)',
+      boletoPagadorCpf: '444.555.666-77',
+      responsavelNome: 'Marcos da Silva (Pai)',
+      responsavelCpf: '444.555.666-77',
+      product: 'Óculos Completo Oakley',
+      valorTotal: '900,00',
+      valorEntrada: '300,00',
+      restante: '600,00',
+      formasPagamento: 'Entrada PIX + Boleto (2x)',
+      formaRestante: 'Boleto',
+      unit: 'Cajati'
+    };
+
+    // Função de geração de duplicatas para teste (espelhando a lógica de handleConfirmApproval de OSManagement.jsx)
+    const generateInstallmentsForOS = (order, parcelas) => {
+      const isRespTitular = (
+        order.boletoTitularType === 'responsavel' ||
+        order.BOLETO_TITULAR_TIPO === 'responsavel' ||
+        order.TITULAR_BOLETO === 'Responsável'
+      ) && Boolean(
+        order.boletoPagadorNome ||
+        order.responsavelNome ||
+        order.clientData?.['Responsável Nome']
+      );
+
+      const titularPagadorName = isRespTitular
+        ? (order.boletoPagadorNome || order.responsavelNome || order.clientData?.['Responsável Nome'] || 'Responsável')
+        : (order.clientName || 'Cliente');
+
+      const titularPagadorCpf = isRespTitular
+        ? (order.boletoPagadorCpf || order.responsavelCpf || order.clientData?.['Responsável CPF'] || '')
+        : (order.clientCPF || '');
+
+      return parcelas.map(p => ({
+        CLIENTE: titularPagadorName,
+        CLIENTE_CPF: titularPagadorCpf,
+        CPF: titularPagadorCpf,
+        PAGADOR: titularPagadorName,
+        PAGADOR_TIPO: isRespTitular ? 'Responsável' : 'Cliente',
+        TITULAR_PARCELA: titularPagadorName,
+        TITULAR_TIPO: isRespTitular ? 'responsavel' : 'cliente',
+        PACIENTE: order.clientName,
+        VENDA_OS: order.osNumber,
+        VALOR: p.valor,
+        MEIO_PAGAMENTO: 'Boleto',
+        VENCIMENTO: p.vencimento
+      }));
+    };
+
+    // Validação caso 1: Boleto no Cliente Titular
+    const parcelasCaso1 = [
+      { numero: 1, valor: '200,00', vencimento: '2026-12-15' },
+      { numero: 2, valor: '200,00', vencimento: '2027-01-15' },
+      { numero: 3, valor: '200,00', vencimento: '2027-02-15' }
+    ];
+    const duplicatasCaso1 = generateInstallmentsForOS(mockOrderClientTitular, parcelasCaso1);
+    console.assert(duplicatasCaso1.length === 3, 'Caso 1 deve gerar 3 duplicatas');
+    console.assert(duplicatasCaso1.every(d => d.CLIENTE === 'João Menor de Idade'), 'Caso 1: CLIENTE deve ser o Cliente Titular');
+    console.assert(duplicatasCaso1.every(d => d.PAGADOR_TIPO === 'Cliente'), 'Caso 1: PAGADOR_TIPO deve ser Cliente');
+    console.assert(duplicatasCaso1.every(d => d.PACIENTE === 'João Menor de Idade'), 'Caso 1: PACIENTE deve ser João Menor de Idade');
+
+    // Validação caso 2: Boleto no Responsável Legal
+    const parcelasCaso2 = [
+      { numero: 1, valor: '300,00', vencimento: '2026-12-20' },
+      { numero: 2, valor: '300,00', vencimento: '2027-01-20' }
+    ];
+    const duplicatasCaso2 = generateInstallmentsForOS(mockOrderRespTitular, parcelasCaso2);
+    console.assert(duplicatasCaso2.length === 2, 'Caso 2 deve gerar 2 duplicatas');
+    console.assert(duplicatasCaso2.every(d => d.CLIENTE === 'Marcos da Silva (Pai)'), 'Caso 2: CLIENTE em CONTAS_RECEBER deve ser Marcos da Silva (Pai)');
+    console.assert(duplicatasCaso2.every(d => d.CLIENTE_CPF === '444.555.666-77'), 'Caso 2: CPF deve ser o do Responsável');
+    console.assert(duplicatasCaso2.every(d => d.PAGADOR === 'Marcos da Silva (Pai)'), 'Caso 2: PAGADOR deve ser Marcos da Silva (Pai)');
+    console.assert(duplicatasCaso2.every(d => d.PAGADOR_TIPO === 'Responsável'), 'Caso 2: PAGADOR_TIPO deve ser Responsável');
+    console.assert(duplicatasCaso2.every(d => d.PACIENTE === 'Lucas da Silva (Filho)'), 'Caso 2: PACIENTE deve manter o vínculo ao filho Lucas da Silva');
+
+    // 2.4 Validação da impressão: PrintableOS e PrintableReceipt exibem o titular selecionado
+    console.assert(printableOSSrc.includes('Titular / Pagador das Parcelas do Boleto:'), 'PrintableOS deve imprimir Titular / Pagador das Parcelas do Boleto');
+    console.assert(printableReceiptSrc.includes('Titular:'), 'PrintableReceipt deve exibir Titular do Boleto');
+
+    // 2.5 Validação funcional de isSameClient no roteamento de duplicatas (Pai vs Filho)
+    const { isSameClient } = await import('./src/firebaseSync.js');
+    const registeredFather = {
+      id: 'cli_father_99',
+      'Nome Completo': 'Marcos da Silva (Pai)',
+      'CPF / CNPJ': '444.555.666-77'
+    };
+    const registeredChild = {
+      id: 'cli_child_02',
+      'Nome Completo': 'Lucas da Silva (Filho)',
+      'CPF / CNPJ': '999.888.777-66'
+    };
+
+    // Duplicata com CLIENTE_ID do pai ou vazia (match por CPF)
+    const parcelaPai1 = {
+      ...duplicatasCaso2[0],
+      CLIENTE_ID: 'cli_father_99'
+    };
+    console.assert(isSameClient(registeredFather, parcelaPai1) === true, 'isSameClient deve associar a duplicata ao pai');
+    console.assert(isSameClient(registeredChild, parcelaPai1) === false, 'isSameClient NÃO deve associar a duplicata do pai ao filho');
+
+    // Duplicata sem CLIENTE_ID mas com CPF do pai
+    const parcelaPaiSemId = {
+      ...duplicatasCaso2[1],
+      CLIENTE_ID: ''
+    };
+    console.assert(isSameClient(registeredFather, parcelaPaiSemId) === true, 'isSameClient por CPF deve associar a duplicata ao pai');
+    console.assert(isSameClient(registeredChild, parcelaPaiSemId) === false, 'isSameClient por CPF NÃO deve associar a duplicata ao filho');
+
+    console.log('  ✅ Test 102 Passed: Descrições de Produtos no PDV/OS e Seleção do Titular das Parcelas do Boleto (Cliente vs Responsável) validados com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 102 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

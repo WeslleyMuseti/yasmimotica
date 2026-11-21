@@ -182,7 +182,14 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
     const generalDetails = osData.detalhes || osData.detalhesProduto || osData.raw?.['DETALHES'] || osData.raw?.['detalhes'] || osData.raw?.['DETALHE DO PRODUTO'] || osData.raw?.['DETALHES DO PRODUTO'] || osData.raw?.['DETALHES_PRODUTO'] || safeClient['DETALHES'] || safeClient['DETALHE DO PRODUTO'] || safeClient['DETALHES DO PRODUTO'] || safeClient['DETALHES_PRODUTO'] || '';
 
     // 1. Se houver array de itens explícito vindo do PDV ou OS
-    const rawItens = osData.itens || safeClient.itens || (osData.raw && osData.raw.itens) || [];
+    let rawItens = osData.itens || safeClient.itens || (osData.raw && osData.raw.itens) || [];
+    if (!Array.isArray(rawItens) || rawItens.length === 0) {
+      if (typeof osData.raw?.ITENS_JSON === 'string') {
+        try { rawItens = JSON.parse(osData.raw.ITENS_JSON); } catch (e) {}
+      } else if (typeof osData.ITENS_JSON === 'string') {
+        try { rawItens = JSON.parse(osData.ITENS_JSON); } catch (e) {}
+      }
+    }
     if (Array.isArray(rawItens) && rawItens.length > 0) {
       const mapped = rawItens.map(item => {
         let tipo = 'Produto';
@@ -202,8 +209,12 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
         if (item.material && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.material).toLowerCase()))) {
           extraDetails.push(`Material: ${item.material}`);
         }
-        if (item.ref && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.ref).toLowerCase()))) {
-          extraDetails.push(`Ref: ${item.ref}`);
+        const refCode = item.referenciaSku || item.ref || item.sku || item.codigo;
+        if (refCode && !extraDetails.some(d => String(d).toLowerCase().includes(String(refCode).toLowerCase()))) {
+          extraDetails.push(`Ref: ${refCode}`);
+        }
+        if (item.descricao && item.descricao !== item.nome && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.descricao).toLowerCase()))) {
+          extraDetails.push(item.descricao);
         }
         if (item.observacoes && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.observacoes).toLowerCase()))) {
           extraDetails.push(item.observacoes);
@@ -240,6 +251,8 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
       const extra = [];
       const cor = osData.cor || osData.raw?.['COR'] || osData.raw?.['Cor'] || safeClient['Cor'] || safeClient['COR'];
       if (cor) extra.push(`Cor: ${cor}`);
+      const mat = osData.materialArmacao || osData.material || osData.raw?.['MATERIAL_ARMACAO'] || osData.raw?.['MATERIAL'] || safeClient['Material'];
+      if (mat) extra.push(`Material: ${mat}`);
       const ref = osData.referenciaSku || osData.raw?.['REFERENCIA_SKU'] || osData.raw?.['CODIGO'] || safeClient['REFERENCIA_SKU'] || safeClient['CODIGO'];
       if (ref) extra.push(`Ref: ${ref}`);
       const detArm = osData.detalhesArmacao || osData.raw?.['DETALHES_ARMACAO'];
@@ -284,6 +297,8 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
     if (items.length === 0 && (osData.produto || safeClient['PRODUTO'])) {
       const extra = [];
       if (generalDetails) extra.push(generalDetails);
+      const ref = osData.referenciaSku || osData.raw?.['REFERENCIA_SKU'] || osData.raw?.['CODIGO'] || safeClient['REFERENCIA_SKU'] || safeClient['CODIGO'];
+      if (ref) extra.push(`Ref: ${ref}`);
       const cor = osData.cor || osData.raw?.['COR'] || osData.raw?.['Cor'] || safeClient['Cor'] || safeClient['COR'];
       if (cor) extra.push(`Cor: ${cor}`);
       const trat = osData.tratamento || osData.raw?.['TRATAMENTO'] || osData.raw?.['Tratamento'] || safeClient['Tratamento'] || safeClient['TRATAMENTO'];
@@ -811,20 +826,35 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
             </div>
 
             {/* Cronograma de Parcelas do Boleto se houver parcelamento */}
-            {!isSecondary && installmentsList.length > 0 && (
+            {!isSecondary && (installmentsList.length > 0 || (osData.boletoTitularTipo || osData.raw?.BOLETO_TITULAR_TIPO)) && (
               <div className="mt-1 pt-1 border-t border-slate-200">
-                <span className="text-[7px] font-black uppercase text-indigo-900 block mb-0.5">
-                  📄 Cronograma de Parcelas do Boleto ({installmentsList.length} parcelas):
-                </span>
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1">
-                  {installmentsList.map((p, pIdx) => (
-                    <div key={pIdx} className="bg-white border border-slate-300 rounded p-0.5 text-center">
-                      <span className="block text-[6.5px] font-bold text-slate-500 uppercase">{p.numero || pIdx + 1}ª Parcela</span>
-                      <span className="block text-[7.5px] font-black text-slate-900">R$ {formatCurrencyPrint(p.valor)}</span>
-                      <span className="block text-[6.5px] font-medium text-slate-600">{formatDatePrint(p.vencimento)}</span>
+                {(osData.boletoTitularTipo || osData.raw?.BOLETO_TITULAR_TIPO) && (
+                  <div className="mb-1 text-[7.5px] font-bold text-slate-700 bg-indigo-50/70 border border-indigo-200 rounded px-1.5 py-0.5 flex items-center justify-between">
+                    <span>Titular / Pagador das Parcelas do Boleto:</span>
+                    <span className="font-black text-indigo-950 uppercase">
+                      {(osData.boletoTitularTipo || osData.raw?.BOLETO_TITULAR_TIPO) === 'responsavel'
+                        ? `Responsável: ${osData.boletoPagadorNome || osData.raw?.BOLETO_PAGADOR_NOME || safeClient['Responsável Nome'] || safeClient['Responsável'] || 'Responsável Legal'}${osData.boletoPagadorCpf || osData.raw?.BOLETO_PAGADOR_CPF ? ` (CPF: ${osData.boletoPagadorCpf || osData.raw?.BOLETO_PAGADOR_CPF})` : ''}`
+                        : `Cliente: ${osData.boletoPagadorNome || osData.raw?.BOLETO_PAGADOR_NOME || safeClient['Nome Completo'] || 'Cliente Titular'}${osData.boletoPagadorCpf || osData.raw?.BOLETO_PAGADOR_CPF ? ` (CPF: ${osData.boletoPagadorCpf || osData.raw?.BOLETO_PAGADOR_CPF})` : ''}`
+                      }
+                    </span>
+                  </div>
+                )}
+                {installmentsList.length > 0 && (
+                  <>
+                    <span className="text-[7px] font-black uppercase text-indigo-900 block mb-0.5">
+                      📄 Cronograma de Parcelas do Boleto ({installmentsList.length} parcelas):
+                    </span>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1">
+                      {installmentsList.map((p, pIdx) => (
+                        <div key={pIdx} className="bg-white border border-slate-300 rounded p-0.5 text-center">
+                          <span className="block text-[6.5px] font-bold text-slate-500 uppercase">{p.numero || pIdx + 1}ª Parcela</span>
+                          <span className="block text-[7.5px] font-black text-slate-900">R$ {formatCurrencyPrint(p.valor)}</span>
+                          <span className="block text-[6.5px] font-medium text-slate-600">{formatDatePrint(p.vencimento)}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </>
+                )}
               </div>
             )}
           </div>
