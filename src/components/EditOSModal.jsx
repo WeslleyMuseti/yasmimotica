@@ -603,6 +603,26 @@ const EditOSModal = ({
 
     if (isSecondary) {
       const secNormDate = buildNormalizedDateTime(formData.dataVenda, osData.hora || osData.HORA);
+
+      // Identifica se a OS estava aguardando confirmação, sob solicitação de ajuste, ou se foi editada pós-lançamento
+      const wasAwaitingConfirmation = (
+        osData['STATUS_OS'] === 'Aguardando Confirmação' ||
+        osData['STATUS_OS'] === 'Pendente de Correção' ||
+        osData['STATUS_OS'] === 'Ajustada / Editada' ||
+        osData['COR_SEMAFORO'] === 'Azul' ||
+        osData['COR_SEMAFORO'] === 'Amarelo' ||
+        osData['COR_SEMAFORO'] === 'Roxo' ||
+        Boolean(osData['MOTIVO_AJUSTE'] || osData.motivoAjuste) ||
+        osData['PAGAMENTO_CONFERIDO'] === 'Pendente de Ajuste' ||
+        osData['PAGAMENTO_CONFERIDO'] === 'Pendente' ||
+        osData['PAGAMENTO_CONFERIDO'] === 'Não' ||
+        osData['PAGAMENTO_CONFERIDO'] === false ||
+        !osData['STATUS_OS']
+      );
+
+      const finalStatusOS = wasAwaitingConfirmation ? 'Ajustada / Editada' : (osData['STATUS_OS'] || osData['SITUAÇÃO'] || 'No Laboratório');
+      const finalCorSemaforo = wasAwaitingConfirmation ? 'Roxo' : (osData['COR_SEMAFORO'] || (finalStatusOS === 'Entregue' ? 'Verde' : 'Vermelho'));
+
       const updatedRow = {
         ...osData,
         'OS DA VENDA': finalNumeroOS,
@@ -617,8 +637,18 @@ const EditOSModal = ({
         'osNumero': finalNumeroOS,
         'os': finalNumeroOS,
         'allLinkedOS': updatedLinkedOS,
-        'STATUS_OS': 'Aguardando Confirmação',
-        'SITUAÇÃO': 'Aguardando Confirmação',
+        'STATUS_OS': finalStatusOS,
+        'SITUAÇÃO': finalStatusOS,
+        'COR_SEMAFORO': finalCorSemaforo,
+        'FOI_AJUSTADA': true,
+        'AJUSTE_REALIZADO': true,
+        'DATA_AJUSTE_REALIZADO': new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        'AJUSTADO_POR_USUARIO': currentUser?.username || 'Atendente',
+        'DATA_ULTIMA_EDICAO': new Date().toISOString(),
+        'MOTIVO_AJUSTE_ANTERIOR': osData['MOTIVO_AJUSTE'] || osData.motivoAjuste || osData['MOTIVO_AJUSTE_ANTERIOR'] || '',
+        'MOTIVO_AJUSTE': '',
+        'ITENS_AJUSTE_ANTERIOR': osData['ITENS_AJUSTE'] || osData.itensAjuste || osData['ITENS_AJUSTE_ANTERIOR'] || [],
+        'ITENS_AJUSTE': [],
         'PAGAMENTO_CONFERIDO': 'Sim',
         'DUPLICATAS_GERADAS': true,
         'isSecondaryOS': true,
@@ -781,6 +811,25 @@ const EditOSModal = ({
 
     const normDate = buildNormalizedDateTime(formData.dataVenda, osData.hora || osData.HORA);
 
+    // Identifica se a OS estava aguardando confirmação, sob solicitação de ajuste, ou se foi editada pós-lançamento
+    const wasAwaitingConfirmation = (
+      osData['STATUS_OS'] === 'Aguardando Confirmação' ||
+      osData['STATUS_OS'] === 'Pendente de Correção' ||
+      osData['STATUS_OS'] === 'Ajustada / Editada' ||
+      osData['COR_SEMAFORO'] === 'Azul' ||
+      osData['COR_SEMAFORO'] === 'Amarelo' ||
+      osData['COR_SEMAFORO'] === 'Roxo' ||
+      Boolean(osData['MOTIVO_AJUSTE'] || osData.motivoAjuste) ||
+      osData['PAGAMENTO_CONFERIDO'] === 'Pendente de Ajuste' ||
+      osData['PAGAMENTO_CONFERIDO'] === 'Pendente' ||
+      osData['PAGAMENTO_CONFERIDO'] === 'Não' ||
+      osData['PAGAMENTO_CONFERIDO'] === false ||
+      !osData['STATUS_OS']
+    );
+
+    const finalStatusOS = wasAwaitingConfirmation ? 'Ajustada / Editada' : (osData['STATUS_OS'] || osData['SITUAÇÃO'] || 'No Laboratório');
+    const finalCorSemaforo = wasAwaitingConfirmation ? 'Roxo' : (osData['COR_SEMAFORO'] || (finalStatusOS === 'Entregue' ? 'Verde' : 'Vermelho'));
+
     const updatedRow = {
       ...osData,
       'OS DA VENDA': finalNumeroOS,
@@ -795,11 +844,21 @@ const EditOSModal = ({
       'osNumero': finalNumeroOS,
       'os': finalNumeroOS,
       'allLinkedOS': updatedLinkedOS,
-      // Preserva o status e conferência existentes para não invalidar boletos e duplicatas ativas
-      'STATUS_OS': osData['STATUS_OS'] || osData['SITUAÇÃO'] || 'No Laboratório',
-      'SITUAÇÃO': osData['SITUAÇÃO'] || osData['STATUS_OS'] || 'No Laboratório',
-      'PAGAMENTO_CONFERIDO': osData['PAGAMENTO_CONFERIDO'] ?? 'Sim',
-      'DUPLICATAS_GERADAS': osData['DUPLICATAS_GERADAS'] !== undefined ? osData['DUPLICATAS_GERADAS'] : true,
+      // OS ajustada assume Roxo 🟣 (diferente de Azul 🔵) para fácil visualização na Gestão de OS
+      'STATUS_OS': finalStatusOS,
+      'SITUAÇÃO': finalStatusOS,
+      'COR_SEMAFORO': finalCorSemaforo,
+      'FOI_AJUSTADA': true,
+      'AJUSTE_REALIZADO': true,
+      'DATA_AJUSTE_REALIZADO': new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      'AJUSTADO_POR_USUARIO': currentUser?.username || 'Atendente',
+      'DATA_ULTIMA_EDICAO': new Date().toISOString(),
+      'MOTIVO_AJUSTE_ANTERIOR': osData['MOTIVO_AJUSTE'] || osData.motivoAjuste || osData['MOTIVO_AJUSTE_ANTERIOR'] || '',
+      'MOTIVO_AJUSTE': '',
+      'ITENS_AJUSTE_ANTERIOR': osData['ITENS_AJUSTE'] || osData.itensAjuste || osData['ITENS_AJUSTE_ANTERIOR'] || [],
+      'ITENS_AJUSTE': [],
+      'PAGAMENTO_CONFERIDO': wasAwaitingConfirmation ? (osData['PAGAMENTO_CONFERIDO'] === 'Sim' || osData['PAGAMENTO_CONFERIDO'] === true ? 'Sim' : 'Pendente') : (osData['PAGAMENTO_CONFERIDO'] ?? 'Sim'),
+      'DUPLICATAS_GERADAS': osData['DUPLICATAS_GERADAS'] !== undefined ? osData['DUPLICATAS_GERADAS'] : (wasAwaitingConfirmation ? false : true),
       'isSecondaryOS': Boolean(osData.isSecondaryOS),
       'isMultiOS': Boolean(osData.isMultiOS),
       'saleId': osData.saleId || osData.parentSaleId || '',
@@ -947,10 +1006,22 @@ const EditOSModal = ({
                   <span className="text-xs font-mono font-black text-pink-300">
                     {formData.numeroOS ? `#${formData.numeroOS}` : 'Sem número'}
                   </span>
-                  <span className="text-[10px] font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
-                    Semáforo Azul
-                  </span>
+                  {osData?.['COR_SEMAFORO'] === 'Amarelo' || osData?.['STATUS_OS'] === 'Pendente de Correção' || osData?.['MOTIVO_AJUSTE'] || osData?.motivoAjuste ? (
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                      🟡 Em Ajuste / Correção
+                    </span>
+                  ) : osData?.['COR_SEMAFORO'] === 'Roxo' || osData?.['STATUS_OS'] === 'Ajustada / Editada' || osData?.['FOI_AJUSTADA'] ? (
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-purple-500/20 text-purple-200 border border-purple-500/40 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-[0_0_10px_rgba(168,85,247,0.3)]">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                      🟣 Semáforo Roxo (Ajustada)
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+                      🔵 Semáforo Azul
+                    </span>
+                  )}
                   {isSecondaryOS && (
                     <span className="text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
                       OS Adicional
@@ -981,6 +1052,36 @@ const EditOSModal = ({
               <X size={18} />
             </button>
           </div>
+
+          {/* Aviso de Ajuste Solicitado pela Administração */}
+          {(osData?.['MOTIVO_AJUSTE'] || osData?.motivoAjuste || (Array.isArray(osData?.['ITENS_AJUSTE']) && osData['ITENS_AJUSTE'].length > 0)) && (
+            <div className="mx-3 sm:mx-6 mt-3 p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-start gap-2.5 text-xs text-amber-200 shrink-0">
+              <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-black text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
+                  <span>⚠️ Ajuste Solicitado pela Administração:</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-500/25 border border-amber-400/40 text-amber-200">Semáforo Amarelo 🟡</span>
+                </div>
+                {osData?.['MOTIVO_AJUSTE'] && (
+                  <p className="mt-1 font-mono italic text-slate-200 bg-black/30 px-2 py-1 rounded-lg border border-white/5">
+                    "{osData['MOTIVO_AJUSTE']}"
+                  </p>
+                )}
+                {Array.isArray(osData?.['ITENS_AJUSTE']) && osData['ITENS_AJUSTE'].length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {osData['ITENS_AJUSTE'].map((it, idx) => (
+                      <span key={idx} className="px-1.5 py-0.5 rounded bg-amber-500/20 text-[10px] text-amber-200 border border-amber-400/30 font-bold">
+                        {it}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-1.5 text-[11px] text-purple-300 font-bold flex items-center gap-1">
+                  <span>🟣</span> Ao salvar as correções, a OS assumirá automaticamente a cor <strong>Roxa (Ajustada / Editada)</strong> para nova conferência da gerência.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Abas de Navegação Interna */}
           <div className="px-3 sm:px-6 pt-2 sm:pt-3 pb-0 bg-slate-950/60 border-b border-slate-800 flex items-center gap-2 shrink-0 overflow-x-auto erp-scroll whitespace-nowrap">

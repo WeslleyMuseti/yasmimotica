@@ -15,7 +15,7 @@ import EditOSModal from "./EditOSModal";
 import { isSameClient, normalizeSearchText } from "../firebaseSync";
 import { findOSRelatedEntities, executeOSCascadeDeletion } from "../osDeletionUtils";
 
-// Cores dos status no Semáforo: Azul (Aguardando Confirmação Financeira), Vermelha, Amarela e Verde
+// Cores dos status no Semáforo: Azul (Aguardando Confirmação), Amarela (Pendente Correção), Roxa (Ajustada/Editada), Vermelha (No Lab) e Verde (Entregue)
 export const OS_STATUS_CONFIG = {
   "Aguardando Confirmação": {
     label: "Aguardando Confirmação",
@@ -30,6 +30,34 @@ export const OS_STATUS_CONFIG = {
     badgeClass: "bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.25)]",
     dotClass: "bg-amber-400 animate-pulse",
     icon: "🟡"
+  },
+  "Ajustada / Editada": {
+    label: "Ajustada / Editada",
+    color: "purple",
+    badgeClass: "bg-purple-500/20 text-purple-200 border-purple-500/50 shadow-[0_0_14px_rgba(168,85,247,0.35)]",
+    dotClass: "bg-purple-400 animate-pulse",
+    icon: "🟣"
+  },
+  "OS Ajustada": {
+    label: "Ajustada / Editada",
+    color: "purple",
+    badgeClass: "bg-purple-500/20 text-purple-200 border-purple-500/50 shadow-[0_0_14px_rgba(168,85,247,0.35)]",
+    dotClass: "bg-purple-400 animate-pulse",
+    icon: "🟣"
+  },
+  "Ajustada": {
+    label: "Ajustada / Editada",
+    color: "purple",
+    badgeClass: "bg-purple-500/20 text-purple-200 border-purple-500/50 shadow-[0_0_14px_rgba(168,85,247,0.35)]",
+    dotClass: "bg-purple-400 animate-pulse",
+    icon: "🟣"
+  },
+  "Editada": {
+    label: "Ajustada / Editada",
+    color: "purple",
+    badgeClass: "bg-purple-500/20 text-purple-200 border-purple-500/50 shadow-[0_0_14px_rgba(168,85,247,0.35)]",
+    dotClass: "bg-purple-400 animate-pulse",
+    icon: "🟣"
   },
   "No Laboratório": {
     label: "No Laboratório",
@@ -807,7 +835,11 @@ const OSManagement = ({
     }
     setEditingOrder(null);
     const osNum = finalizedRow['OS DA VENDA'] || finalizedRow['OS'] || finalizedRow.numeroOS || 'Atualizada';
-    setSuccessToast(`✅ OS #${osNum} atualizada com sucesso!`);
+    if (finalizedRow.COR_SEMAFORO === 'Roxo' || finalizedRow.STATUS_OS === 'Ajustada / Editada' || finalizedRow.FOI_AJUSTADA) {
+      setSuccessToast(`🟣 OS #${osNum} ajustada com sucesso! Semáforo alterado para Roxo para nova conferência da gerência.`);
+    } else {
+      setSuccessToast(`✅ OS #${osNum} atualizada com sucesso!`);
+    }
     setTimeout(() => setSuccessToast(''), 5000);
   };
 
@@ -917,6 +949,8 @@ const OSManagement = ({
         status = "Aguardando Confirmação";
       } else if (status === "Pendente de Correção" || status === "Pendente de Ajuste" || status === "Necessita Ajuste" || status === "Ajuste Necessário") {
         status = "Pendente de Correção";
+      } else if (status === "Ajustada / Editada" || status === "OS Ajustada" || status === "Ajustada" || status === "Editada") {
+        status = "Ajustada / Editada";
       } else if (status === "Pago" || status === "PAGO" || status === "Entregue" || status === "Concluído") {
         status = "Entregue";
       } else if (status === "Pendente" || status === "PENDENTE" || status === "Aberto") {
@@ -938,9 +972,19 @@ const OSManagement = ({
       }
       const dataAjuste = sale["DATA_SOLICITACAO_AJUSTE"] || sale["dataAjuste"] || "";
       const ajustadoPor = sale["SOLICITADO_POR_AJUSTE"] || sale["ajustadoPor"] || "";
-      const corSemaforo = sale["COR_SEMAFORO"] || (status === "Pendente de Correção" ? "Amarelo" : (status === "Aguardando Confirmação" ? "Azul" : (status === "Entregue" ? "Verde" : "Vermelho")));
+      
+      const foiAjustada = Boolean(sale["FOI_AJUSTADA"] || sale["AJUSTE_REALIZADO"] || sale["foiAjustada"] || status === "Ajustada / Editada" || sale["COR_SEMAFORO"] === "Roxo");
+      let corSemaforo = sale["COR_SEMAFORO"] || (
+        status === "Ajustada / Editada" ? "Roxo" :
+        (status === "Pendente de Correção" ? "Amarelo" :
+        (status === "Aguardando Confirmação" ? "Azul" :
+        (status === "Entregue" ? "Verde" : "Vermelho")))
+      );
       if (corSemaforo === "Amarelo" && (status === "Aguardando Confirmação" || Boolean(motivoAjuste))) {
         status = "Pendente de Correção";
+      } else if (corSemaforo === "Roxo" || (foiAjustada && (status === "Aguardando Confirmação" || status === "Pendente de Correção" || status === "Ajustada / Editada"))) {
+        status = "Ajustada / Editada";
+        corSemaforo = "Roxo";
       }
 
       const dtVenda = sale["DATA  DA VENDA"] || sale["DATA DA VENDA"] || sale["DATA_VENDA"] || sale["Data da Venda"] || sale["dataVenda"] || sale["data_venda"] || sale["DATA"] || sale["Data"] || "";
@@ -1136,20 +1180,30 @@ const OSManagement = ({
         dataAjuste,
         ajustadoPor,
         corSemaforo,
+        foiAjustada,
+        dataAjusteRealizado: sale["DATA_AJUSTE_REALIZADO"] || sale["dataAjusteRealizado"] || sale["DATA_EDICAO"] || "",
+        ajustadoPorUsuario: sale["AJUSTADO_POR_USUARIO"] || sale["EDITADO_POR"] || sale["ajustadoPorUsuario"] || "",
+        motivoAjusteAnterior: sale["MOTIVO_AJUSTE_ANTERIOR"] || sale["motivoAjusteAnterior"] || "",
         isConfirmed: Boolean(
           sale["PAGAMENTO_CONFERIDO"] === true || 
           sale["PAGAMENTO_CONFERIDO"] === "Sim" || 
           sale["DUPLICATAS_GERADAS"] === true ||
-          (status !== "Aguardando Confirmação" && status !== "Pendente de Correção")
+          (status !== "Aguardando Confirmação" && status !== "Pendente de Correção" && status !== "Ajustada / Editada")
         ),
         isPending: Boolean(
           status === "Aguardando Confirmação" || 
-          (sale["PAGAMENTO_CONFERIDO"] !== true && sale["PAGAMENTO_CONFERIDO"] !== "Sim" && status !== "Entregue" && status !== "Cancelada")
+          status === "Ajustada / Editada" ||
+          (sale["PAGAMENTO_CONFERIDO"] !== true && sale["PAGAMENTO_CONFERIDO"] !== "Sim" && status !== "Entregue" && status !== "Cancelada" && status !== "No Laboratório")
         ),
         isAdjustmentPending: Boolean(
-          status === "Pendente de Correção" || 
-          corSemaforo === "Amarelo" || 
-          Boolean(motivoAjuste)
+          (status === "Pendente de Correção" || corSemaforo === "Amarelo" || Boolean(motivoAjuste)) &&
+          status !== "Ajustada / Editada" &&
+          corSemaforo !== "Roxo"
+        ),
+        isAdjustmentDone: Boolean(
+          status === "Ajustada / Editada" || 
+          corSemaforo === "Roxo" || 
+          foiAjustada
         ),
         voucher: sale["VOUCHER"] || sale["voucher"] || sale.raw?.["VOUCHER"] || matchedClient?.["VOUCHER"] || "",
         descontoVoucher: sale["DESCONTO_VOUCHER"] || sale["descontoVoucher"] || sale.raw?.["DESCONTO_VOUCHER"] || matchedClient?.["DESCONTO_VOUCHER"] || "",
@@ -1218,13 +1272,15 @@ const OSManagement = ({
       // Filtro de Loja
       if (selectedUnit !== "ALL" && order.unit !== selectedUnit) return false;
 
-      // Filtro de Confirmação (Todas / Confirmadas / Pendentes / Com Ajuste)
+      // Filtro de Confirmação (Todas / Confirmadas / Pendentes / Com Ajuste / Ajustadas)
       if (confirmationFilter === 'CONFIRMED') {
         if (!order.isConfirmed) return false;
       } else if (confirmationFilter === 'PENDING') {
         if (!order.isPending) return false;
       } else if (confirmationFilter === 'ADJUSTMENT') {
         if (!order.isAdjustmentPending) return false;
+      } else if (confirmationFilter === 'ADJUSTED') {
+        if (!order.isAdjustmentDone && order.status !== "Ajustada / Editada" && order.corSemaforo !== "Roxo") return false;
       }
 
       // Filtro de Intervalo de Datas
@@ -1244,6 +1300,8 @@ const OSManagement = ({
         if (!order.isDelayed) return false;
       } else if (selectedStatusFilter === "Pendente de Correção") {
         if (!order.isAdjustmentPending && order.status !== "Pendente de Correção") return false;
+      } else if (selectedStatusFilter === "Ajustada / Editada") {
+        if (!order.isAdjustmentDone && order.status !== "Ajustada / Editada" && order.corSemaforo !== "Roxo") return false;
       } else if (selectedStatusFilter !== "ALL" && order.status !== selectedStatusFilter) {
         return false;
       }
@@ -1341,6 +1399,7 @@ const OSManagement = ({
     const total = allOrders.length;
     const aguardandoConfirmacao = allOrders.filter(o => o.status === "Aguardando Confirmação").length;
     const pendenteAjuste = allOrders.filter(o => o.status === "Pendente de Correção" || o.isAdjustmentPending).length;
+    const ajustadas = allOrders.filter(o => o.status === "Ajustada / Editada" || o.corSemaforo === "Roxo" || o.isAdjustmentDone).length;
     const noLab = allOrders.filter(o => o.status === "No Laboratório" || o.status === "Aguardando Lente").length;
     const emProducao = allOrders.filter(o => o.status === "Em Produção").length;
     const pronto = allOrders.filter(o => o.status === "Pronto para Retirada").length;
@@ -1349,7 +1408,7 @@ const OSManagement = ({
     const confirmadas = allOrders.filter(o => o.isConfirmed).length;
     const pendentes = allOrders.filter(o => o.isPending).length;
 
-    return { total, aguardandoConfirmacao, pendenteAjuste, noLab, emProducao, pronto, entregues, atrasadas, confirmadas, pendentes };
+    return { total, aguardandoConfirmacao, pendenteAjuste, ajustadas, noLab, emProducao, pronto, entregues, atrasadas, confirmadas, pendentes };
   }, [allOrders]);
 
   // Confirmar Pagamento da OS, Gerar Duplicatas no Financeiro (CONTAS_RECEBER) e Liberar Montagem
@@ -1591,6 +1650,7 @@ const OSManagement = ({
           ...order.raw,
           STATUS_OS: 'No Laboratório',
           SITUAÇÃO: restVal > 0 ? 'Pendente' : 'Pago',
+          COR_SEMAFORO: 'Vermelho',
           PAGAMENTO_CONFERIDO: 'Sim',
           DUPLICATAS_GERADAS: true,
           DATA_APROVACAO: todayStr,
@@ -1780,9 +1840,13 @@ const OSManagement = ({
   const handleUpdateStatus = (order, newStatus) => {
     if (isVendedor) return;
 
-    if (order.status === "Aguardando Confirmação" && newStatus !== "Aguardando Confirmação") {
+    if ((order.status === "Aguardando Confirmação" || order.status === "Ajustada / Editada") && newStatus !== order.status) {
       if (newStatus === "Cancelada") {
         handleRejectOS(order);
+        return;
+      }
+      if (newStatus === "Pendente de Correção") {
+        handleOpenAdjustmentModal(order);
         return;
       }
       setApprovalModalOrder(order);
@@ -1808,10 +1872,20 @@ const OSManagement = ({
 
     if (!onUpdateRow) return;
     const salesSheetName = data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING';
+
+    let semaforoCor = 'Vermelho';
+    if (newStatus === 'Aguardando Confirmação') semaforoCor = 'Azul';
+    else if (newStatus === 'Pendente de Correção') semaforoCor = 'Amarelo';
+    else if (newStatus === 'Ajustada / Editada') semaforoCor = 'Roxo';
+    else if (newStatus === 'Entregue') semaforoCor = 'Verde';
+    else if (newStatus === 'Em Produção' || newStatus === 'Pronto para Retirada') semaforoCor = 'Amarelo';
+
     const updatedRow = {
       ...order.raw,
       STATUS_OS: newStatus,
-      SITUAÇÃO: newStatus === "Entregue" ? "Pago" : "Pendente"
+      SITUAÇÃO: newStatus === "Entregue" ? "Pago" : "Pendente",
+      COR_SEMAFORO: semaforoCor,
+      FOI_AJUSTADA: newStatus === 'Ajustada / Editada' ? true : Boolean(order.raw?.FOI_AJUSTADA)
     };
     onUpdateRow(salesSheetName, order.raw, updatedRow);
   };
@@ -2671,8 +2745,8 @@ const OSManagement = ({
         </div>
       </div>
 
-      {/* ─── CARDS DE STATUS COM CORES PADRÃO (AZUL, VERDE, AMARELA E VERMELHA) ─── */}
-      <div className="flex overflow-x-auto snap-x pb-2 sm:grid sm:grid-cols-4 lg:grid-cols-8 gap-2.5 sm:gap-3 erp-scroll">
+      {/* ─── CARDS DE STATUS COM CORES PADRÃO (AZUL, VERDE, AMARELA, ROXA E VERMELHA) ─── */}
+      <div className="flex overflow-x-auto snap-x pb-2 sm:grid sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-2.5 sm:gap-3 erp-scroll">
         
         {/* Total Geral */}
         <div 
@@ -2725,6 +2799,25 @@ const OSManagement = ({
           </div>
           <p className="text-2xl font-black text-amber-300">{stats.pendenteAjuste}</p>
           <p className="text-[10px] text-amber-400/80 font-bold mt-1">Correção Admin</p>
+        </div>
+
+        {/* Roxo: Ajustada / Editada (Pronta para Reavaliação) */}
+        <div 
+          onClick={() => setSelectedStatusFilter("Ajustada / Editada")}
+          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border shrink-0 min-w-[150px] sm:min-w-0 snap-start " + (
+            selectedStatusFilter === "Ajustada / Editada" 
+              ? "border-purple-500 ring-2 ring-purple-500/40 bg-purple-500/10 shadow-[0_0_15px_rgba(168,85,247,0.25)]" 
+              : "border-white/5 hover:border-purple-500/30"
+          )}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-black uppercase tracking-widest text-purple-300 flex items-center gap-1">
+              🟣 Ajustadas
+            </span>
+            <span className="w-2.5 h-2.5 rounded-full bg-purple-400 animate-pulse" />
+          </div>
+          <p className="text-2xl font-black text-purple-200">{stats.ajustadas}</p>
+          <p className="text-[10px] text-purple-400/80 font-bold mt-1">Reavaliação</p>
         </div>
 
         {/* Vermelho: No Laboratório */}
@@ -2952,6 +3045,18 @@ const OSManagement = ({
               }`}
             >
               <span>🟡 Com Ajuste ({stats.pendenteAjuste})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setConfirmationFilter('ADJUSTED')}
+              className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1 ${
+                confirmationFilter === 'ADJUSTED'
+                  ? 'bg-purple-500/30 text-purple-200 border-purple-400 ring-2 ring-purple-500/25 shadow'
+                  : 'bg-purple-500/10 text-purple-300 border-purple-500/20 hover:bg-purple-500/20'
+              }`}
+            >
+              <span>🟣 Ajustadas ({stats.ajustadas})</span>
             </button>
 
             <button
@@ -3207,6 +3312,9 @@ const OSManagement = ({
                             </option>
                             <option value="Pendente de Correção" className="bg-slate-900 text-amber-300 font-bold">
                               🟡 Pendente de Correção (Amarelo)
+                            </option>
+                            <option value="Ajustada / Editada" className="bg-slate-900 text-purple-300 font-bold">
+                              🟣 Ajustada / Editada (Roxo)
                             </option>
                             <option value="No Laboratório" className="bg-slate-900 text-rose-300 font-bold">
                               🔴 No Laboratório (Vermelho)
@@ -3573,6 +3681,81 @@ const OSManagement = ({
                               <span>Aprovar & Liberar</span>
                             </button>
                           </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ─── BANNER DE OS AJUSTADA / EDITADA (ROXO 🟣) ─── */}
+                  {(order.status === "Ajustada / Editada" || order.corSemaforo === "Roxo") && (
+                    <div className="mx-4 sm:mx-5 my-3 p-4 rounded-2xl bg-gradient-to-r from-purple-950/70 via-slate-900 to-fuchsia-950/70 border border-purple-500/50 shadow-lg shadow-purple-500/15 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-300 shrink-0 mt-0.5">
+                          <CheckCircle2 size={22} className="animate-pulse" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-black uppercase tracking-wider text-purple-200">
+                              OS Ajustada / Editada pelo Atendente
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/25 text-purple-200 border border-purple-500/40 shadow-[0_0_10px_rgba(168,85,247,0.3)]">
+                              Semáforo Roxo 🟣
+                            </span>
+                            {order.ajustadoPorUsuario && (
+                              <span className="text-[10px] text-purple-300/80 font-bold">
+                                por {order.ajustadoPorUsuario}
+                              </span>
+                            )}
+                            {order.dataAjusteRealizado && (
+                              <span className="text-[10px] text-purple-400/80 font-mono">
+                                em {order.dataAjusteRealizado}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-purple-100/90 mt-1">
+                            {isVendedor
+                              ? "As correções e dados da OS foram atualizados. Aguardando reanálise e liberação da administração/financeiro."
+                              : "Esta OS foi editada e ajustada pela equipe. Os dados estão regularizados para conferência e liberação para o laboratório."}
+                          </p>
+                          {order.motivoAjusteAnterior && (
+                            <p className="mt-1.5 text-slate-300 font-mono text-[11px] italic bg-black/30 px-2.5 py-1 rounded-lg border border-purple-500/20">
+                              <span className="text-amber-300/90 font-bold not-italic">Ajuste Solicitado Anteriormente:</span> "{order.motivoAjusteAnterior}"
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 self-stretch md:self-auto justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAuditModal(order)}
+                          className="px-3 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 font-bold text-xs transition-all flex items-center gap-1.5"
+                          title="Conferir Dados Cadastrais e Documentos Anexados"
+                        >
+                          <FileText size={15} />
+                          <span>Conferir Dados & Docs</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEditingOrder(order)}
+                          className="px-3 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-200 font-bold text-xs transition-all flex items-center gap-1.5"
+                          title="Abrir novamente para editar"
+                        >
+                          <Edit2 size={14} />
+                          <span>Editar Novamente</span>
+                        </button>
+
+                        {!isVendedor && (
+                          <button
+                            type="button"
+                            onClick={() => setApprovalModalOrder(order)}
+                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 via-fuchsia-500 to-emerald-500 hover:from-purple-400 hover:to-emerald-400 text-white font-black text-xs shadow-lg shadow-purple-500/25 transition-all flex items-center gap-1.5 active:scale-95"
+                            title="Aprovar os ajustes realizados, gerar duplicatas no financeiro e liberar montagem"
+                          >
+                            <ShieldCheck size={16} />
+                            <span>Aprovar Ajuste & Liberar</span>
+                          </button>
                         )}
                       </div>
                     </div>
@@ -4094,6 +4277,9 @@ const OSManagement = ({
                                   <option value="Pendente de Correção" className="bg-slate-900 text-amber-300 font-bold">
                                     🟡 Pendente de Correção (Amarelo)
                                   </option>
+                                  <option value="Ajustada / Editada" className="bg-slate-900 text-purple-300 font-bold">
+                                    🟣 Ajustada / Editada (Roxo)
+                                  </option>
                                   <option value="No Laboratório" className="bg-slate-900 text-rose-300 font-bold">
                                     🔴 No Laboratório (Vermelho)
                                   </option>
@@ -4142,6 +4328,23 @@ const OSManagement = ({
                                   <AlertTriangle size={12} className="text-amber-400" />
                                   <span>Ver Ajuste 🟡</span>
                                 </button>
+                              ) : order.status === "Ajustada / Editada" || order.corSemaforo === "Roxo" ? (
+                                isVendedor ? (
+                                  <span className="flex items-center justify-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-300 select-none cursor-default">
+                                    <Clock size={11} className="text-purple-400" />
+                                    <span>Ajustada (Reavaliação)</span>
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setApprovalModalOrder(order)}
+                                    className="flex items-center justify-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border border-purple-500/40 bg-purple-500/20 text-purple-200 hover:bg-purple-500/30 transition-all shadow-md shadow-purple-500/15 active:scale-95"
+                                    title="Aprovar ajuste e liberar montagem"
+                                  >
+                                    <ShieldCheck size={12} className="text-purple-300" />
+                                    <span>Aprovar Ajuste 🟣</span>
+                                  </button>
+                                )
                               ) : (
                                 isVendedor ? (
                                   <div 
@@ -5247,7 +5450,7 @@ const OSManagement = ({
                     </button>
                   )}
 
-                  {!isVendedor && (auditModalOrder.status === 'Aguardando Confirmação' || auditModalOrder.status === 'Pendente de Correção') && (
+                  {!isVendedor && (auditModalOrder.status === 'Aguardando Confirmação' || auditModalOrder.status === 'Pendente de Correção' || auditModalOrder.status === 'Ajustada / Editada' || auditModalOrder.corSemaforo === 'Roxo') && (
                     <button
                       type="button"
                       onClick={() => {

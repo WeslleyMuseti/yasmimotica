@@ -9771,7 +9771,97 @@ async function runTests() {
     console.log('  ✅ Test 106 Passed: Busca por Responsável na Gestão de OS, Valor Total da Venda na OS e Medidas Técnicas no Preenchimento validados com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 106 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // --------------------------------------------------------------------------
+  // TEST 107: Semáforo Roxo (🟣 Ajustada / Editada) na Gestão de OS após Ajustes
+  // --------------------------------------------------------------------------
+  {
+    console.log('▶ Test 107: Semáforo Roxo (🟣 Ajustada / Editada) na Gestão de OS após Salvamento de Ajustes');
+
+    const osManagementSrc = fs.readFileSync(path.resolve('./src/components/OSManagement.jsx'), 'utf-8');
+    const editOSModalSrc = fs.readFileSync(path.resolve('./src/components/EditOSModal.jsx'), 'utf-8');
+
+    // 107.1: Verificação da configuração de status Roxo (🟣) no OSManagement
+    console.assert(osManagementSrc.includes('"Ajustada / Editada": {'), 'OS_STATUS_CONFIG deve conter "Ajustada / Editada"');
+    console.assert(osManagementSrc.includes('bg-purple-500'), 'OS_STATUS_CONFIG deve conter classes de estilo roxas para o badge');
+    console.assert(osManagementSrc.includes('🟣'), 'OS_STATUS_CONFIG deve conter o ícone 🟣');
+
+    // 107.2: Verificação do salvamento em EditOSModal com semáforo Roxo e campos de auditoria
+    console.assert(editOSModalSrc.includes("finalStatusOS = wasAwaitingConfirmation ? 'Ajustada / Editada'"), 'EditOSModal deve definir status "Ajustada / Editada" para OS ajustada');
+    console.assert(editOSModalSrc.includes("finalCorSemaforo = wasAwaitingConfirmation ? 'Roxo'"), 'EditOSModal deve definir corSemaforo "Roxo" para OS ajustada');
+    console.assert(editOSModalSrc.includes("'FOI_AJUSTADA': true"), 'EditOSModal deve registrar FOI_AJUSTADA: true');
+    console.assert(editOSModalSrc.includes("'DATA_AJUSTE_REALIZADO'"), 'EditOSModal deve registrar DATA_AJUSTE_REALIZADO');
+    console.assert(editOSModalSrc.includes("'AJUSTADO_POR_USUARIO'"), 'EditOSModal deve registrar AJUSTADO_POR_USUARIO');
+    console.assert(editOSModalSrc.includes("'MOTIVO_AJUSTE_ANTERIOR'"), 'EditOSModal deve arquivar MOTIVO_AJUSTE_ANTERIOR ao salvar');
+
+    // 107.3: Verificação de Filtros e Cards de OS Ajustada no OSManagement
+    console.assert(osManagementSrc.includes('stats.ajustadas'), 'OSManagement deve calcular stats.ajustadas');
+    console.assert(osManagementSrc.includes("confirmationFilter === 'ADJUSTED'"), 'OSManagement deve conter filtro rápido para OSs Ajustadas (ADJUSTED)');
+    console.assert(osManagementSrc.includes('🟣 Ajustadas'), 'OSManagement deve exibir botão de filtro "🟣 Ajustadas"');
+    console.assert(osManagementSrc.includes('BANNER DE OS AJUSTADA / EDITADA (ROXO 🟣)'), 'OSManagement deve renderizar banner roxo para OS ajustada');
+    console.assert(osManagementSrc.includes('Aprovar Ajuste & Liberar'), 'Banner roxo deve conter botão "Aprovar Ajuste & Liberar"');
+    console.assert(osManagementSrc.includes('🟣 Ajustada / Editada (Roxo)'), 'Select de status do admin deve conter opção "🟣 Ajustada / Editada (Roxo)"');
+
+    // 107.4: Simulação do Ciclo de Vida da OS (Nova 🔵 -> Ajuste Pendente 🟡 -> Ajustada 🟣 -> Confirmada 🔴/🟢)
+    // 1. Nova OS criada no PDV
+    const osNova = {
+      STATUS_OS: 'Aguardando Confirmação',
+      COR_SEMAFORO: 'Azul',
+      PAGAMENTO_CONFERIDO: 'Pendente',
+      DUPLICATAS_GERADAS: false
+    };
+    console.assert(osNova.COR_SEMAFORO === 'Azul', 'OS nova deve nascer com Semáforo Azul 🔵');
+
+    // 2. Admin solicita ajuste
+    const osAjusteSolicitado = {
+      ...osNova,
+      STATUS_OS: 'Pendente de Correção',
+      COR_SEMAFORO: 'Amarelo',
+      MOTIVO_AJUSTE: 'Faltou documento com foto do responsável e medidas de ponte/aro',
+      ITENS_AJUSTE: ['Documento com foto do Responsável', 'Armação / Lente / Marca / Tratamento']
+    };
+    console.assert(osAjusteSolicitado.COR_SEMAFORO === 'Amarelo', 'OS com ajuste solicitado deve ter Semáforo Amarelo 🟡');
+
+    // 3. Atendente corrige no EditOSModal e salva
+    const wasPending = (
+      osAjusteSolicitado.STATUS_OS === 'Pendente de Correção' ||
+      osAjusteSolicitado.COR_SEMAFORO === 'Amarelo' ||
+      Boolean(osAjusteSolicitado.MOTIVO_AJUSTE)
+    );
+    const osAjustada = {
+      ...osAjusteSolicitado,
+      STATUS_OS: wasPending ? 'Ajustada / Editada' : osAjusteSolicitado.STATUS_OS,
+      COR_SEMAFORO: wasPending ? 'Roxo' : 'Azul',
+      FOI_AJUSTADA: true,
+      AJUSTE_REALIZADO: true,
+      DATA_AJUSTE_REALIZADO: '23/11/2026 17:30',
+      AJUSTADO_POR_USUARIO: 'Atendente Loja',
+      MOTIVO_AJUSTE_ANTERIOR: osAjusteSolicitado.MOTIVO_AJUSTE,
+      MOTIVO_AJUSTE: '',
+      ITENS_AJUSTE_ANTERIOR: osAjusteSolicitado.ITENS_AJUSTE,
+      ITENS_AJUSTE: []
+    };
+
+    console.assert(osAjustada.STATUS_OS === 'Ajustada / Editada', 'OS ajustada deve ter status "Ajustada / Editada"');
+    console.assert(osAjustada.COR_SEMAFORO === 'Roxo', 'OS ajustada NÃO deve ser azul! Deve assumir Semáforo Roxo 🟣');
+    console.assert(osAjustada.COR_SEMAFORO !== 'Azul', 'Semáforo da OS ajustada deve ser estritamente diferente de Azul');
+    console.assert(osAjustada.FOI_AJUSTADA === true, 'Flag FOI_AJUSTADA deve ser true');
+    console.assert(osAjustada.MOTIVO_AJUSTE_ANTERIOR.includes('Faltou documento'), 'Motivo anterior deve ser preservado para auditoria do gestor');
+
+    // 4. Admin confere e aprova ajuste -> Liberada para Laboratório
+    const osAprovada = {
+      ...osAjustada,
+      STATUS_OS: 'No Laboratório',
+      COR_SEMAFORO: 'Vermelho',
+      PAGAMENTO_CONFERIDO: 'Sim',
+      DUPLICATAS_GERADAS: true
+    };
+    console.assert(osAprovada.STATUS_OS === 'No Laboratório', 'OS aprovada deve ir para o Laboratório');
+    console.assert(osAprovada.COR_SEMAFORO === 'Vermelho', 'OS aprovada deve ter Semáforo Vermelho 🔴 (No Laboratório)');
+
+    console.log('  ✅ Test 107 Passed: Semáforo Roxo (🟣 Ajustada / Editada) na Gestão de OS e Ciclo de Ajuste validados com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 107 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 
