@@ -1544,7 +1544,7 @@ const EditOSModal = ({
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Diagonal Maior (mm)</label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Diagonal Maior</label>
                       <input
                         type="text"
                         value={formData.diagonalMaior || ''}
@@ -1554,7 +1554,7 @@ const EditOSModal = ({
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Altura Vertical (mm)</label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Altura Vertical</label>
                       <input
                         type="text"
                         value={formData.alturaVertical || ''}
@@ -1564,7 +1564,7 @@ const EditOSModal = ({
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Ponte (mm)</label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Ponte</label>
                       <input
                         type="text"
                         value={formData.ponte || ''}
@@ -1574,7 +1574,7 @@ const EditOSModal = ({
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Aro (mm)</label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Aro</label>
                       <input
                         type="text"
                         value={formData.aro || ''}

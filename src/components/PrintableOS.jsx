@@ -176,7 +176,30 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
   ).trim();
 
   // Valores canônicos com suporte total a todos os aliases e fallbacks
-  const displayTotal = osData.valorTotal ?? osData['VALOR TOTAL'] ?? osData['VALOR DA VENDA'] ?? osData['VALOR'] ?? safeClient['VALOR TOTAL'] ?? safeClient['Valor Total'] ?? '0,00';
+  const displayTotal = (() => {
+    const directTotal = osData.valorTotal ??
+      osData['VALOR TOTAL'] ??
+      osData['VALOR DA VENDA'] ??
+      osData['VALOR_TOTAL'] ??
+      osData['Valor Total'] ??
+      osData['VALOR'] ??
+      safeClient['VALOR TOTAL'] ??
+      safeClient['Valor Total'] ??
+      safeClient['VALOR DA VENDA'] ??
+      safeClient['VALOR_TOTAL'] ??
+      safeClient.valorTotal ??
+      osData.raw?.['VALOR TOTAL'] ??
+      osData.raw?.['VALOR DA VENDA'] ??
+      osData.raw?.['VALOR_TOTAL'] ??
+      osData.raw?.['Valor Total'] ??
+      osData.raw?.['VALOR'] ??
+      osData.raw?.valorTotal;
+
+    if (directTotal !== null && directTotal !== undefined && parseCurrencyPrint(directTotal) > 0) {
+      return directTotal;
+    }
+    return directTotal || '0,00';
+  })();
   const displayEntrada = osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? safeClient['VALOR ENTRADA'] ?? safeClient['Valor Entrada'] ?? '0,00';
   const displayRestante = osData.restante ?? osData['RESTANTE'] ?? safeClient['RESTANTE'] ?? safeClient['Restante'] ?? '0,00';
   const displayOSNumber = String(osData.numeroOS || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || safeClient['OS DA VENDA'] || safeClient['OS'] || '---').replace(/^#+/, '');
@@ -769,10 +792,10 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
             </tbody>
             <tfoot>
               <tr className="bg-slate-100/90 font-black text-slate-950 border-t-2 border-slate-300">
-                <td colSpan={3} className="text-right py-1 px-2 border border-slate-300 uppercase text-[8px] tracking-wider text-slate-700">
+                <td colSpan={3} className="text-right py-1 px-2 border border-slate-300 uppercase text-[8.5px] tracking-wider text-slate-800">
                   Valor do Produto / Total da Venda:
                 </td>
-                <td colSpan={2} className="text-right py-1 px-2 border border-slate-300 text-[9px] font-black text-slate-950 font-mono">
+                <td colSpan={2} className="text-right py-1 px-2 border border-slate-300 text-[10px] font-black text-slate-950 font-mono">
                   R$ {formatCurrencyPrint(displayTotal)}
                 </td>
               </tr>
@@ -801,11 +824,14 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
           <div className="grid grid-cols-3 gap-1.5 mb-1.5">
             <div className="border border-slate-800 p-1 text-center rounded bg-slate-50">
               <p className="uppercase text-[7.5px] font-black text-slate-600">
-                {isSecondary ? 'Cobrança da OS' : 'Valor do Produto / Venda'}
+                Valor do Produto / Venda
               </p>
-              <p className="font-black text-xs text-slate-950">
-                {isSecondary ? 'Cobrança Unificada' : `R$ ${formatCurrencyPrint(displayTotal)}`}
+              <p className="font-black text-xs text-slate-950 font-mono">
+                R$ {formatCurrencyPrint(displayTotal)}
               </p>
+              <span className="text-[6.5px] text-slate-500 font-bold block uppercase mt-0.5">
+                {isSecondary ? '(Cobrança Unificada na OS 1)' : 'Valor Total da Venda'}
+              </span>
             </div>
             <div className="border border-emerald-700 p-1 text-center rounded bg-emerald-50/50">
               <p className="uppercase text-[7.5px] font-black text-emerald-800">

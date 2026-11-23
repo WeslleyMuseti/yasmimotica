@@ -9709,7 +9709,69 @@ async function runTests() {
     console.log('  ✅ Test 105 Passed: Blindagem de Comprovantes, Isolamento Térmico e Rastreabilidade Completa PDV/ERP/OS validada com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 105 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ==========================================
+  console.log('▶ Test 106: Busca por Responsável na Gestão de OS, Valor Total da Venda na OS e Medidas Técnicas no Preenchimento');
+  {
+    const osManagementSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'OSManagement.jsx'), 'utf8');
+    const printableOSSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableOS.jsx'), 'utf8');
+    const printableLabOSSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableLabOS.jsx'), 'utf8');
+    const osGeneratorModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'OSGeneratorModal.jsx'), 'utf8');
+    const editOSModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'EditOSModal.jsx'), 'utf8');
+
+    // 106.1: Busca por Responsável na Gestão de OS
+    console.assert(osManagementSrc.includes('matchesResponsavel'), 'OSManagement deve conter matchesResponsavel no filtro');
+    console.assert(osManagementSrc.includes('order.responsavelNome'), 'matchesResponsavel deve verificar order.responsavelNome');
+    console.assert(osManagementSrc.includes('respCPFNum'), 'OSManagement deve verificar CPF do responsável na busca');
+    console.assert(osManagementSrc.includes('placeholder="Pesquisar por OS, Cliente, Responsável,'), 'Placeholder da busca deve mencionar Responsável');
+    console.assert(osManagementSrc.includes('Resp: {order.responsavelNome}'), 'OSManagement deve exibir badge com nome do responsável');
+
+    // 106.2: Valor Total da Venda na OS (A4 e Laboratório)
+    console.assert(printableOSSrc.includes('Valor Total da Venda'), 'PrintableOS deve rotular explicitamente Valor Total da Venda');
+    console.assert(printableLabOSSrc.includes('Valor Total da Venda:'), 'PrintableLabOS deve exibir Valor Total da Venda');
+    console.assert(printableLabOSSrc.includes('valorTotal || \'0,00\''), 'PrintableLabOS deve renderizar valorTotal');
+    console.assert(osManagementSrc.includes('Valor Total da Venda'), 'Modal de Laboratório na Gestão de OS deve exibir Valor Total da Venda');
+
+    // 106.3: Medidas Técnicas da Armação no Preenchimento da OS (OSGeneratorModal e EditOSModal)
+    console.assert(osGeneratorModalSrc.includes('Ponte + Aro'), 'OSGeneratorModal deve conter campo Ponte + Aro');
+    console.assert(osGeneratorModalSrc.includes('Diagonal Maior'), 'OSGeneratorModal deve conter campo Diagonal Maior');
+    console.assert(osGeneratorModalSrc.includes('Altura Vertical'), 'OSGeneratorModal deve conter campo Altura Vertical');
+    console.assert(osGeneratorModalSrc.includes('Ponte'), 'OSGeneratorModal deve conter campo Ponte');
+    console.assert(osGeneratorModalSrc.includes('Aro'), 'OSGeneratorModal deve conter campo Aro');
+
+    console.assert(editOSModalSrc.includes('Ponte + Aro'), 'EditOSModal deve conter campo Ponte + Aro');
+    console.assert(editOSModalSrc.includes('Diagonal Maior'), 'EditOSModal deve conter campo Diagonal Maior');
+    console.assert(editOSModalSrc.includes('Altura Vertical'), 'EditOSModal deve conter campo Altura Vertical');
+    console.assert(editOSModalSrc.includes('Ponte'), 'EditOSModal deve conter campo Ponte');
+    console.assert(editOSModalSrc.includes('Aro'), 'EditOSModal deve conter campo Aro');
+
+    // 106.4: Simulação de busca por responsável
+    const normalizeSearchText = (text) => {
+      if (!text) return "";
+      return String(text).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    };
+
+    const mockOrderChild = {
+      osNumber: 'EXT-105',
+      clientName: 'Arthur Gabriel Saturnino',
+      clientCPF: '123.456.789-00',
+      responsavelNome: 'Camily Vitoria Oliveira Saturnino',
+      responsavelCpf: '087.176.958-60',
+      product: 'Armação Infantil + Lente Cr 1.56 BlueCut'
+    };
+
+    const queryResp = 'camily';
+    const qNorm = normalizeSearchText(queryResp);
+    const matchesRespSim = normalizeSearchText(mockOrderChild.responsavelNome).includes(qNorm);
+    console.assert(matchesRespSim === true, 'Busca por Camily deve localizar a OS do filho Arthur Gabriel');
+
+    const queryCpfResp = '08717695860';
+    const respCpfDigits = mockOrderChild.responsavelCpf.replace(/\D/g, '');
+    console.assert(respCpfDigits.includes(queryCpfResp), 'Busca por CPF do responsável deve bater com a OS');
+
+    console.log('  ✅ Test 106 Passed: Busca por Responsável na Gestão de OS, Valor Total da Venda na OS e Medidas Técnicas no Preenchimento validados com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 106 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

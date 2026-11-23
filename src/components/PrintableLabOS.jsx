@@ -35,7 +35,25 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
   const cor = osData.cor || safeClient['Cor'] || osData.raw?.['COR'] || '';
   const referenciaSku = osData.referenciaSku || osData.raw?.['REFERENCIA_SKU'] || osData.raw?.['CODIGO'] || safeClient['REFERENCIA_SKU'] || safeClient['CODIGO'] || '';
   const detalhes = osData.detalhes || osData.raw?.['DETALHES'] || safeClient['DETALHES'] || '';
-  const valorEntrada = formatCurrencyPrint(osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? safeClient['VALOR ENTRADA'] ?? safeClient['Valor Entrada']);
+  const valorTotal = formatCurrencyPrint(
+    osData.valorTotal ??
+    osData['VALOR TOTAL'] ??
+    osData['VALOR DA VENDA'] ??
+    osData['VALOR_TOTAL'] ??
+    osData['Valor Total'] ??
+    osData['VALOR'] ??
+    safeClient['VALOR TOTAL'] ??
+    safeClient['Valor Total'] ??
+    safeClient['VALOR DA VENDA'] ??
+    safeClient['VALOR_TOTAL'] ??
+    safeClient.valorTotal ??
+    osData.raw?.['VALOR TOTAL'] ??
+    osData.raw?.['VALOR DA VENDA'] ??
+    osData.raw?.valorTotal ??
+    '0,00'
+  );
+  const valorEntrada = formatCurrencyPrint(osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? safeClient['VALOR ENTRADA'] ?? safeClient['Valor Entrada'] ?? '0,00');
+  const valorRestante = formatCurrencyPrint(osData.restante ?? osData['RESTANTE'] ?? safeClient['RESTANTE'] ?? safeClient['Restante'] ?? osData.raw?.['RESTANTE'] ?? '0,00');
   const formaPgto = osData.formasPagamento ? String(osData.formasPagamento).replace(/(?:FORMA DE PAGAMENTO|FORMA_PAGTO|FORMA_PAGAMENTO|MEIO_PAGAMENTO)\s*:\s*/gi, '').split('\n')[0].trim() : '';
   const tipoArmacao = osData.armacao || safeClient['Modelo de Armação'] || '';
 
@@ -231,25 +249,35 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
 
         {/* BOTTOM FIELDS */}
         <div className="border border-slate-300 rounded p-4 bg-slate-50/50 mt-4">
+          <div className="grid grid-cols-3 gap-3 mb-3">
+            <div className="flex items-end">
+              <span className="text-[10px] font-black uppercase text-slate-700 mr-2 whitespace-nowrap">Valor Total da Venda:</span>
+              <span className="border-b border-slate-400 font-black px-2 text-slate-900 flex-1 text-sm h-5 font-mono">
+                R$ {valorTotal || '0,00'}
+              </span>
+            </div>
+            <div className="flex items-end">
+              <span className="text-[10px] font-black uppercase text-emerald-800 mr-2 whitespace-nowrap">Valor da Entrada:</span>
+              <span className="border-b border-slate-400 font-bold px-2 text-emerald-800 flex-1 text-sm h-5 font-mono">
+                R$ {valorEntrada || '0,00'}
+              </span>
+            </div>
+            <div className="flex items-end">
+              <span className="text-[10px] font-black uppercase text-rose-800 mr-2 whitespace-nowrap">Saldo Restante:</span>
+              <span className="border-b border-slate-400 font-bold px-2 text-rose-800 flex-1 text-sm h-5 font-mono">
+                R$ {valorRestante || '0,00'}
+              </span>
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-4 mb-3">
             <div className="flex items-end">
               <span className="text-[10px] font-black uppercase text-slate-600 mr-2 whitespace-nowrap">Data da Consulta:</span>
               <div className="border-b border-slate-400 flex-1 h-4"></div>
             </div>
             <div className="flex items-end">
-              <span className="text-[10px] font-black uppercase text-slate-600 mr-2 whitespace-nowrap">Valor da Entrada:</span>
-              <span className="border-b border-slate-400 font-bold px-2 text-slate-900 flex-1 text-sm h-5">R$ {valorEntrada || '---'}</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 mb-3">
-            <div className="flex items-end">
               <span className="text-[10px] font-black uppercase text-slate-600 mr-2 whitespace-nowrap">Forma de Pagamento:</span>
               <span className="border-b border-slate-400 font-bold px-1 text-slate-900 flex-1 uppercase truncate text-xs h-4">{formaPgto || '---'}</span>
-            </div>
-            <div className="flex items-end">
-              <span className="text-[10px] font-black uppercase text-slate-600 mr-2 whitespace-nowrap">O.S anterior de retificação:</span>
-              <div className="border-b border-slate-400 flex-1 h-4"></div>
             </div>
           </div>
 

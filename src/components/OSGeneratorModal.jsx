@@ -2399,7 +2399,7 @@ const OSGeneratorModal = ({
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase text-slate-400 font-bold tracking-wider">Ponte (mm)</label>
+                    <label className="text-[9px] uppercase text-slate-400 font-bold tracking-wider">Ponte</label>
                     <input
                       type="text"
                       name="ponte"
@@ -2410,7 +2410,7 @@ const OSGeneratorModal = ({
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase text-slate-400 font-bold tracking-wider">Aro (mm)</label>
+                    <label className="text-[9px] uppercase text-slate-400 font-bold tracking-wider">Aro</label>
                     <input
                       type="text"
                       name="aro"

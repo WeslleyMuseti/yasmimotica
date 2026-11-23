@@ -1166,7 +1166,12 @@ const OSManagement = ({
         boletoPagadorCpf: sale["BOLETO_PAGADOR_CPF"] || sale["boletoPagadorCpf"] || "",
         titularBoleto: sale["TITULAR_BOLETO"] || sale["titularBoleto"] || "",
         responsavelNome: sale["RESPONSAVEL_NOME"] || sale["RESPONSAVEL"] || sale["Responsável Nome"] || sale["Responsável"] || matchedClient?.["Responsável Nome"] || matchedClient?.["Responsável"] || "",
-        responsavelCpf: sale["RESPONSAVEL_CPF"] || sale["Responsável CPF"] || matchedClient?.["Responsável CPF"] || ""
+        responsavelCpf: sale["RESPONSAVEL_CPF"] || sale["Responsável CPF"] || matchedClient?.["Responsável CPF"] || "",
+        ponteAro: sale["PONTE_ARO"] || sale["ponteAro"] || matchedClient?.["PONTE_ARO"] || matchedClient?.["ponteAro"] || "",
+        diagonalMaior: sale["DIAGONAL_MAIOR"] || sale["diagonalMaior"] || matchedClient?.["DIAGONAL_MAIOR"] || matchedClient?.["diagonalMaior"] || "",
+        alturaVertical: sale["ALTURA_VERTICAL"] || sale["alturaVertical"] || matchedClient?.["ALTURA_VERTICAL"] || matchedClient?.["alturaVertical"] || "",
+        ponte: sale["PONTE"] || sale["ponte"] || matchedClient?.["PONTE"] || matchedClient?.["ponte"] || "",
+        aro: sale["ARO"] || sale["aro"] || matchedClient?.["ARO"] || matchedClient?.["aro"] || ""
       });
     });
 
@@ -1243,13 +1248,26 @@ const OSManagement = ({
         return false;
       }
 
-      // Busca por Texto Aprimorada (Resiliente a Acentos e Variações Fonéticas como Mirela vs Mirella)
+      // Busca por Texto Aprimorada (Resiliente a Acentos, Responsável e Variações Fonéticas)
       if (search.trim()) {
         const q = normalizeSearchText(search);
         const cleanQ = search.replace(/\D/g, '');
         const matchesOS = normalizeSearchText(order.osNumber).includes(q);
         const matchesClient = normalizeSearchText(order.clientName).includes(q);
         const matchesPaciente = normalizeSearchText(order.pacienteNome || '').includes(q);
+        const matchesResponsavel = Boolean(
+          normalizeSearchText(order.responsavelNome || '').includes(q) ||
+          normalizeSearchText(order.boletoPagadorNome || '').includes(q) ||
+          normalizeSearchText(order.clientData?.['Responsável'] || '').includes(q) ||
+          normalizeSearchText(order.clientData?.['Nome Responsável'] || '').includes(q) ||
+          normalizeSearchText(order.clientData?.['Responsável Legal'] || '').includes(q) ||
+          normalizeSearchText(order.clientData?.['RESPONSAVEL'] || '').includes(q) ||
+          normalizeSearchText(order.raw?.['RESPONSAVEL_NOME'] || '').includes(q) ||
+          normalizeSearchText(order.raw?.['RESPONSAVEL_LEGAL'] || '').includes(q) ||
+          normalizeSearchText(order.raw?.['RESPONSAVEL'] || '').includes(q) ||
+          normalizeSearchText(order.raw?.['Responsável'] || '').includes(q) ||
+          normalizeSearchText(order.raw?.['BOLETO_PAGADOR_NOME'] || '').includes(q)
+        );
         const matchesProduct = normalizeSearchText(order.product).includes(q);
         const matchesUnit = normalizeSearchText(order.unit).includes(q);
         const matchesArmacao = normalizeSearchText(order.armacao || '').includes(q);
@@ -1266,12 +1284,50 @@ const OSManagement = ({
         if (cleanQ.length >= 3) {
           const clientCPFNum = (order.clientCPF || '').replace(/\D/g, '');
           const clientPhoneNum = (order.clientPhone || '').replace(/\D/g, '');
-          if (clientCPFNum.includes(cleanQ) || clientPhoneNum.includes(cleanQ)) {
+          const respCPFNum = (
+            order.responsavelCpf ||
+            order.boletoPagadorCpf ||
+            order.clientData?.['Responsável CPF'] ||
+            order.clientData?.['RESPONSAVEL_CPF'] ||
+            order.raw?.['RESPONSAVEL_CPF'] ||
+            order.raw?.['BOLETO_PAGADOR_CPF'] ||
+            ''
+          ).replace(/\D/g, '');
+          const respPhoneNum = (
+            order.clientData?.['Responsável WhatsApp'] ||
+            order.clientData?.['Responsável Telefone'] ||
+            order.clientData?.['TELEFONE_RESPONSAVEL'] ||
+            order.raw?.['TELEFONE_RESPONSAVEL'] ||
+            ''
+          ).replace(/\D/g, '');
+
+          if (
+            clientCPFNum.includes(cleanQ) ||
+            clientPhoneNum.includes(cleanQ) ||
+            respCPFNum.includes(cleanQ) ||
+            respPhoneNum.includes(cleanQ)
+          ) {
             matchesDoc = true;
           }
         }
 
-        if (!matchesOS && !matchesClient && !matchesPaciente && !matchesProduct && !matchesUnit && !matchesArmacao && !matchesLente && !matchesMedico && !matchesStatus && !matchesLab && !matchesDoc && !matchesSaleId && !matchesLinked && !matchesVoucher) {
+        if (
+          !matchesOS &&
+          !matchesClient &&
+          !matchesPaciente &&
+          !matchesResponsavel &&
+          !matchesProduct &&
+          !matchesUnit &&
+          !matchesArmacao &&
+          !matchesLente &&
+          !matchesMedico &&
+          !matchesStatus &&
+          !matchesLab &&
+          !matchesDoc &&
+          !matchesSaleId &&
+          !matchesLinked &&
+          !matchesVoucher
+        ) {
           return false;
         }
       }
@@ -1967,11 +2023,11 @@ const OSManagement = ({
       OD_ALT: order.odAlt || order.raw["OD_ALT"] || "",
       OE_DNP: order.oeDnp || order.raw["OE_DNP"] || "",
       OE_ALT: order.oeAlt || order.raw["OE_ALT"] || "",
-      PONTE_ARO: order.raw["PONTE_ARO"] || "",
-      DIAGONAL_MAIOR: order.raw["DIAGONAL_MAIOR"] || "",
-      ALTURA_VERTICAL: order.raw["ALTURA_VERTICAL"] || "",
-      PONTE: order.raw["PONTE"] || "",
-      ARO: order.raw["ARO"] || ""
+      PONTE_ARO: order.ponteAro || order.raw?.["PONTE_ARO"] || order.clientData?.["PONTE_ARO"] || "",
+      DIAGONAL_MAIOR: order.diagonalMaior || order.raw?.["DIAGONAL_MAIOR"] || order.clientData?.["DIAGONAL_MAIOR"] || "",
+      ALTURA_VERTICAL: order.alturaVertical || order.raw?.["ALTURA_VERTICAL"] || order.clientData?.["ALTURA_VERTICAL"] || "",
+      PONTE: order.ponte || order.raw?.["PONTE"] || order.clientData?.["PONTE"] || "",
+      ARO: order.aro || order.raw?.["ARO"] || order.clientData?.["ARO"] || ""
     });
   };
 
@@ -2764,7 +2820,7 @@ const OSManagement = ({
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Pesquisar por OS, Cliente, CPF, Telefone, Lente ou Armação..."
+            placeholder="Pesquisar por OS, Cliente, Responsável, CPF, Telefone, Lente ou Armação..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-10 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-pink-500/50 shadow-inner"
@@ -3098,6 +3154,16 @@ const OSManagement = ({
                         <span className="font-bold text-white text-base tracking-wide">
                           {order.clientName}
                         </span>
+                        {order.responsavelNome && order.responsavelNome !== 'S/RESPONSAVEL' && order.responsavelNome.trim() !== '' && (
+                          <span 
+                            className="text-xs text-amber-300 font-bold bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-lg flex items-center gap-1 shadow-2xs"
+                            title={`Responsável Financeiro/Legal: ${order.responsavelNome}${order.responsavelCpf ? ` | CPF: ${order.responsavelCpf}` : ''}`}
+                          >
+                            <Users size={12} className="text-amber-400" />
+                            <span>Resp: {order.responsavelNome}</span>
+                            {order.responsavelCpf && <span className="font-mono text-amber-200/80 text-[10px]">({order.responsavelCpf})</span>}
+                          </span>
+                        )}
                         {order.clientPhone && (
                           <a
                             href={`https://wa.me/55${order.clientPhone.replace(/\D/g, '')}`}
@@ -3865,6 +3931,15 @@ const OSManagement = ({
                               {order.pacienteNome && order.pacienteNome.toLowerCase() !== order.clientName.toLowerCase() && (
                                 <span className="text-[10px] bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 px-1.5 py-0.5 rounded font-black">
                                   Pac: {order.pacienteNome}
+                                </span>
+                              )}
+                              {order.responsavelNome && order.responsavelNome !== 'S/RESPONSAVEL' && order.responsavelNome.trim() !== '' && (
+                                <span 
+                                  className="text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold flex items-center gap-1 shadow-2xs"
+                                  title={`Responsável Legal: ${order.responsavelNome}${order.responsavelCpf ? ` | CPF: ${order.responsavelCpf}` : ''}`}
+                                >
+                                  <Users size={11} className="text-amber-400" />
+                                  <span>Resp: {order.responsavelNome}</span>
                                 </span>
                               )}
                             </p>
@@ -5369,6 +5444,15 @@ const OSManagement = ({
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">Laboratório</label>
                   <input type="text" readOnly={isVendedor} value={labFormData.LABORATORIO || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, LABORATORIO: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">Valor Total da Venda</label>
+                  <div className="w-full bg-black/40 border border-emerald-500/30 rounded-xl px-4 py-2 text-sm text-emerald-400 font-mono font-black flex items-center justify-between">
+                    <span>R$ {formatMoney(labModalOrder.valorTotal)}</span>
+                    <span className="text-[10px] text-slate-400 font-normal">
+                      Entrada: R$ {formatMoney(labModalOrder.valorEntrada)}
+                    </span>
+                  </div>
                 </div>
               </div>
 
