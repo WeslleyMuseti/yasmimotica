@@ -1936,77 +1936,77 @@ const POSRegister = ({
           }
         }
 
-        // 3. Se houver parcelas de Boleto em venda que NÃO envolve confecção de OS (itens gerais sem armação/lente),
-        // registrar em CONTAS_RECEBER. Caso haja armação ou lente, a geração das duplicatas fica retida
-        // na OS (Semáforo Azul) até a conferência e liberação financeira pela administração!
-        const hasOpticalItems = cart.some(i => i.type === 'armacoes' || i.type === 'lentes');
-        if (!hasOpticalItems) {
-          const parcelasItems = [];
-          for (const pay of effectivePayments) {
-            if ((pay.metodo === 'carne' || pay.metodo === 'boleto') && pay.parcelas && pay.parcelas.length > 0) {
-              const isRespTitularItem = (pay.boletoTitularTipo || boletoTitularType) === 'responsavel' && Boolean(effectiveRespName);
-              const targetTitularName = isRespTitularItem ? effectiveRespName : clientName;
-              const targetTitularCpf = isRespTitularItem ? (effectiveRespCpf || clientCpf) : clientCpf;
-              
-              let targetClientId = clientId;
-              if (isRespTitularItem) {
-                const respClientInDB = Array.isArray(clientsData) ? clientsData.find(c => {
-                  const cCpf = String(c['CPF / CNPJ'] || c['CPF'] || '').replace(/\D/g, '');
-                  const rCpf = String(targetTitularCpf || '').replace(/\D/g, '');
-                  if (rCpf.length >= 7 && cCpf === rCpf) return true;
-                  const cName = String(c['Nome Completo'] || c['NOME'] || '').trim().toLowerCase();
-                  const rName = String(targetTitularName || '').trim().toLowerCase();
-                  return cName && rName && cName === rName;
-                }) : null;
-                targetClientId = respClientInDB ? (respClientInDB.id || respClientInDB._id || '') : '';
-              }
+        // 3. Se houver parcelas de Boleto em venda, registrar imediatamente em CONTAS_RECEBER com as datas geradas
+        const parcelasItems = [];
+        for (const pay of effectivePayments) {
+          if ((pay.metodo === 'carne' || pay.metodo === 'boleto') && pay.parcelas && pay.parcelas.length > 0) {
+            const isRespTitularItem = (pay.boletoTitularTipo || boletoTitularType) === 'responsavel' && Boolean(effectiveRespName);
+            const targetTitularName = isRespTitularItem ? effectiveRespName : clientName;
+            const targetTitularCpf = isRespTitularItem ? (effectiveRespCpf || clientCpf) : clientCpf;
+            
+            let targetClientId = clientId;
+            if (isRespTitularItem) {
+              const respClientInDB = Array.isArray(clientsData) ? clientsData.find(c => {
+                const cCpf = String(c['CPF / CNPJ'] || c['CPF'] || '').replace(/\D/g, '');
+                const rCpf = String(targetTitularCpf || '').replace(/\D/g, '');
+                if (rCpf.length >= 7 && cCpf === rCpf) return true;
+                const cName = String(c['Nome Completo'] || c['NOME'] || '').trim().toLowerCase();
+                const rName = String(targetTitularName || '').trim().toLowerCase();
+                return cName && rName && cName === rName;
+              }) : null;
+              targetClientId = respClientInDB ? (respClientInDB.id || respClientInDB._id || '') : '';
+            }
 
-              for (const p of pay.parcelas) {
-                parcelasItems.push({
-                  'CLIENTE_ID': targetClientId,
-                  'CLIENTE_CPF': targetTitularCpf,
-                  'CPF': targetTitularCpf,
-                  'CLIENTE': targetTitularName,
-                  'NOME CLIENTE': targetTitularName,
-                  'NOME': targetTitularName,
-                  'PAGADOR': targetTitularName,
-                  'PAGADOR_NOME': targetTitularName,
-                  'PAGADOR_CPF': targetTitularCpf,
-                  'PAGADOR_TIPO': isRespTitularItem ? 'Responsável' : 'Cliente',
-                  'TITULAR_PARCELA': targetTitularName,
-                  'TITULAR_TIPO': isRespTitularItem ? 'responsavel' : 'cliente',
-                  'RESPONSAVEL_NOME': effectiveRespName || '',
-                  'RESPONSAVEL_CPF': effectiveRespCpf || '',
-                  'Responsável CPF': effectiveRespCpf || '',
-                  'responsavelCpf': effectiveRespCpf || '',
-                  'Responsável Legal': effectiveRespName || '',
-                  'Responsável Nome': effectiveRespName || '',
-                  'PACIENTE': clientName,
-                  'NOME_BENEFICIARIO': clientName,
-                  'DOCUMENTO': `BOLETO ${p.numero}/${p.totalParcelas} - PDV`,
-                  'VALOR': typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
-                  'DATA_VENCIMENTO': p.vencimento,
-                  'DATA VENCIMENTO': p.vencimento,
-                  'STATUS': 'Pendente',
-                  'CIDADE': city,
-                  'MEIO_PAGAMENTO': 'Boleto',
-                  'DESCRICAO': `Venda PDV - Parcela ${p.numero}/${p.totalParcelas} (${descricaoItens})${isRespTitularItem ? ` [Resp: ${effectiveRespName} / Titular: ${clientName}]` : ''}`
-                });
-              }
+            for (const p of pay.parcelas) {
+              parcelasItems.push({
+                'CLIENTE_ID': targetClientId,
+                'CLIENTE_CPF': targetTitularCpf,
+                'CPF': targetTitularCpf,
+                'CLIENTE': targetTitularName,
+                'NOME CLIENTE': targetTitularName,
+                'NOME': targetTitularName,
+                'PAGADOR': targetTitularName,
+                'PAGADOR_NOME': targetTitularName,
+                'PAGADOR_CPF': targetTitularCpf,
+                'PAGADOR_TIPO': isRespTitularItem ? 'Responsável' : 'Cliente',
+                'TITULAR_PARCELA': targetTitularName,
+                'TITULAR_TIPO': isRespTitularItem ? 'responsavel' : 'cliente',
+                'RESPONSAVEL_NOME': effectiveRespName || '',
+                'RESPONSAVEL_CPF': effectiveRespCpf || '',
+                'Responsável CPF': effectiveRespCpf || '',
+                'responsavelCpf': effectiveRespCpf || '',
+                'Responsável Legal': effectiveRespName || '',
+                'Responsável Nome': effectiveRespName || '',
+                'PACIENTE': clientName,
+                'NOME_BENEFICIARIO': clientName,
+                'DOCUMENTO': `BOLETO ${p.numero}/${p.totalParcelas} - OS ${newSale['OS DA VENDA'] || newSale.OS || 'PDV'}`,
+                'VALOR': typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
+                'DATA_VENCIMENTO': p.vencimento,
+                'DATA VENCIMENTO': p.vencimento,
+                'VENCIMENTO': p.vencimento,
+                'STATUS': 'Pendente',
+                'CIDADE': city,
+                'LOJA': city,
+                'UNIDADE': city,
+                'MEIO_PAGAMENTO': 'Boleto',
+                'VENDA_OS': newSale['OS DA VENDA'] || newSale.OS || '',
+                'OS': newSale['OS DA VENDA'] || newSale.OS || '',
+                'DESCRICAO': `OS #${newSale['OS DA VENDA'] || newSale.OS || 'PDV'} - Parcela ${p.numero}/${p.totalParcelas} (${descricaoItens})${isRespTitularItem ? ` [Resp: ${effectiveRespName} / Titular: ${clientName}]` : ''}`
+              });
             }
           }
-          if (parcelasItems.length > 0) {
-            try {
-              if (onAddBatch) {
-                await withTimeout(onAddBatch('CONTAS_RECEBER', parcelasItems), 4000);
-              } else if (onAddRow) {
-                for (const item of parcelasItems) {
-                  await withTimeout(onAddRow('CONTAS_RECEBER', item), 3000);
-                }
+        }
+        if (parcelasItems.length > 0) {
+          try {
+            if (onAddBatch) {
+              await withTimeout(onAddBatch('CONTAS_RECEBER', parcelasItems), 4000);
+            } else if (onAddRow) {
+              for (const item of parcelasItems) {
+                await withTimeout(onAddRow('CONTAS_RECEBER', item), 3000);
               }
-            } catch (crErr) {
-              console.warn('Aviso ao registrar parcelas em lote em CONTAS_RECEBER:', crErr);
             }
+          } catch (crErr) {
+            console.warn('Aviso ao registrar parcelas em lote em CONTAS_RECEBER:', crErr);
           }
         }
 
@@ -2382,6 +2382,71 @@ const POSRegister = ({
               }
             }
           } catch (e) {}
+        }
+      }
+
+      // 🛡️ Registrar parcelas geradas de Boleto da OS em CONTAS_RECEBER para que apareçam imediatamente
+      if (singleData.parcelas && singleData.parcelas.length > 0 && (onAddBatch || onAddRow)) {
+        const existingReceber = data?.['CONTAS_RECEBER'] || [];
+        const normOS = String(singleData.numeroOS || '').replace(/^#/, '').trim();
+        const singleBoletoItems = [];
+        for (const p of singleData.parcelas) {
+          const numP = p.numero || 1;
+          const totP = p.totalParcelas || singleData.parcelas.length;
+          const dueIso = p.vencimento;
+          const alreadyExists = existingReceber.some(r => {
+            const rOS = String(r.VENDA_OS || r.OS || '').replace(/^#/, '').trim();
+            const rDoc = String(r.DOCUMENTO || '').toLowerCase();
+            return (normOS && rOS === normOS) && (rDoc.includes(`${numP}/${totP}`) || r.DATA_VENCIMENTO === dueIso);
+          });
+          if (!alreadyExists) {
+            singleBoletoItems.push({
+              'CLIENTE_ID': clientId,
+              'CLIENTE_CPF': clientCpf,
+              'CPF': clientCpf,
+              'CLIENTE': clientName,
+              'NOME CLIENTE': clientName,
+              'NOME': clientName,
+              'PAGADOR': fallbackTitularPagadorName || clientName,
+              'PAGADOR_NOME': fallbackTitularPagadorName || clientName,
+              'PAGADOR_CPF': fallbackTitularPagadorCpf || clientCpf,
+              'PAGADOR_TIPO': boletoTitularType === 'responsavel' ? 'Responsável' : 'Cliente',
+              'TITULAR_PARCELA': fallbackTitularPagadorName || clientName,
+              'TITULAR_TIPO': boletoTitularType === 'responsavel' ? 'responsavel' : 'cliente',
+              'RESPONSAVEL_NOME': effectiveRespName || '',
+              'RESPONSAVEL_CPF': effectiveRespCpf || '',
+              'Responsável CPF': effectiveRespCpf || '',
+              'responsavelCpf': effectiveRespCpf || '',
+              'Responsável Legal': effectiveRespName || '',
+              'Responsável Nome': effectiveRespName || '',
+              'PACIENTE': singleData.nomePessoa || singleData.PACIENTE || clientName,
+              'NOME_BENEFICIARIO': singleData.nomePessoa || singleData.NOME_BENEFICIARIO || clientName,
+              'DOCUMENTO': `BOLETO ${numP}/${totP} - OS ${normOS || 'PDV'}`,
+              'VALOR': typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
+              'DATA_VENCIMENTO': dueIso,
+              'DATA VENCIMENTO': dueIso,
+              'VENCIMENTO': dueIso,
+              'STATUS': 'Pendente',
+              'CIDADE': resolveOSUnit({ numeroOS: singleData.numeroOS }, savedClientForOS) || 'Cajati',
+              'LOJA': resolveOSUnit({ numeroOS: singleData.numeroOS }, savedClientForOS) || 'Cajati',
+              'UNIDADE': resolveOSUnit({ numeroOS: singleData.numeroOS }, savedClientForOS) || 'Cajati',
+              'MEIO_PAGAMENTO': 'Boleto',
+              'VENDA_OS': normOS,
+              'OS': normOS,
+              'DESCRICAO': `OS #${normOS || 'PDV'} - Parcela ${numP}/${totP} (${mergedSaleData.PRODUTO || fallbackCartDetails || 'Óculos'})`,
+              'DATA_CADASTRO': todayStr
+            });
+          }
+        }
+        if (singleBoletoItems.length > 0) {
+          try {
+            if (onAddBatch) await withTimeout(onAddBatch('CONTAS_RECEBER', singleBoletoItems), 3000);
+            else if (onAddRow) {
+              for (const it of singleBoletoItems) await withTimeout(onAddRow('CONTAS_RECEBER', it), 2000);
+            }
+          } catch (e) {
+            console.warn('Aviso ao registrar parcelas de OS em CONTAS_RECEBER:', e);
+          }
         }
       }
 
@@ -2771,6 +2836,72 @@ const POSRegister = ({
             }
           }
         } catch (e) {}
+      }
+    }
+
+    // 🛡️ Registrar parcelas geradas de Boleto do Multi-OS em CONTAS_RECEBER
+    const multiParcelas = (primaryOS.parcelas && primaryOS.parcelas.length > 0) ? primaryOS.parcelas : (osGeneratedData.parcelas || []);
+    if (multiParcelas.length > 0 && (onAddBatch || onAddRow)) {
+      const existingReceber = data?.['CONTAS_RECEBER'] || [];
+      const primaryOSNum = String(primaryOS.numeroOS || '').replace(/^#/, '').trim();
+      const multiBoletoItems = [];
+      for (const p of multiParcelas) {
+        const numP = p.numero || 1;
+        const totP = p.totalParcelas || multiParcelas.length;
+        const dueIso = p.vencimento;
+        const alreadyExists = existingReceber.some(r => {
+          const rOS = String(r.VENDA_OS || r.OS || '').replace(/^#/, '').trim();
+          const rDoc = String(r.DOCUMENTO || '').toLowerCase();
+          return (primaryOSNum && rOS === primaryOSNum) && (rDoc.includes(`${numP}/${totP}`) || r.DATA_VENCIMENTO === dueIso);
+        });
+        if (!alreadyExists) {
+          multiBoletoItems.push({
+            'CLIENTE_ID': clientId,
+            'CLIENTE_CPF': clientCpf,
+            'CPF': clientCpf,
+            'CLIENTE': clientName,
+            'NOME CLIENTE': clientName,
+            'NOME': clientName,
+            'PAGADOR': fallbackTitularPagadorName || clientName,
+            'PAGADOR_NOME': fallbackTitularPagadorName || clientName,
+            'PAGADOR_CPF': fallbackTitularPagadorCpf || clientCpf,
+            'PAGADOR_TIPO': boletoTitularType === 'responsavel' ? 'Responsável' : 'Cliente',
+            'TITULAR_PARCELA': fallbackTitularPagadorName || clientName,
+            'TITULAR_TIPO': boletoTitularType === 'responsavel' ? 'responsavel' : 'cliente',
+            'RESPONSAVEL_NOME': effectiveRespName || '',
+            'RESPONSAVEL_CPF': effectiveRespCpf || '',
+            'Responsável CPF': effectiveRespCpf || '',
+            'responsavelCpf': effectiveRespCpf || '',
+            'Responsável Legal': effectiveRespName || '',
+            'Responsável Nome': effectiveRespName || '',
+            'PACIENTE': primaryOS.nomePessoa || primaryOS.PACIENTE || clientName,
+            'NOME_BENEFICIARIO': primaryOS.nomePessoa || primaryOS.NOME_BENEFICIARIO || clientName,
+            'DOCUMENTO': `BOLETO ${numP}/${totP} - OS ${primaryOSNum || 'PDV'}`,
+            'VALOR': typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
+            'DATA_VENCIMENTO': dueIso,
+            'DATA VENCIMENTO': dueIso,
+            'VENCIMENTO': dueIso,
+            'STATUS': 'Pendente',
+            'CIDADE': city,
+            'LOJA': city,
+            'UNIDADE': city,
+            'MEIO_PAGAMENTO': 'Boleto',
+            'VENDA_OS': primaryOSNum,
+            'OS': primaryOSNum,
+            'DESCRICAO': `OS #${primaryOSNum || 'PDV'} - Parcela ${numP}/${totP} (${mergedPrimarySaleData.PRODUTO || 'Óculos 1'})`,
+            'DATA_CADASTRO': todayStr
+          });
+        }
+      }
+      if (multiBoletoItems.length > 0) {
+        try {
+          if (onAddBatch) await withTimeout(onAddBatch('CONTAS_RECEBER', multiBoletoItems), 3000);
+          else if (onAddRow) {
+            for (const it of multiBoletoItems) await withTimeout(onAddRow('CONTAS_RECEBER', it), 2000);
+          }
+        } catch (e) {
+          console.warn('Aviso ao registrar parcelas de Multi-OS em CONTAS_RECEBER:', e);
+        }
       }
     }
 

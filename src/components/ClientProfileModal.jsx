@@ -414,8 +414,53 @@ const ClientProfileModal = ({
       }
     });
 
+    // Reconciliação com parcelas estruturadas (PARCELAS_JSON) do histórico de compras
+    (clientHistory || []).forEach(compra => {
+      let parcs = [];
+      try {
+        if (Array.isArray(compra.parcelas)) parcs = compra.parcelas;
+        else if (compra['PARCELAS_JSON']) parcs = typeof compra['PARCELAS_JSON'] === 'string' ? JSON.parse(compra['PARCELAS_JSON']) : compra['PARCELAS_JSON'];
+        else if (compra.raw?.PARCELAS_JSON) parcs = typeof compra.raw.PARCELAS_JSON === 'string' ? JSON.parse(compra.raw.PARCELAS_JSON) : compra.raw.PARCELAS_JSON;
+      } catch (_) { parcs = []; }
+
+      if (!Array.isArray(parcs) || parcs.length === 0) return;
+      const cOS = String(compra['OS DA VENDA'] || compra.OS || compra.VENDA_OS || compra.numeroOS || '').replace(/^#/, '').trim();
+
+      parcs.forEach((p, idx) => {
+        const numP = p.numero || (idx + 1);
+        const totP = p.totalParcelas || parcs.length;
+        const dueIso = String(p.vencimento || p.dataVencimento || '');
+        const alreadyIn = combined.some(r => {
+          const rOS = String(r.VENDA_OS || r.OS || '').replace(/^#/, '').trim();
+          const rDoc = String(r.DOCUMENTO || '').toLowerCase();
+          return (cOS && rOS === cOS) && (rDoc.includes(`${numP}/${totP}`) || r.DATA_VENCIMENTO === dueIso);
+        });
+
+        if (!alreadyIn) {
+          combined.push({
+            id: `boleto_profile_${compra.id || cOS}_${numP}_${dueIso || idx}`,
+            CLIENTE_ID: currentClient.id || '',
+            CLIENTE_CPF: currentClient['CPF / CNPJ'] || currentClient['CPF'] || '',
+            CPF: currentClient['CPF / CNPJ'] || currentClient['CPF'] || '',
+            CLIENTE: currentClient['Nome Completo'] || currentClient['NOME'] || 'Cliente',
+            PAGADOR_NOME: compra.BOLETO_PAGADOR_NOME || currentClient['Nome Completo'] || 'Cliente',
+            DOCUMENTO: `BOLETO ${numP}/${totP} - OS ${cOS || 'PDV'}`,
+            DESCRICAO: `OS #${cOS || 'PDV'} - Parcela ${numP}/${totP}`,
+            VALOR: typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
+            DATA_VENCIMENTO: dueIso,
+            'DATA VENCIMENTO': dueIso,
+            VENCIMENTO: dueIso,
+            STATUS: p.status || 'Pendente',
+            MEIO_PAGAMENTO: 'Boleto',
+            VENDA_OS: cOS,
+            OS: cOS
+          });
+        }
+      });
+    });
+
     return combined;
-  }, [receberData, currentClient, clientSalesOSList, localRegisteredPayments]);
+  }, [receberData, currentClient, clientSalesOSList, localRegisteredPayments, clientHistory]);
 
   // Recibos e movimentações em dinheiro/PIX/cartão do cliente e responsável registrados no Fluxo de Caixa
   const clientCashReceipts = useMemo(() => {
