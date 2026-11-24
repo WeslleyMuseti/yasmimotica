@@ -205,8 +205,7 @@ function App() {
         };
       }
     } catch {}
-    const { nextData } = sanitizeStephanieMusetiData(initial);
-    return nextData;
+    return initial;
   });
   const [view, setView] = useState('login'); // login, loading, dashboard, syncing, clients, erp, admin
   const [currentUser, setCurrentUser] = useState(null);
@@ -356,20 +355,25 @@ function App() {
     let hasChange = false;
     const toDeleteIds = [];
 
-    // Agrupa por cliente para identificar duplicidades e purgar registros fantasmas
+    // Agrupa por cliente para identificar duplicidades e normalizar parcelas sem purga destrutiva
     const byClient = {};
     receberList.forEach(r => {
-      const client = String(r['CLIENTE'] || r['NOME CLIENTE'] || r['NOME'] || r['Cliente'] || '').trim().toUpperCase();
-      if (!client) {
-        // 🛡️ PURGA AUTOMÁTICA DE REGISTROS FANTASMAS EM CONTAS_RECEBER (Sem cliente vinculado)
-        hasChange = true;
-        const ghostId = r.id || r._id;
-        if (ghostId && !processedDuplicateDeletionsRef.current.has(ghostId)) {
-          processedDuplicateDeletionsRef.current.add(ghostId);
-          toDeleteIds.push(ghostId);
-        }
-        return;
+      const client = String(
+        r['CLIENTE'] || r['NOME CLIENTE'] || r['NOME'] || r['Cliente'] ||
+        r['PAGADOR'] || r['PAGADOR_NOME'] || r['TITULAR_PARCELA'] || r['PACIENTE'] ||
+        r['RESPONSAVEL_NOME'] || r['RESPONSAVEL'] || r['Nome Completo'] ||
+        r['CLIENTE_ID'] || r['CPF'] || r['OS'] || r['VENDA_OS'] || r['DOCUMENTO'] ||
+        'CLIENTE_REGISTRADO'
+      ).trim().toUpperCase();
+
+      if (!r['CLIENTE'] && !r['NOME'] && !r['Cliente']) {
+        r['CLIENTE'] = String(
+          r['PAGADOR'] || r['PAGADOR_NOME'] || r['TITULAR_PARCELA'] || r['PACIENTE'] ||
+          r['RESPONSAVEL_NOME'] || r['RESPONSAVEL'] || r['Nome Completo'] ||
+          r['OS'] || r['VENDA_OS'] || r['DOCUMENTO'] || 'Cliente Registrado'
+        ).trim();
       }
+
       if (!byClient[client]) byClient[client] = [];
       byClient[client].push(r);
     });
@@ -412,11 +416,8 @@ function App() {
             (String(r.DOCUMENTO || '').toUpperCase().includes('SALDO') || String(r.DESCRICAO || '').toUpperCase().includes('VENDA OS') || String(r.MEIO_PAGAMENTO || '').toUpperCase().includes('BOLETO'));
 
           if (isDuplicateLumpSum) {
+            // Se houver saldo consolidado concomitante às parcelas discriminadas, preserva em memória ou vincula
             hasChange = true;
-            if (r.id && !processedDuplicateDeletionsRef.current.has(r.id)) {
-              processedDuplicateDeletionsRef.current.add(r.id);
-              toDeleteIds.push(r.id);
-            }
           } else {
             // Normaliza as parcelas para que a tabela exiba perfeitamente
             if (isInst) {
@@ -454,12 +455,6 @@ function App() {
           'CONTAS_RECEBER': resultList
         };
       });
-
-      if (isConfigured && toDeleteIds.length > 0) {
-        toDeleteIds.forEach(id => {
-          deleteDocument('CONTAS_RECEBER', id).catch(() => {});
-        });
-      }
     }
   }, [data?.['CONTAS_RECEBER'], isConfigured]);
 
@@ -752,11 +747,7 @@ function App() {
         if (isMounted) {
           setData(prev => {
             const merged = { ...sheets, ...prev };
-            const { nextData, modified, deletedKeys: sDelKeys } = sanitizeStephanieMusetiData(merged, getItemKey);
-            if (modified && sDelKeys && sDelKeys.length > 0) {
-              sDelKeys.forEach(k => addDeletedKey(k));
-            }
-            return nextData;
+            return merged;
           });
         }
       } catch (err) {
@@ -813,16 +804,7 @@ function App() {
           if (merged['BD MARKETING']?.length) { merged['BD MARKETING'] = []; hasAnyChange = true; }
         }
 
-        // 🛡️ Higienização atômica em memória para Stephanie Museti (pura, sem disparar escrita repetida de rede)
-        const { nextData, modified, deletedKeys: sDelKeys } = sanitizeStephanieMusetiData(merged, getItemKey);
-        if (modified) {
-          hasAnyChange = true;
-          if (sDelKeys && sDelKeys.length > 0) {
-            sDelKeys.forEach(k => addDeletedKey(k));
-          }
-        }
-
-        return hasAnyChange ? nextData : prev;
+        return hasAnyChange ? merged : prev;
       });
 
       if (newData['VOUCHERS'] && Array.isArray(newData['VOUCHERS']) && newData['VOUCHERS'].length > 0) {
@@ -831,37 +813,9 @@ function App() {
         } catch {}
       }
 
-      // 🛡️ Sincronização única de emergência para Stephanie Museti no Firestore (executa no máximo 1 vez por sessão e nunca em loop)
+      // Sincronização e persistência seguras (sem purgas automáticas que apaguem registros de clientes ou parcelas)
       if (isConfigured && !hasCleanedStephanieCloudRef.current) {
         hasCleanedStephanieCloudRef.current = true;
-        setTimeout(() => {
-          try {
-            const rawCurrent = { ...newData };
-            const { modified, deletedItems, nextData } = sanitizeStephanieMusetiData(rawCurrent, getItemKey);
-            if (modified) {
-              if (deletedItems && deletedItems.length > 0) {
-                deletedItems.forEach(({ sheet, id }) => {
-                  if (id) deleteDocument(sheet, id).catch(() => {});
-                });
-              }
-              if (Array.isArray(nextData['CLIENTES_CADASTRADOS'])) {
-                const stephanieClient = nextData['CLIENTES_CADASTRADOS'].find(c => isStephanieMuseti(c));
-                if (stephanieClient && stephanieClient.id) {
-                  const rawClient = (rawCurrent['CLIENTES_CADASTRADOS'] || []).find(c => isStephanieMuseti(c));
-                  const needsCloudSave = rawClient && (
-                    rawClient['Valor Devido'] !== '0,00' ||
-                    rawClient['Status de Pagamento'] !== 'Em dia'
-                  );
-                  if (needsCloudSave) {
-                    saveDocument('CLIENTES_CADASTRADOS', stephanieClient).catch(() => {});
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.warn('Aviso na higienização única de nuvem:', e);
-          }
-        }, 2000);
       }
       
       // Update users somente quando a coleção USUARIOS sofreu atualização (previne churn e consumo elevado a cada venda/movimento)

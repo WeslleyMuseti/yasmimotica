@@ -1271,7 +1271,7 @@ export const extractCpf = (obj) => {
  */
 export const extractClientName = (obj) => {
   if (!obj || typeof obj !== 'object') return '';
-  const rawName = obj['Nome Completo'] ?? obj['NOME'] ?? obj['CLIENTE'] ?? obj['NOME CLIENTE'] ?? obj['NOME DO CLIENTE'] ?? obj['Cliente'] ?? obj['cliente'] ?? '';
+  const rawName = obj['Nome Completo'] ?? obj['NOME'] ?? obj['CLIENTE'] ?? obj['NOME CLIENTE'] ?? obj['NOME DO CLIENTE'] ?? obj['Cliente'] ?? obj['cliente'] ?? obj['nome'] ?? obj['PAGADOR'] ?? obj['PAGADOR_NOME'] ?? obj['BOLETO_PAGADOR_NOME'] ?? obj['PACIENTE'] ?? obj['RESPONSAVEL_NOME'] ?? obj['RESPONSAVEL'] ?? '';
   return String(rawName || '').trim().toLowerCase();
 };
 

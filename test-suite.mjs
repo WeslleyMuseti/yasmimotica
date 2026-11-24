@@ -10110,7 +10110,63 @@ async function runTests() {
     console.log('  ✅ Test 109 Passed: Exibição de Todas as Mensalidades com Datas Geradas e Reconciliação Automática validadas com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 109 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // --- TEST 110: Blindagem e Restauração de Parcelas sem Purga Destrutiva ---
+  {
+    console.log('--- TEST 110: Blindagem e Restauração de Parcelas sem Purga Destrutiva ---');
+
+    // 110.1: Verificação de que App.jsx não purga nem exclui registros de CONTAS_RECEBER sem cliente explícito
+    const appSrc = fs.readFileSync(path.join(__dirname, 'src/App.jsx'), 'utf-8');
+    console.assert(!appSrc.includes("toDeleteIds.push(ghostId)"), 'App.jsx NÃO deve deletar registros categorizados como ghostId');
+    console.assert(!appSrc.includes("deleteDocument('CONTAS_RECEBER', ghostId)"), 'App.jsx NÃO deve chamar deleteDocument para ghostId');
+    console.assert(appSrc.includes("r['PAGADOR'] || r['PAGADOR_NOME'] || r['TITULAR_PARCELA']"), 'App.jsx deve resolver titular de parcelas a partir de PAGADOR, PACIENTE ou RESPONSAVEL');
+
+    // 110.2: Verificação de que CashHistoryModal não filtra registros por nome de cliente (ex: Stephanie / Ingrid)
+    const cashHistorySrc = fs.readFileSync(path.join(__dirname, 'src/components/CashHistoryModal.jsx'), 'utf-8');
+    console.assert(!cashHistorySrc.includes("textPool.includes('stephanie')"), 'CashHistoryModal NÃO deve suprimir registros de Stephanie Museti');
+    console.assert(!cashHistorySrc.includes("normCli.includes('stephanie')"), 'CashHistoryModal NÃO deve descartar vendas de Stephanie');
+
+    // 110.3: Verificação de que ErpOptica e reparcelamentoUtils resolvem e mantêm parcelas
+    const reparcelamentoSrc = fs.readFileSync(path.join(__dirname, 'src/reparcelamentoUtils.js'), 'utf-8');
+    console.assert(reparcelamentoSrc.includes("item.PAGADOR ||"), 'resolveInstallmentClientName deve incluir fallbacks para PAGADOR e RESPONSAVEL');
+
+    const erpOpticaSrc = fs.readFileSync(path.join(__dirname, 'src/components/ErpOptica.jsx'), 'utf-8');
+    console.assert(erpOpticaSrc.includes("item.PAGADOR || item.PAGADOR_NOME || item.PACIENTE"), 'receberStats deve reconhecer parcelas vinculadas a pagador ou paciente');
+
+    console.log('  ✅ Test 110 Passed: Blindagem e Restauração de Parcelas sem Purga Destrutiva validadas com 100% de sucesso!\n');
+  }
+
+  // --- TEST 111: Redes Sociais na Gestão de OS (Instagram, Facebook, TikTok) Igual na Aba de Clientes ---
+  {
+    console.log('--- TEST 111: Redes Sociais na Gestão de OS (Instagram, Facebook, TikTok) Igual na Aba de Clientes ---');
+
+    const osManagementSrc = fs.readFileSync(path.join(__dirname, 'src/components/OSManagement.jsx'), 'utf-8');
+    const editOSModalSrc = fs.readFileSync(path.join(__dirname, 'src/components/EditOSModal.jsx'), 'utf-8');
+
+    // 111.1: Mapeamento de redes sociais no objeto da OS
+    console.assert(osManagementSrc.includes('instagram: sale["Instagram"] || sale["instagram"] || sale["INSTAGRAM"]'), 'OSManagement deve mapear Instagram da venda e do cliente');
+    console.assert(osManagementSrc.includes('facebook: sale["Facebook"] || sale["facebook"] || sale["FACEBOOK"]'), 'OSManagement deve mapear Facebook');
+    console.assert(osManagementSrc.includes('tiktok: sale["TikTok"] || sale["tiktok"] || sale["TIKTOK"]'), 'OSManagement deve mapear TikTok');
+    console.assert(osManagementSrc.includes('responsavelInstagram: sale["Responsável Instagram"]'), 'OSManagement deve mapear Instagram do Responsável');
+
+    // 111.2: Busca por Instagram e redes sociais no campo de pesquisa
+    console.assert(osManagementSrc.includes('matchesSocial'), 'OSManagement deve permitir buscar OS por @usuario de rede social');
+
+    // 111.3: Exibição no cabeçalho do Card View e na Tabela
+    console.assert(osManagementSrc.includes('buildInstagramUrl(order.instagram)'), 'OSManagement deve gerar link clicável para Instagram do cliente');
+    console.assert(osManagementSrc.includes('Redes Sociais & Contato Direto do Cliente'), 'OSManagement deve conter seção dedicada de Redes Sociais');
+
+    // 111.4: Exibição na Conferência de Dados & Documentos (Audit Modal)
+    console.assert(osManagementSrc.includes('Redes Sociais do Cliente:'), 'Audit Modal deve exibir redes sociais do cliente titular');
+    console.assert(osManagementSrc.includes('Redes Sociais do Responsável:'), 'Audit Modal deve exibir redes sociais do responsável');
+
+    // 111.5: Formulário de Edição de OS (EditOSModal.jsx)
+    console.assert(editOSModalSrc.includes("value={formData.instagram}"), 'EditOSModal deve permitir editar Instagram da OS');
+    console.assert(editOSModalSrc.includes("'Instagram': formData.instagram"), 'EditOSModal deve persistir Instagram na OS atualizada');
+
+    console.log('  ✅ Test 111 Passed: Redes Sociais na Gestão de OS igual na Aba de Clientes validadas com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 111 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

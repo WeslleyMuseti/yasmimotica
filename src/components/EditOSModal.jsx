@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Clock,
   AlertOctagon,
+  Sparkles,
   Users
 } from 'lucide-react';
 import { buildNormalizedDateTime } from '../dateSyncUtils';
@@ -254,7 +255,13 @@ const EditOSModal = ({
     boletoPagadorNome: '',
     boletoPagadorCpf: '',
     customRespName: '',
-    customRespCpf: ''
+    customRespCpf: '',
+    instagram: '',
+    facebook: '',
+    tiktok: '',
+    responsavelInstagram: '',
+    responsavelFacebook: '',
+    responsavelTiktok: ''
   });
 
   const [activeTab, setActiveTab] = useState('geral'); // 'geral', 'receita', 'financeiro'
@@ -368,7 +375,13 @@ const EditOSModal = ({
         diagonalMaior: osData['DIAGONAL_MAIOR'] || osData['diagonalMaior'] || '',
         alturaVertical: osData['ALTURA_VERTICAL'] || osData['alturaVertical'] || '',
         ponte: osData['PONTE'] || osData['ponte'] || '',
-        aro: osData['ARO'] || osData['aro'] || ''
+        aro: osData['ARO'] || osData['aro'] || '',
+        instagram: osData['Instagram'] || osData['instagram'] || osData['INSTAGRAM'] || clientData?.['Instagram'] || clientData?.['instagram'] || clientData?.['INSTAGRAM'] || '',
+        facebook: osData['Facebook'] || osData['facebook'] || osData['FACEBOOK'] || clientData?.['Facebook'] || clientData?.['facebook'] || clientData?.['FACEBOOK'] || '',
+        tiktok: osData['TikTok'] || osData['tiktok'] || osData['TIKTOK'] || clientData?.['TikTok'] || clientData?.['tiktok'] || clientData?.['TIKTOK'] || '',
+        responsavelInstagram: osData['Responsável Instagram'] || osData['responsavelInstagram'] || osData['RESPONSAVEL_INSTAGRAM'] || clientData?.['Responsável Instagram'] || clientData?.['RESPONSAVEL_INSTAGRAM'] || '',
+        responsavelFacebook: osData['Responsável Facebook'] || osData['responsavelFacebook'] || osData['RESPONSAVEL_FACEBOOK'] || clientData?.['Responsável Facebook'] || clientData?.['RESPONSAVEL_FACEBOOK'] || '',
+        responsavelTiktok: osData['Responsável TikTok'] || osData['responsavelTiktok'] || osData['RESPONSAVEL_TIKTOK'] || clientData?.['Responsável TikTok'] || clientData?.['RESPONSAVEL_TIKTOK'] || ''
       });
 
       // Inicializa pagamentos a partir dos dados existentes da OS
@@ -701,6 +714,24 @@ const EditOSModal = ({
         'alturaVertical': formData.alturaVertical || osData['ALTURA_VERTICAL'] || osData['alturaVertical'] || '',
         'ponte': formData.ponte || osData['PONTE'] || osData['ponte'] || '',
         'aro': formData.aro || osData['ARO'] || osData['aro'] || '',
+        'Instagram': formData.instagram || '',
+        'instagram': formData.instagram || '',
+        'INSTAGRAM': formData.instagram || '',
+        'Facebook': formData.facebook || '',
+        'facebook': formData.facebook || '',
+        'FACEBOOK': formData.facebook || '',
+        'TikTok': formData.tiktok || '',
+        'tiktok': formData.tiktok || '',
+        'TIKTOK': formData.tiktok || '',
+        'Responsável Instagram': formData.responsavelInstagram || '',
+        'responsavelInstagram': formData.responsavelInstagram || '',
+        'RESPONSAVEL_INSTAGRAM': formData.responsavelInstagram || '',
+        'Responsável Facebook': formData.responsavelFacebook || '',
+        'responsavelFacebook': formData.responsavelFacebook || '',
+        'RESPONSAVEL_FACEBOOK': formData.responsavelFacebook || '',
+        'Responsável TikTok': formData.responsavelTiktok || '',
+        'responsavelTiktok': formData.responsavelTiktok || '',
+        'RESPONSAVEL_TIKTOK': formData.responsavelTiktok || '',
         'LABORATORIO': formData.laboratorio,
         'MEDICO': formData.medico,
         'DATA  DA VENDA': secNormDate.brDate,
@@ -909,6 +940,24 @@ const EditOSModal = ({
       'alturaVertical': formData.alturaVertical || osData['ALTURA_VERTICAL'] || osData['alturaVertical'] || '',
       'ponte': formData.ponte || osData['PONTE'] || osData['ponte'] || '',
       'aro': formData.aro || osData['ARO'] || osData['aro'] || '',
+      'Instagram': formData.instagram || '',
+      'instagram': formData.instagram || '',
+      'INSTAGRAM': formData.instagram || '',
+      'Facebook': formData.facebook || '',
+      'facebook': formData.facebook || '',
+      'FACEBOOK': formData.facebook || '',
+      'TikTok': formData.tiktok || '',
+      'tiktok': formData.tiktok || '',
+      'TIKTOK': formData.tiktok || '',
+      'Responsável Instagram': formData.responsavelInstagram || '',
+      'responsavelInstagram': formData.responsavelInstagram || '',
+      'RESPONSAVEL_INSTAGRAM': formData.responsavelInstagram || '',
+      'Responsável Facebook': formData.responsavelFacebook || '',
+      'responsavelFacebook': formData.responsavelFacebook || '',
+      'RESPONSAVEL_FACEBOOK': formData.responsavelFacebook || '',
+      'Responsável TikTok': formData.responsavelTiktok || '',
+      'responsavelTiktok': formData.responsavelTiktok || '',
+      'RESPONSAVEL_TIKTOK': formData.responsavelTiktok || '',
       'LABORATORIO': formData.laboratorio,
       'MEDICO': formData.medico,
       'DATA  DA VENDA': normDate.brDate,
@@ -1191,6 +1240,56 @@ const EditOSModal = ({
                   <p className="text-[10px] text-slate-500 mt-1.5 flex items-center gap-1">
                     <span>💡 Este nome sai impresso no campo <strong>Paciente</strong> da OS e identifica quem usará os óculos no histórico do cliente.</span>
                   </p>
+                </div>
+
+                {/* Redes Sociais do Cliente & Responsável (Igual na Aba de Clientes) */}
+                <div className="bg-gradient-to-r from-pink-950/30 via-slate-900 to-indigo-950/30 border border-pink-500/20 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-pink-400 flex items-center gap-1.5">
+                      <Sparkles size={13} className="text-pink-400" /> Redes Sociais do Cliente (Instagram, Facebook, TikTok)
+                    </span>
+                    <span className="text-[9px] text-slate-400 uppercase font-bold">
+                      Igual na aba de Clientes
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        Instagram (@)
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.instagram}
+                        onChange={e => handleChange('instagram', e.target.value)}
+                        placeholder="@usuario"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-pink-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        Facebook (Link ou Perfil)
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.facebook}
+                        onChange={e => handleChange('facebook', e.target.value)}
+                        placeholder="facebook.com/perfil"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        TikTok (@)
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.tiktok}
+                        onChange={e => handleChange('tiktok', e.target.value)}
+                        placeholder="@usuario"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-rose-500"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 {/* Linha 2: Datas & Entrega */}

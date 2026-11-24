@@ -283,10 +283,18 @@ const ErpOptica = ({
           const rDesc = String(r.DESCRICAO || r.descricao || '').toLowerCase();
           const rVenc = normalizeInstallmentDateIso(r.DATA_VENCIMENTO || r['DATA VENCIMENTO'] || r.VENCIMENTO || '');
 
-          const matchesOS = sOS ? (rOS.toLowerCase() === sOS.toLowerCase()) : true;
+          const matchesOS = Boolean(sOS && rOS && rOS.toLowerCase() === sOS.toLowerCase());
           const matchesNum = rDoc.includes(`${numP}/${totP}`) || rDesc.includes(`parcela ${numP}/${totP}`) || rDesc.includes(`parcela ${numP} `);
-          const matchesVenc = dueIso && rVenc && dueIso === rVenc;
-          return matchesOS && (matchesNum || matchesVenc);
+          const matchesVenc = Boolean(dueIso && rVenc && dueIso === rVenc);
+
+          if (matchesOS && (matchesNum || matchesVenc)) return true;
+
+          const rClient = String(r.CLIENTE || r.NOME || r['NOME CLIENTE'] || '').trim().toLowerCase();
+          const sClientLower = sClient.trim().toLowerCase();
+          if (rClient && sClientLower && (rClient === sClientLower || rClient.includes(sClientLower))) {
+            if (matchesNum || (dueIso && rVenc && dueIso === rVenc)) return true;
+          }
+          return false;
         });
 
         if (!alreadyExists) {
@@ -519,8 +527,12 @@ const ErpOptica = ({
     let validCount = 0;
     receberData.forEach(item => {
       if (!item || typeof item !== 'object') return;
-      const client = String(item.CLIENTE || item.NOME || item['NOME DO CLIENTE'] || item['NOME CLIENTE'] || item.Cliente || '').trim();
-      if (!client) return; // 🛡️ Ignora qualquer resquício fantasma sem cliente
+      const client = String(
+        item.CLIENTE || item.NOME || item['NOME DO CLIENTE'] || item['NOME CLIENTE'] || item.Cliente ||
+        item.PAGADOR || item.PAGADOR_NOME || item.PACIENTE || item.RESPONSAVEL || item.DOCUMENTO ||
+        extractOSFromRow(item) || ''
+      ).trim();
+      if (!client && !item.VALOR && !item.valor) return;
       validCount++;
       const val = parseCurrency(item.VALOR || item.valor);
       const st = String(item.STATUS || item.status || 'Pendente').trim();
@@ -1304,13 +1316,7 @@ const ErpOptica = ({
     }
     if (activeTab === 'receber' || activeTab === 'pagar') {
       if (activeTab === 'receber') {
-        rows = rows.filter(item => {
-          if (!item || typeof item !== 'object') return false;
-          const direct = String(item.CLIENTE || item.NOME || item['NOME DO CLIENTE'] || item['NOME CLIENTE'] || item.Cliente || item.CLIENTE_ID || item.CPF || item.OS || item.os || item.DOCUMENTO || item.DESCRICAO || '').trim();
-          if (direct) return true;
-          const resolved = resolveInstallmentClientName(item, clientsData, salesData);
-          return Boolean(resolved && resolved !== 'Cliente não identificado');
-        });
+        rows = rows.filter(item => Boolean(item && typeof item === 'object'));
       }
       rows = filterInstallmentsByDateRange(rows, {
         startDate: installmentStartDate,

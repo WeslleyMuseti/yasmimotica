@@ -119,6 +119,17 @@ export const resolveInstallmentClientName = (item, clientsData = [], salesData =
     item.NOME ||
     item.nome ||
     item['Nome Completo'] ||
+    item.PAGADOR ||
+    item.PAGADOR_NOME ||
+    item.BOLETO_PAGADOR_NOME ||
+    item.TITULAR_PARCELA ||
+    item.TITULAR ||
+    item.PACIENTE ||
+    item.RESPONSAVEL_NOME ||
+    item.RESPONSAVEL ||
+    item['Responsável Nome'] ||
+    item['Responsável Legal'] ||
+    item.DOCUMENTO ||
     ''
   ).toString().trim();
 

@@ -487,10 +487,6 @@ export const CashHistoryContent = ({
       ? cashMovements
           .filter(m => {
             if (!m || typeof m !== 'object') return false;
-            const textPool = normStr(`${m.motivo || ''} ${m.detalhes || ''} ${m.cliente || ''}`);
-            // Ignora registros fantasmas de teste da Stephanie Museti e Ingrid Pereira sem OS
-            if (textPool.includes('stephanie') && (textPool.includes('museti') || textPool.includes('musete'))) return false;
-            if (textPool.includes('ingrid pereira') && !m.osNumero && !textPool.includes('os #')) return false;
             return true;
           })
           .map((m, idx) => {
@@ -605,10 +601,6 @@ export const CashHistoryContent = ({
         const osRaw = String(s['OS DA VENDA'] || s['Nº DA OS'] || s['OS'] || s['Num OS'] || '').trim();
         const osNum = osRaw.toLowerCase();
         const cleanOsNum = cleanId(osNum);
-
-        // Ignorar registros fantasmas de teste da Stephanie Museti e Ingrid Pereira sem OS
-        if (normCli.includes('stephanie') && (normCli.includes('museti') || normCli.includes('musete'))) return;
-        if (normCli.includes('ingrid pereira') && !osRaw) return;
 
         const rawId = String(s.id || s._id || s['ID'] || s.saleId || s.sale_id || '').trim().toLowerCase();
         const cleanRawId = cleanId(rawId);

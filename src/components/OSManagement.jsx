@@ -14,6 +14,8 @@ import { PrintableLabelModal } from "./PrintableLabel";
 import EditOSModal from "./EditOSModal";
 import { isSameClient, normalizeSearchText } from "../firebaseSync";
 import { findOSRelatedEntities, executeOSCascadeDeletion } from "../osDeletionUtils";
+import { SocialMediaButtons, InstagramIcon, FacebookIcon, TikTokIcon, WhatsAppIcon } from './SocialMediaButtons';
+import { buildInstagramUrl, buildFacebookUrl, buildTikTokUrl, buildWhatsAppUrl, formatSocialHandle } from '../socialUtils';
 
 // Cores dos status no Semáforo: Azul (Aguardando Confirmação), Amarela (Pendente Correção), Roxa (Ajustada/Editada), Vermelha (No Lab) e Verde (Entregue)
 export const OS_STATUS_CONFIG = {
@@ -1225,7 +1227,13 @@ const OSManagement = ({
         diagonalMaior: sale["DIAGONAL_MAIOR"] || sale["diagonalMaior"] || matchedClient?.["DIAGONAL_MAIOR"] || matchedClient?.["diagonalMaior"] || "",
         alturaVertical: sale["ALTURA_VERTICAL"] || sale["alturaVertical"] || matchedClient?.["ALTURA_VERTICAL"] || matchedClient?.["alturaVertical"] || "",
         ponte: sale["PONTE"] || sale["ponte"] || matchedClient?.["PONTE"] || matchedClient?.["ponte"] || "",
-        aro: sale["ARO"] || sale["aro"] || matchedClient?.["ARO"] || matchedClient?.["aro"] || ""
+        aro: sale["ARO"] || sale["aro"] || matchedClient?.["ARO"] || matchedClient?.["aro"] || "",
+        instagram: sale["Instagram"] || sale["instagram"] || sale["INSTAGRAM"] || matchedClient?.["Instagram"] || matchedClient?.["instagram"] || matchedClient?.["INSTAGRAM"] || "",
+        facebook: sale["Facebook"] || sale["facebook"] || sale["FACEBOOK"] || matchedClient?.["Facebook"] || matchedClient?.["facebook"] || matchedClient?.["FACEBOOK"] || "",
+        tiktok: sale["TikTok"] || sale["tiktok"] || sale["TIKTOK"] || matchedClient?.["TikTok"] || matchedClient?.["tiktok"] || matchedClient?.["TIKTOK"] || "",
+        responsavelInstagram: sale["Responsável Instagram"] || sale["responsavelInstagram"] || sale["RESPONSAVEL_INSTAGRAM"] || matchedClient?.["Responsável Instagram"] || matchedClient?.["RESPONSAVEL_INSTAGRAM"] || "",
+        responsavelFacebook: sale["Responsável Facebook"] || sale["responsavelFacebook"] || sale["RESPONSAVEL_FACEBOOK"] || matchedClient?.["Responsável Facebook"] || matchedClient?.["RESPONSAVEL_FACEBOOK"] || "",
+        responsavelTiktok: sale["Responsável TikTok"] || sale["responsavelTiktok"] || sale["RESPONSAVEL_TIKTOK"] || matchedClient?.["Responsável TikTok"] || matchedClient?.["RESPONSAVEL_TIKTOK"] || ""
       });
     });
 
@@ -1369,6 +1377,15 @@ const OSManagement = ({
           }
         }
 
+        const matchesSocial = Boolean(
+          (order.instagram && normalizeSearchText(order.instagram).includes(q)) ||
+          (order.facebook && normalizeSearchText(order.facebook).includes(q)) ||
+          (order.tiktok && normalizeSearchText(order.tiktok).includes(q)) ||
+          (order.responsavelInstagram && normalizeSearchText(order.responsavelInstagram).includes(q)) ||
+          (order.responsavelFacebook && normalizeSearchText(order.responsavelFacebook).includes(q)) ||
+          (order.responsavelTiktok && normalizeSearchText(order.responsavelTiktok).includes(q))
+        );
+
         if (
           !matchesOS &&
           !matchesClient &&
@@ -1384,7 +1401,8 @@ const OSManagement = ({
           !matchesDoc &&
           !matchesSaleId &&
           !matchesLinked &&
-          !matchesVoucher
+          !matchesVoucher &&
+          !matchesSocial
         ) {
           return false;
         }
@@ -3285,6 +3303,66 @@ const OSManagement = ({
                             CPF: {formatCPF_CNPJ(order.clientCPF)}
                           </span>
                         )}
+
+                        {/* Redes Sociais do Cliente na Gestão de OS */}
+                        {(order.instagram || order.facebook || order.tiktok) && (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {order.instagram && (
+                              <a
+                                href={buildInstagramUrl(order.instagram)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] font-black text-pink-300 hover:text-pink-200 bg-gradient-to-r from-pink-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-purple-500/30 px-2 py-0.5 rounded-lg border border-pink-500/30 transition-all shadow-xs"
+                                title={`Instagram: ${order.instagram}`}
+                              >
+                                <InstagramIcon size={12} className="text-pink-400" />
+                                <span>{formatSocialHandle(order.instagram, '@')}</span>
+                              </a>
+                            )}
+                            {order.facebook && (
+                              <a
+                                href={buildFacebookUrl(order.facebook)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] font-black text-blue-300 hover:text-blue-200 bg-blue-500/15 hover:bg-blue-500/25 px-2 py-0.5 rounded-lg border border-blue-500/30 transition-all shadow-xs"
+                                title={`Facebook: ${order.facebook}`}
+                              >
+                                <FacebookIcon size={12} className="text-blue-400" />
+                                <span>{formatSocialHandle(order.facebook, '')}</span>
+                              </a>
+                            )}
+                            {order.tiktok && (
+                              <a
+                                href={buildTikTokUrl(order.tiktok)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] font-black text-rose-300 hover:text-rose-200 bg-black/50 hover:bg-black/70 px-2 py-0.5 rounded-lg border border-rose-500/30 transition-all shadow-xs"
+                                title={`TikTok: ${order.tiktok}`}
+                              >
+                                <TikTokIcon size={12} className="text-rose-400" />
+                                <span>{formatSocialHandle(order.tiktok, '@')}</span>
+                              </a>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Redes Sociais do Responsável na Gestão de OS */}
+                        {(order.responsavelInstagram || order.responsavelFacebook || order.responsavelTiktok) && (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {order.responsavelInstagram && (
+                              <a
+                                href={buildInstagramUrl(order.responsavelInstagram)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[10.5px] font-bold text-amber-300 hover:text-amber-200 bg-amber-500/15 hover:bg-amber-500/25 px-2 py-0.5 rounded-lg border border-amber-500/30 transition-all shadow-xs"
+                                title={`Instagram do Responsável: ${order.responsavelInstagram}`}
+                              >
+                                <InstagramIcon size={11} className="text-amber-400" />
+                                <span>Resp: {formatSocialHandle(order.responsavelInstagram, '@')}</span>
+                              </a>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -4023,6 +4101,48 @@ const OSManagement = ({
                         </div>
                       </div>
 
+                      {/* Bloco 5: Redes Sociais & Contato Direto do Cliente na Gestão de OS (Igual à Aba de Clientes) */}
+                      <div className="md:col-span-2 xl:col-span-4 bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-3">
+                        <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-pink-400">
+                            <InstagramIcon size={16} className="text-pink-400" />
+                            <span>Redes Sociais & Contato Direto do Cliente</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 uppercase font-bold">
+                            Mesmas informações da aba de Clientes
+                          </span>
+                        </div>
+                        <SocialMediaButtons
+                          client={{
+                            'Nome Completo': order.clientName,
+                            'Instagram': order.instagram,
+                            'Facebook': order.facebook,
+                            'TikTok': order.tiktok,
+                            'WhatsApp': order.clientPhone
+                          }}
+                          variant="cards"
+                          onEditSocial={() => setEditingOrder(order)}
+                        />
+                        {(order.responsavelInstagram || order.responsavelFacebook || order.responsavelTiktok || (order.responsavelNome && order.responsavelNome !== 'S/RESPONSAVEL')) && (
+                          <div className="pt-2 border-t border-white/5 space-y-1.5">
+                            <span className="text-[10px] font-bold text-amber-400 uppercase block">
+                              Redes Sociais do Responsável Legal / Financeiro:
+                            </span>
+                            <SocialMediaButtons
+                              client={{
+                                'Nome Completo': order.responsavelNome,
+                                'Instagram': order.responsavelInstagram,
+                                'Facebook': order.responsavelFacebook,
+                                'TikTok': order.responsavelTiktok,
+                                'WhatsApp': order.responsavelCpf || ''
+                              }}
+                              variant="pills"
+                              onEditSocial={() => setEditingOrder(order)}
+                            />
+                          </div>
+                        )}
+                      </div>
+
                     </div>
                   )}
 
@@ -4136,6 +4256,42 @@ const OSManagement = ({
                                 <span className="text-[11px] text-slate-400 font-mono">
                                   CPF: {formatCPF_CNPJ(order.clientCPF)}
                                 </span>
+                              )}
+                              {order.instagram && (
+                                <a
+                                  href={buildInstagramUrl(order.instagram)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] font-bold text-pink-400 hover:text-pink-300 bg-pink-500/10 hover:bg-pink-500/20 px-1.5 py-0.5 rounded border border-pink-500/30 transition-all"
+                                  title={`Instagram: ${order.instagram}`}
+                                >
+                                  <InstagramIcon size={11} />
+                                  <span>{formatSocialHandle(order.instagram, '@')}</span>
+                                </a>
+                              )}
+                              {order.facebook && (
+                                <a
+                                  href={buildFacebookUrl(order.facebook)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-1.5 py-0.5 rounded border border-blue-500/30 transition-all"
+                                  title={`Facebook: ${order.facebook}`}
+                                >
+                                  <FacebookIcon size={11} />
+                                  <span>{formatSocialHandle(order.facebook, '')}</span>
+                                </a>
+                              )}
+                              {order.tiktok && (
+                                <a
+                                  href={buildTikTokUrl(order.tiktok)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 px-1.5 py-0.5 rounded border border-rose-500/30 transition-all"
+                                  title={`TikTok: ${order.tiktok}`}
+                                >
+                                  <TikTokIcon size={11} />
+                                  <span>{formatSocialHandle(order.tiktok, '@')}</span>
+                                </a>
                               )}
                             </div>
                           </td>
@@ -5124,6 +5280,17 @@ const OSManagement = ({
                       </div>
                     </div>
 
+                    {/* Redes Sociais do Titular */}
+                    <div className="pt-2 border-t border-white/5 space-y-1">
+                      <span className="text-[10px] text-pink-400 uppercase font-black flex items-center gap-1.5">
+                        <InstagramIcon size={12} className="text-pink-400" /> Redes Sociais do Cliente:
+                      </span>
+                      <SocialMediaButtons
+                        client={auditClient}
+                        variant="pills"
+                      />
+                    </div>
+
                     <div className="pt-2 border-t border-white/5">
                       <span className="text-[10px] text-slate-400 uppercase font-bold block">Endereço Residencial:</span>
                       <p className="text-slate-300 leading-relaxed">
@@ -5227,6 +5394,23 @@ const OSManagement = ({
                             <span className="text-slate-400">Não informado</span>
                           )}
                         </div>
+                      </div>
+
+                      {/* Redes Sociais do Responsável */}
+                      <div className="pt-2 border-t border-white/5 space-y-1">
+                        <span className="text-[10px] text-indigo-400 uppercase font-black flex items-center gap-1.5">
+                          <InstagramIcon size={12} className="text-indigo-400" /> Redes Sociais do Responsável:
+                        </span>
+                        <SocialMediaButtons
+                          client={{
+                            'Nome Completo': auditClient['Nome do Responsável'] || auditClient['Responsável'] || auditModalOrder.responsavelNome,
+                            'Instagram': auditClient['Responsável Instagram'] || auditClient['RESPONSAVEL_INSTAGRAM'] || auditModalOrder.responsavelInstagram,
+                            'Facebook': auditClient['Responsável Facebook'] || auditClient['RESPONSAVEL_FACEBOOK'] || auditModalOrder.responsavelFacebook,
+                            'TikTok': auditClient['Responsável TikTok'] || auditClient['RESPONSAVEL_TIKTOK'] || auditModalOrder.responsavelTiktok,
+                            'WhatsApp': auditClient['Telefone do Responsável'] || auditClient['Responsável WhatsApp'] || auditClient['WhatsApp do Responsável']
+                          }}
+                          variant="pills"
+                        />
                       </div>
 
                       <div className="pt-2 border-t border-white/5">
