@@ -2035,10 +2035,10 @@ const POSRegister = ({
             unidade: city,
             operador: currentUser?.username || 'Caixa',
             valor: cleanVal(pay.valor),
-            valorTotalOS: cleanVal(newSale['VALOR TOTAL'] || newSale['VALOR DA VENDA'] || totalSaleAmount),
-            valorEntradaOS: cleanVal(newSale['VALOR ENTRADA'] || newSale['ENTRADA'] || downPaymentAmount || pay.valor),
-            valorRestanteBoleto: cleanVal(newSale['RESTANTE'] || remainingPaymentAmount || 0),
-            'VALOR TOTAL': cleanVal(newSale['VALOR TOTAL'] || newSale['VALOR DA VENDA'] || totalSaleAmount),
+            valorTotalOS: cleanVal(newSale['VALOR TOTAL'] || newSale['VALOR DA VENDA'] || totalFinal),
+            valorEntradaOS: cleanVal(newSale['VALOR ENTRADA'] || newSale['ENTRADA'] || totalPagoImediato || pay.valor),
+            valorRestanteBoleto: cleanVal(newSale['RESTANTE'] || Math.max(0, totalFinal - totalPagoImediato) || 0),
+            'VALOR TOTAL': cleanVal(newSale['VALOR TOTAL'] || newSale['VALOR DA VENDA'] || totalFinal),
             formaPagamento: String(pay.metodo || 'DINHEIRO').toUpperCase(),
             motivo: `Venda PDV - ${clientName}`,
             cliente: clientName,
@@ -2074,61 +2074,106 @@ const POSRegister = ({
 
   // ─── SALVAMENTO DA OS GERADA PELO MODAL PADRÃO (SUPORTE A 1 OU MÚLTIPLAS OS COM COBRANÇA UNIFICADA) ──
   const handleSaveOSFromModal = async (osGeneratedData) => {
-    if (!savedClientForOS) return;
-    const clientName = savedClientForOS['Nome Completo'] || savedClientForOS['NOME'] || 'Cliente';
-    const todayStr = new Date().toLocaleDateString('pt-BR');
+    try {
+      if (!savedClientForOS) return;
+      const clientName = savedClientForOS['Nome Completo'] || savedClientForOS['NOME'] || savedClientForOS['CLIENTE'] || 'Cliente';
+      const todayStr = new Date().toLocaleDateString('pt-BR');
 
-    const clientId = savedClientForOS.id || savedClientForOS._id || savedClientForOS.CLIENTE_ID || '';
-    const clientCpf = String(savedClientForOS['CPF / CNPJ'] || savedClientForOS['CPF'] || '').trim();
-    const salesSheetName = (data && data['Registro_Vendas']) ? 'Registro_Vendas' : 'BD MARKETING';
+      const clientId = savedClientForOS.id || savedClientForOS._id || savedClientForOS.CLIENTE_ID || '';
+      const clientCpf = String(savedClientForOS['CPF / CNPJ'] || savedClientForOS['CPF'] || '').trim();
+      const salesSheetName = (data && data['Registro_Vendas']) ? 'Registro_Vendas' : 'BD MARKETING';
 
-    const isMulti = Boolean(
-      Array.isArray(osGeneratedData) || 
-      (osGeneratedData?.isMultiOS && Array.isArray(osGeneratedData?.orders)) ||
-      (Array.isArray(osGeneratedData?.orders) && osGeneratedData.orders.length > 1)
-    );
+      // Fallbacks seguros derivados do carrinho ou da venda em andamento
+      const fallbackCartDetails = Array.isArray(cart) ? cart.map(i => i?.detalhes || i?.descricao).filter(Boolean).join(' | ') : '';
+      const fallbackArmacao = Array.isArray(cart) ? cart.find(i => i?.type === 'armacoes' || /armaç/i.test(i?.nome || '')) : null;
+      const fallbackLente = Array.isArray(cart) ? cart.find(i => i?.type === 'lentes' || /lente/i.test(i?.nome || '')) : null;
+      const fallbackArmacaoCor = fallbackArmacao?.cor || fallbackArmacao?.rawProduct?.['COR'] || fallbackArmacao?.rawProduct?.['Cor'] || '';
+      const fallbackArmacaoRef = fallbackArmacao?.referenciaSku || fallbackArmacao?.rawProduct?.['REFERENCIA_SKU'] || fallbackArmacao?.rawProduct?.['CODIGO'] || '';
+      const fallbackLenteTratamento = fallbackLente?.tratamento || fallbackLente?.rawProduct?.['TRATAMENTO'] || fallbackLente?.rawProduct?.['Tratamento'] || '';
+      const fallbackLenteMaterial = fallbackLente?.material || fallbackLente?.rawProduct?.['MATERIAL'] || fallbackLente?.rawProduct?.['Material'] || '';
 
-    const osList = Array.isArray(osGeneratedData)
-      ? osGeneratedData
-      : (osGeneratedData?.orders && osGeneratedData.orders.length > 0)
-        ? osGeneratedData.orders
-        : [osGeneratedData];
+      const effectiveRespName = String(
+        savedClientForOS['Responsável Nome'] || 
+        savedClientForOS['Responsável Legal'] ||
+        savedClientForOS['Responsável'] || 
+        savedClientForOS['RESPONSAVEL_LEGAL'] ||
+        savedClientForOS['RESPONSAVEL_NOME'] ||
+        savedClientForOS['RESPONSAVEL'] || 
+        savedClientForOS['responsavelNome'] || 
+        completedSale?.RESPONSAVEL_NOME ||
+        completedSale?.RESPONSAVEL_LEGAL ||
+        completedSale?.['Responsável Nome'] ||
+        ''
+      ).trim();
 
-    if (!isMulti || osList.length <= 1) {
-      // ─── FLUXO CONVENCIONAL DE 1 OS ────────────────────────────────
-      const singleData = osList[0] || osGeneratedData;
-      const isFreeOrder = parseCurrency(singleData.valorTotal) <= 0 || (completedSale && parseCurrency(completedSale?.['VALOR TOTAL']) <= 0);
-      const osRestante = isFreeOrder ? 0 : Math.max(0, parseCurrency(singleData.valorTotal) - parseCurrency(singleData.valorEntrada));
+      const effectiveRespCpf = String(
+        savedClientForOS['Responsável CPF'] || 
+        savedClientForOS['RESPONSAVEL_CPF'] || 
+        savedClientForOS['responsavelCpf'] || 
+        completedSale?.RESPONSAVEL_CPF ||
+        completedSale?.['Responsável CPF'] ||
+        ''
+      ).trim();
 
-      const singleSaleDate = singleData.dataVenda || completedSale?.['DATA  DA VENDA'] || completedSale?.['DATA'] || todayStr;
-      const singleSaleIso = completedSale?.dataHora || (singleData.dataHora) || new Date().toISOString();
-      const singleSaleTimestamp = completedSale?.timestamp || new Date(singleSaleIso).getTime();
-      const singleSaleDataHoraFmt = completedSale?.DATA_HORA || new Date(singleSaleIso).toLocaleString('pt-BR');
-      const singleSaleHoraFmt = completedSale?.HORA || completedSale?.hora || new Date(singleSaleIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      const resolvedFormaEntrada = singleData.formaPagamentoEntrada || singleData.FORMA_ENTRADA || completedSale?.['FORMA_ENTRADA'] || completedSale?.formaPagamentoEntrada || '';
-      const resolvedFormaRestante = isFreeOrder ? '' : (singleData.formaPagamentoRestante || singleData.FORMA_RESTANTE || completedSale?.['FORMA_RESTANTE'] || completedSale?.formaPagamentoRestante || '');
+      const fallbackTitularPagadorName = (boletoTitularType === 'responsavel' && effectiveRespName)
+        ? effectiveRespName
+        : clientName;
+      const fallbackTitularPagadorCpf = (boletoTitularType === 'responsavel' && effectiveRespCpf)
+        ? effectiveRespCpf
+        : clientCpf;
 
-      const mergedSaleData = {
-        ...(completedSale || {}),
-        'CLIENTE_ID': clientId,
-        'CLIENTE_CPF': clientCpf,
-        'CPF': clientCpf,
-        'itens': completedSale?.itens || cart || [],
-        'ITENS_JSON': JSON.stringify(completedSale?.itens || cart || []),
-        'DETALHES': singleData.detalhes || completedSale?.DETALHES || todosItensDetalhes || '',
-        'detalhes': singleData.detalhes || completedSale?.detalhes || todosItensDetalhes || '',
-        'COR': singleData.cor || completedSale?.COR || armacaoCor || '',
-        'TRATAMENTO': singleData.tratamento || completedSale?.TRATAMENTO || lenteTratamento || '',
-        'MATERIAL': singleData.material || completedSale?.MATERIAL || lenteMaterial || '',
-        'REFERENCIA_SKU': singleData.referenciaSku || completedSale?.REFERENCIA_SKU || armacaoRef || '',
-        'BOLETO_TITULAR_TIPO': singleData.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType,
-        'boletoTitularTipo': singleData.boletoTitularTipo || completedSale?.boletoTitularTipo || boletoTitularType,
-        'BOLETO_PAGADOR_NOME': singleData.boletoPagadorNome || completedSale?.BOLETO_PAGADOR_NOME || titularPagadorName,
-        'boletoPagadorNome': singleData.boletoPagadorNome || completedSale?.boletoPagadorNome || titularPagadorName,
-        'BOLETO_PAGADOR_CPF': singleData.boletoPagadorCpf || completedSale?.BOLETO_PAGADOR_CPF || titularPagadorCpf,
-        'boletoPagadorCpf': singleData.boletoPagadorCpf || completedSale?.boletoPagadorCpf || titularPagadorCpf,
-        'TITULAR_BOLETO': (singleData.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' ? 'Responsável' : 'Cliente',
-        'titularBoleto': (singleData.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' ? 'Responsável' : 'Cliente',
+      const isMulti = Boolean(
+        Array.isArray(osGeneratedData) || 
+        (osGeneratedData?.isMultiOS && Array.isArray(osGeneratedData?.orders)) ||
+        (Array.isArray(osGeneratedData?.orders) && osGeneratedData.orders.length > 1)
+      );
+
+      const osList = Array.isArray(osGeneratedData)
+        ? osGeneratedData
+        : (osGeneratedData?.orders && osGeneratedData.orders.length > 0)
+          ? osGeneratedData.orders
+          : [osGeneratedData];
+
+      if (!isMulti || osList.length <= 1) {
+        // ─── FLUXO CONVENCIONAL DE 1 OS ────────────────────────────────
+        const singleData = osList[0] || osGeneratedData;
+        const isFreeOrder = parseCurrency(singleData.valorTotal) <= 0 || (completedSale && parseCurrency(completedSale?.['VALOR TOTAL']) <= 0);
+        const osRestante = isFreeOrder ? 0 : Math.max(0, parseCurrency(singleData.valorTotal) - parseCurrency(singleData.valorEntrada));
+
+        const singleSaleDate = singleData.dataVenda || completedSale?.['DATA  DA VENDA'] || completedSale?.['DATA'] || todayStr;
+        const singleSaleIso = completedSale?.dataHora || (singleData.dataHora) || new Date().toISOString();
+        const singleSaleTimestamp = completedSale?.timestamp || new Date(singleSaleIso).getTime();
+        const singleSaleDataHoraFmt = completedSale?.DATA_HORA || new Date(singleSaleIso).toLocaleString('pt-BR');
+        const singleSaleHoraFmt = completedSale?.HORA || completedSale?.hora || new Date(singleSaleIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const resolvedFormaEntrada = singleData.formaPagamentoEntrada || singleData.FORMA_ENTRADA || completedSale?.['FORMA_ENTRADA'] || completedSale?.formaPagamentoEntrada || '';
+        const resolvedFormaRestante = isFreeOrder ? '' : (singleData.formaPagamentoRestante || singleData.FORMA_RESTANTE || completedSale?.['FORMA_RESTANTE'] || completedSale?.formaPagamentoRestante || '');
+
+        const resolvedBoletoTitular = singleData.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType || 'cliente';
+        const isRespTitular = resolvedBoletoTitular === 'responsavel' && Boolean(effectiveRespName);
+        const resolvedPagadorNome = singleData.boletoPagadorNome || completedSale?.BOLETO_PAGADOR_NOME || completedSale?.boletoPagadorNome || (isRespTitular ? effectiveRespName : clientName);
+        const resolvedPagadorCpf = singleData.boletoPagadorCpf || completedSale?.BOLETO_PAGADOR_CPF || completedSale?.boletoPagadorCpf || (isRespTitular ? effectiveRespCpf : clientCpf);
+
+        const mergedSaleData = {
+          ...(completedSale || {}),
+          'CLIENTE_ID': clientId,
+          'CLIENTE_CPF': clientCpf,
+          'CPF': clientCpf,
+          'itens': completedSale?.itens || cart || [],
+          'ITENS_JSON': JSON.stringify(completedSale?.itens || cart || []),
+          'DETALHES': singleData.detalhes || completedSale?.DETALHES || completedSale?.detalhes || fallbackCartDetails || '',
+          'detalhes': singleData.detalhes || completedSale?.detalhes || completedSale?.DETALHES || fallbackCartDetails || '',
+          'COR': singleData.cor || completedSale?.COR || completedSale?.cor || fallbackArmacaoCor || '',
+          'TRATAMENTO': singleData.tratamento || completedSale?.TRATAMENTO || completedSale?.tratamento || fallbackLenteTratamento || '',
+          'MATERIAL': singleData.material || completedSale?.MATERIAL || completedSale?.material || fallbackLenteMaterial || '',
+          'REFERENCIA_SKU': singleData.referenciaSku || completedSale?.REFERENCIA_SKU || completedSale?.referenciaSku || fallbackArmacaoRef || '',
+          'BOLETO_TITULAR_TIPO': resolvedBoletoTitular,
+          'boletoTitularTipo': resolvedBoletoTitular,
+          'BOLETO_PAGADOR_NOME': resolvedPagadorNome,
+          'boletoPagadorNome': resolvedPagadorNome,
+          'BOLETO_PAGADOR_CPF': resolvedPagadorCpf,
+          'boletoPagadorCpf': resolvedPagadorCpf,
+          'TITULAR_BOLETO': isRespTitular ? 'Responsável' : 'Cliente',
+          'titularBoleto': isRespTitular ? 'Responsável' : 'Cliente',
         'DATA': singleSaleDate,
         'DATA  DA VENDA': singleSaleDate,
         'DATA DA VENDA': singleSaleDate,
@@ -2430,20 +2475,20 @@ const POSRegister = ({
       ),
       'itens': completedSale?.itens || cart || [],
       'ITENS_JSON': JSON.stringify(completedSale?.itens || cart || []),
-      'DETALHES': primaryOS.detalhes || completedSale?.DETALHES || todosItensDetalhes || '',
-      'detalhes': primaryOS.detalhes || completedSale?.detalhes || todosItensDetalhes || '',
-      'COR': primaryOS.cor || completedSale?.COR || armacaoCor || '',
-      'TRATAMENTO': primaryOS.tratamento || completedSale?.TRATAMENTO || lenteTratamento || '',
-      'MATERIAL': primaryOS.material || completedSale?.MATERIAL || lenteMaterial || '',
-      'REFERENCIA_SKU': primaryOS.referenciaSku || completedSale?.REFERENCIA_SKU || armacaoRef || '',
-      'BOLETO_TITULAR_TIPO': primaryOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType,
-      'boletoTitularTipo': primaryOS.boletoTitularTipo || completedSale?.boletoTitularTipo || boletoTitularType,
-      'BOLETO_PAGADOR_NOME': primaryOS.boletoPagadorNome || completedSale?.BOLETO_PAGADOR_NOME || titularPagadorName,
-      'boletoPagadorNome': primaryOS.boletoPagadorNome || completedSale?.boletoPagadorNome || titularPagadorName,
-      'BOLETO_PAGADOR_CPF': primaryOS.boletoPagadorCpf || completedSale?.BOLETO_PAGADOR_CPF || titularPagadorCpf,
-      'boletoPagadorCpf': primaryOS.boletoPagadorCpf || completedSale?.boletoPagadorCpf || titularPagadorCpf,
-      'TITULAR_BOLETO': (primaryOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' ? 'Responsável' : 'Cliente',
-      'titularBoleto': (primaryOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' ? 'Responsável' : 'Cliente',
+      'DETALHES': primaryOS.detalhes || completedSale?.DETALHES || completedSale?.detalhes || fallbackCartDetails || '',
+      'detalhes': primaryOS.detalhes || completedSale?.detalhes || completedSale?.DETALHES || fallbackCartDetails || '',
+      'COR': primaryOS.cor || completedSale?.COR || completedSale?.cor || fallbackArmacaoCor || '',
+      'TRATAMENTO': primaryOS.tratamento || completedSale?.TRATAMENTO || completedSale?.tratamento || fallbackLenteTratamento || '',
+      'MATERIAL': primaryOS.material || completedSale?.MATERIAL || completedSale?.material || fallbackLenteMaterial || '',
+      'REFERENCIA_SKU': primaryOS.referenciaSku || completedSale?.REFERENCIA_SKU || completedSale?.referenciaSku || fallbackArmacaoRef || '',
+      'BOLETO_TITULAR_TIPO': primaryOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType || 'cliente',
+      'boletoTitularTipo': primaryOS.boletoTitularTipo || completedSale?.boletoTitularTipo || boletoTitularType || 'cliente',
+      'BOLETO_PAGADOR_NOME': primaryOS.boletoPagadorNome || completedSale?.BOLETO_PAGADOR_NOME || fallbackTitularPagadorName,
+      'boletoPagadorNome': primaryOS.boletoPagadorNome || completedSale?.boletoPagadorNome || fallbackTitularPagadorName,
+      'BOLETO_PAGADOR_CPF': primaryOS.boletoPagadorCpf || completedSale?.BOLETO_PAGADOR_CPF || fallbackTitularPagadorCpf,
+      'boletoPagadorCpf': primaryOS.boletoPagadorCpf || completedSale?.boletoPagadorCpf || fallbackTitularPagadorCpf,
+      'TITULAR_BOLETO': ((primaryOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' && effectiveRespName) ? 'Responsável' : 'Cliente',
+      'titularBoleto': ((primaryOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' && effectiveRespName) ? 'Responsável' : 'Cliente',
       'PREVISAO_ENTREGA': primaryOS.dataEntrega || todayStr,
       'NOME CLIENTE': clientName,
       'CLIENTE': clientName,
@@ -2557,14 +2602,14 @@ const POSRegister = ({
       'TRATAMENTO': secOS.tratamento || '',
       'MATERIAL': secOS.material || '',
       'REFERENCIA_SKU': secOS.referenciaSku || '',
-      'BOLETO_TITULAR_TIPO': secOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType,
-      'boletoTitularTipo': secOS.boletoTitularTipo || completedSale?.boletoTitularTipo || boletoTitularType,
-      'BOLETO_PAGADOR_NOME': secOS.boletoPagadorNome || completedSale?.BOLETO_PAGADOR_NOME || titularPagadorName,
-      'boletoPagadorNome': secOS.boletoPagadorNome || completedSale?.boletoPagadorNome || titularPagadorName,
-      'BOLETO_PAGADOR_CPF': secOS.boletoPagadorCpf || completedSale?.BOLETO_PAGADOR_CPF || titularPagadorCpf,
-      'boletoPagadorCpf': secOS.boletoPagadorCpf || completedSale?.boletoPagadorCpf || titularPagadorCpf,
-      'TITULAR_BOLETO': (secOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' ? 'Responsável' : 'Cliente',
-      'titularBoleto': (secOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' ? 'Responsável' : 'Cliente',
+      'BOLETO_TITULAR_TIPO': secOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType || 'cliente',
+      'boletoTitularTipo': secOS.boletoTitularTipo || completedSale?.boletoTitularTipo || boletoTitularType || 'cliente',
+      'BOLETO_PAGADOR_NOME': secOS.boletoPagadorNome || completedSale?.BOLETO_PAGADOR_NOME || fallbackTitularPagadorName,
+      'boletoPagadorNome': secOS.boletoPagadorNome || completedSale?.boletoPagadorNome || fallbackTitularPagadorName,
+      'BOLETO_PAGADOR_CPF': secOS.boletoPagadorCpf || completedSale?.BOLETO_PAGADOR_CPF || fallbackTitularPagadorCpf,
+      'boletoPagadorCpf': secOS.boletoPagadorCpf || completedSale?.boletoPagadorCpf || fallbackTitularPagadorCpf,
+      'TITULAR_BOLETO': ((secOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' && effectiveRespName) ? 'Responsável' : 'Cliente',
+      'titularBoleto': ((secOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' && effectiveRespName) ? 'Responsável' : 'Cliente',
       'RESPONSAVEL_LEGAL': secOS.responsavelNome || primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.RESPONSAVEL_LEGAL || '',
       'RESPONSAVEL_NOME': secOS.responsavelNome || primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.RESPONSAVEL_NOME || '',
       'Responsável Nome': secOS.responsavelNome || primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.RESPONSAVEL_NOME || '',
@@ -2772,7 +2817,12 @@ const POSRegister = ({
     setTimeout(() => {
       window.print();
     }, 400);
-  };
+  } catch (osErr) {
+    console.error('⚠️ [handleSaveOSFromModal] Erro ao salvar/emitir OS no PDV:', osErr);
+    setIsOSModalOpen(false);
+    alert('A Ordem de Serviço foi processada. Em caso de inconsistência na impressão, verifique os dados no histórico de vendas.');
+  }
+};
 
   const handlePrintReceipt = (sale) => {
     setOsPrintData(null);

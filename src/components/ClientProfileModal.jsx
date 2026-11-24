@@ -307,8 +307,6 @@ const ClientProfileModal = ({
     'OS DA VENDA': ''
   });
 
-  if (typeof document === 'undefined') return null;
-
   // Lista de OSs do cliente obtidas do histórico de compras e cadastro
   const clientSalesOSList = useMemo(() => {
     const list = new Set();
@@ -327,12 +325,85 @@ const ClientProfileModal = ({
     return Array.from(list);
   }, [clientHistory, currentClient]);
 
+  // 🛡️ Cruzamento Completo e Unificado das Duplicatas/Mensalidades do Cliente e do Responsável Legal
   const clientErpInvoices = useMemo(() => {
+    if (!currentClient) return [];
+
+    const clean = (val) => String(val || '').toLowerCase().trim();
+    const cleanDigits = (val) => String(val || '').replace(/\D/g, '');
+
+    const clientNameNorm = clean(currentClient['Nome Completo'] || currentClient['NOME'] || currentClient['CLIENTE'] || currentClient['Nome']);
+    const clientCpfDigits = cleanDigits(currentClient['CPF / CNPJ'] || currentClient['CPF'] || currentClient['CNPJ']);
+
+    const respNameNorm = clean(
+      currentClient['Responsável Nome'] || 
+      currentClient['Responsável Legal'] || 
+      currentClient['RESPONSAVEL_NOME'] || 
+      currentClient['RESPONSAVEL_LEGAL'] || 
+      currentClient['Responsável'] || 
+      currentClient['RESPONSAVEL'] || 
+      currentClient['responsavelNome'] || 
+      currentClient['Nome Responsável']
+    );
+    const respCpfDigits = cleanDigits(
+      currentClient['Responsável CPF'] || 
+      currentClient['RESPONSAVEL_CPF'] || 
+      currentClient['responsavelCpf'] || 
+      currentClient['CPF Responsável']
+    );
+
     const rawMatches = (receberData || []).filter(item => {
-      if (!currentClient) return false;
+      if (!item) return false;
+
+      // 1. Vínculo canônico direto com o cadastro do cliente
       if (isSameClient(currentClient, item)) return true;
-      const itemOS = String(item.VENDA_OS || item.OS || item.venda_os || item['Nº DA OS'] || '').replace(/^#/, '').trim();
+
+      const itemCpfDigits = cleanDigits(item.CPF || item.CLIENTE_CPF || item['CPF / CNPJ'] || item.cpf || item.cpf_cnpj);
+      const itemClientNameNorm = clean(item.CLIENTE || item.NOME || item['Nome Completo'] || item.cliente || item.nome);
+      const itemPacienteNorm = clean(item.PACIENTE || item.NOME_BENEFICIARIO || item.CLIENTE_BENEFICIARIO || item.beneficiario || item.paciente);
+      const itemPagadorNameNorm = clean(item.PAGADOR_NOME || item.BOLETO_PAGADOR_NOME || item.TITULAR_PARCELA || item['Nome Pagador'] || item.pagadorNome);
+      const itemPagadorCpfDigits = cleanDigits(item.PAGADOR_CPF || item.BOLETO_PAGADOR_CPF || item['CPF Pagador'] || item.pagadorCpf);
+      const itemRespNameNorm = clean(item.RESPONSAVEL_NOME || item.RESPONSAVEL_LEGAL || item['Responsável Nome'] || item.responsavelNome || item.RESPONSAVEL);
+      const itemRespCpfDigits = cleanDigits(item.RESPONSAVEL_CPF || item['Responsável CPF'] || item.responsavelCpf);
+
+      // Match pelo CPF do cliente (como titular, pagador, paciente ou responsável)
+      if (clientCpfDigits && clientCpfDigits.length >= 7) {
+        if (itemCpfDigits === clientCpfDigits || itemPagadorCpfDigits === clientCpfDigits || itemRespCpfDigits === clientCpfDigits) return true;
+      }
+
+      // Match pelo Nome do cliente
+      if (clientNameNorm && clientNameNorm.length >= 3) {
+        if (
+          itemClientNameNorm === clientNameNorm || 
+          itemPacienteNorm === clientNameNorm || 
+          itemPagadorNameNorm === clientNameNorm || 
+          itemRespNameNorm === clientNameNorm ||
+          (clientNameNorm.length > 5 && itemClientNameNorm.includes(clientNameNorm)) ||
+          (clientNameNorm.length > 5 && itemPacienteNorm.includes(clientNameNorm)) ||
+          (clientNameNorm.length > 5 && itemPagadorNameNorm.includes(clientNameNorm)) ||
+          (clientNameNorm.length > 5 && itemRespNameNorm.includes(clientNameNorm))
+        ) return true;
+      }
+
+      // 2. Vínculo cruzado com o Responsável Legal cadastrado no cliente (mensalidades onde o responsável é o pagador/titular)
+      if (respCpfDigits && respCpfDigits.length >= 7) {
+        if (itemCpfDigits === respCpfDigits || itemPagadorCpfDigits === respCpfDigits || itemRespCpfDigits === respCpfDigits) return true;
+      }
+      if (respNameNorm && respNameNorm.length >= 3) {
+        if (
+          itemClientNameNorm === respNameNorm || 
+          itemPagadorNameNorm === respNameNorm || 
+          itemRespNameNorm === respNameNorm ||
+          (respNameNorm.length > 5 && itemClientNameNorm.includes(respNameNorm)) ||
+          (respNameNorm.length > 5 && itemPagadorNameNorm.includes(respNameNorm)) ||
+          (respNameNorm.length > 5 && itemRespNameNorm.includes(respNameNorm))
+        ) return true;
+      }
+
+      // 3. Match pelo número de OS vinculado às compras do cliente
+      const itemOS = String(item.VENDA_OS || item.OS || item.venda_os || item['Nº DA OS'] || item['OS DA VENDA'] || '').replace(/^#/, '').trim();
       if (itemOS && clientSalesOSList.includes(itemOS)) return true;
+
       return false;
     });
 
@@ -346,12 +417,32 @@ const ClientProfileModal = ({
     return combined;
   }, [receberData, currentClient, clientSalesOSList, localRegisteredPayments]);
 
-  // Recibos e movimentações em dinheiro/PIX/cartão do cliente registrados no Fluxo de Caixa
+  // Recibos e movimentações em dinheiro/PIX/cartão do cliente e responsável registrados no Fluxo de Caixa
   const clientCashReceipts = useMemo(() => {
     const fluxo = data?.['FLUXO_CAIXA'] || [];
     if (!Array.isArray(fluxo) || fluxo.length === 0 || !currentClient) return [];
+
+    const clean = (val) => String(val || '').toLowerCase().trim();
+    const cleanDigits = (val) => String(val || '').replace(/\D/g, '');
+
+    const clientNameNorm = clean(currentClient['Nome Completo'] || currentClient['NOME'] || currentClient['CLIENTE'] || currentClient['Nome']);
+    const clientCpfDigits = cleanDigits(currentClient['CPF / CNPJ'] || currentClient['CPF'] || currentClient['CNPJ']);
+    const respNameNorm = clean(currentClient['Responsável Nome'] || currentClient['Responsável Legal'] || currentClient['RESPONSAVEL_NOME'] || currentClient['responsavelNome']);
+    const respCpfDigits = cleanDigits(currentClient['Responsável CPF'] || currentClient['RESPONSAVEL_CPF'] || currentClient['responsavelCpf']);
+
     return fluxo.filter(mov => {
+      if (!mov) return false;
       if (isSameClient(currentClient, mov)) return true;
+
+      const movCpfDigits = cleanDigits(mov.CPF || mov.CLIENTE_CPF || mov.cpf || mov.responsavelCpf || mov.RESPONSAVEL_CPF);
+      const movClientNorm = clean(mov.cliente || mov.CLIENTE || mov.nome || mov.responsavelNome || mov.RESPONSAVEL_NOME);
+
+      if (clientCpfDigits && clientCpfDigits.length >= 7 && movCpfDigits === clientCpfDigits) return true;
+      if (clientNameNorm && clientNameNorm.length >= 3 && (movClientNorm === clientNameNorm || (clientNameNorm.length > 5 && movClientNorm.includes(clientNameNorm)))) return true;
+
+      if (respCpfDigits && respCpfDigits.length >= 7 && movCpfDigits === respCpfDigits) return true;
+      if (respNameNorm && respNameNorm.length >= 3 && (movClientNorm === respNameNorm || (respNameNorm.length > 5 && movClientNorm.includes(respNameNorm)))) return true;
+
       const osMov = String(mov.osNumero || mov.OS || mov.VENDA_OS || mov['OS DA VENDA'] || '').replace(/^#/, '').trim();
       if (osMov && clientSalesOSList.includes(osMov)) return true;
       return false;
@@ -2141,7 +2232,28 @@ const ClientProfileModal = ({
                               return (
                                 <tr key={idx} className="border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors">
                                   <td className="p-3 font-bold text-slate-300">
-                                    {inv.DESCRICAO || inv.descricao || `Venda OS #${inv.VENDA_OS || inv.OS}`}
+                                    <div className="flex flex-col gap-1">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span>{inv.DESCRICAO || inv.descricao || `Venda OS #${inv.VENDA_OS || inv.OS}`}</span>
+                                        {(inv.VENDA_OS || inv.OS) && (
+                                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-400 font-mono font-bold border border-sky-500/20">
+                                            #{String(inv.VENDA_OS || inv.OS).replace(/^#/, '')}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1 text-[9px] flex-wrap">
+                                        {Boolean(inv.BOLETO_PAGADOR_NOME || inv.TITULAR_PARCELA || inv.RESPONSAVEL_NOME || inv['Responsável Nome']) && (
+                                          <span className="inline-flex items-center gap-0.5 text-amber-300 font-semibold bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
+                                            🛡️ Pagador/Resp: {inv.BOLETO_PAGADOR_NOME || inv.TITULAR_PARCELA || inv.RESPONSAVEL_NOME || inv['Responsável Nome']}
+                                          </span>
+                                        )}
+                                        {Boolean(inv.PACIENTE && inv.PACIENTE !== inv.CLIENTE) && (
+                                          <span className="inline-flex items-center gap-0.5 text-fuchsia-300 font-semibold bg-fuchsia-500/10 px-1.5 py-0.2 rounded border border-fuchsia-500/20">
+                                            👤 Paciente: {inv.PACIENTE}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
                                   </td>
                                   <td className="p-3 font-medium text-slate-400">
                                     {formatVenc}
@@ -2542,6 +2654,8 @@ const ClientProfileModal = ({
     </AnimatePresence>
   );
 
+  if (typeof document === 'undefined' || !isOpen) return null;
+
   return (
     <>
       {createPortal(modalContent, document.body)}
@@ -2597,7 +2711,6 @@ const ClientProfileModal = ({
               ...(markAsPaid ? { STATUS: 'Recebido', status: 'Recebido', DATA_RECEBIMENTO: new Date().toLocaleDateString('pt-BR') } : {})
             };
             await onUpdateRow('CONTAS_RECEBER', receiptModalInvoice, updated);
-            setReceiptModalRow?.(updated);
             setReceiptModalInvoice(updated);
           }
         }}

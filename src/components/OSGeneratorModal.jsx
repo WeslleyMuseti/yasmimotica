@@ -891,9 +891,17 @@ const OSGeneratorModal = ({
         parcelasRestante: vParcelasRestante,
         formasPagamento: vFormas,
         observacoes: clientData['observacoes'] || clientData['OBSERVACOES'] || '',
-        parcelas: (Array.isArray(clientData['parcelas']) && clientData['parcelas'].length > 0)
-          ? clientData['parcelas']
-          : (clientData['PARCELAS_JSON'] ? (typeof clientData['PARCELAS_JSON'] === 'string' ? JSON.parse(clientData['PARCELAS_JSON']) : clientData['PARCELAS_JSON']) : []),
+        parcelas: (() => {
+          if (Array.isArray(clientData['parcelas']) && clientData['parcelas'].length > 0) return clientData['parcelas'];
+          if (clientData['PARCELAS_JSON']) {
+            if (typeof clientData['PARCELAS_JSON'] === 'string') {
+              try { return JSON.parse(clientData['PARCELAS_JSON']); } catch {}
+            } else if (Array.isArray(clientData['PARCELAS_JSON'])) {
+              return clientData['PARCELAS_JSON'];
+            }
+          }
+          return [];
+        })(),
         responsavel: clientData['Responsável Nome'] || clientData['Responsável'] || clientData['responsavel'] || '',
         rg: clientData['RG'] || clientData['rg'] || '',
         laboratorio: clientData['LABORATORIO'] || clientData['laboratorio'] || '',

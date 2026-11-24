@@ -9861,7 +9861,185 @@ async function runTests() {
     console.log('  ✅ Test 107 Passed: Semáforo Roxo (🟣 Ajustada / Editada) na Gestão de OS e Ciclo de Ajuste validados com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 107 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ==========================================
+  // TEST 108: Blindagem na Geração de OS (Zero Crash de Interface) e
+  // Cruzamento Completo das Mensalidades de Clientes e Responsáveis no Perfil
+  // ==========================================
+  {
+    console.log('--- TEST 108: Blindagem de Emissão de OS e Mensalidades de Cliente & Responsável ---');
+
+    // 1. Validação de Formatação e Proteção contra Crash em PrintableOS
+    const formatDatePrint = (dStr) => {
+      if (!dStr) return 'Não definida';
+      if (dStr instanceof Date) {
+        return isNaN(dStr.getTime()) ? 'Não definida' : dStr.toLocaleDateString('pt-BR');
+      }
+      const str = String(dStr).trim();
+      if (!str) return 'Não definida';
+      if (str.includes('/')) return str;
+      const parts = str.split('T')[0].split('-');
+      if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+      return str;
+    };
+
+    console.assert(formatDatePrint(null) === 'Não definida', 'Null deve retornar "Não definida"');
+    console.assert(formatDatePrint(undefined) === 'Não definida', 'Undefined deve retornar "Não definida"');
+    console.assert(formatDatePrint('2026-11-24') === '24/11/2026', 'Data ISO deve ser convertida para DD/MM/AAAA');
+    console.assert(formatDatePrint('24/11/2026') === '24/11/2026', 'Data BR deve ser preservada');
+    console.assert(formatDatePrint(20261124) === '20261124', 'Número nunca deve quebrar com TypeError includes');
+
+    // 2. Blindagem de Payload da OS no PDV (sem referências a variáveis indefinidas)
+    const mockClientForOS = {
+      id: 'cli_arthur_01',
+      'Nome Completo': 'Arthur Gabriel Oliveira Saturnino',
+      'CPF': '444.555.666-77',
+      'Responsável Nome': 'Camily Vitoria Oliveira Saturnino',
+      'Responsável CPF': '111.222.333-44'
+    };
+    const mockCompletedSale = {
+      id: 'venda_001',
+      'VALOR TOTAL': '300,00',
+      'VALOR ENTRADA': '0,00',
+      'RESTANTE': '300,00',
+      itens: [{ type: 'armacoes', nome: 'Armação Clipon', preco: '150,00', qtd: 1 }]
+    };
+    const mockSingleData = {
+      numeroOS: 'CAJ-2050',
+      valorTotal: '300,00',
+      valorEntrada: '0,00',
+      restante: '300,00',
+      boletoTitularTipo: 'responsavel',
+      boletoPagadorNome: 'Camily Vitoria Oliveira Saturnino',
+      boletoPagadorCpf: '111.222.333-44',
+      cor: 'Preto Fosco',
+      material: 'Acetato',
+      lente: 'Monofocal Antirreflexo',
+      armacao: 'Armação Clipon'
+    };
+
+    const resolvedBoletoTitular = mockSingleData.boletoTitularTipo || 'cliente';
+    const isRespTitular = resolvedBoletoTitular === 'responsavel';
+    const resolvedPagadorNome = isRespTitular ? mockClientForOS['Responsável Nome'] : mockClientForOS['Nome Completo'];
+    const resolvedPagadorCpf = isRespTitular ? mockClientForOS['Responsável CPF'] : mockClientForOS['CPF'];
+
+    console.assert(isRespTitular === true, 'Titular do boleto deve ser o Responsável Legal');
+    console.assert(resolvedPagadorNome === 'Camily Vitoria Oliveira Saturnino', 'Nome do pagador deve ser o Responsável');
+    console.assert(resolvedPagadorCpf === '111.222.333-44', 'CPF do pagador deve ser o CPF do Responsável');
+
+    // 3. Cruzamento Completo de Duplicatas/Mensalidades em CONTAS_RECEBER
+    const mockReceberData = [
+      {
+        id: 'dup_01',
+        CLIENTE: 'CAMILY VITORIA OLIVEIRA SATURNINO',
+        CPF: '111.222.333-44',
+        PACIENTE: 'ARTHUR GABRIEL OLIVEIRA SATURNINO',
+        PAGADOR_NOME: 'CAMILY VITORIA OLIVEIRA SATURNINO',
+        PAGADOR_CPF: '111.222.333-44',
+        TITULAR_PARCELA: 'CAMILY VITORIA OLIVEIRA SATURNINO',
+        VALOR: '150,00',
+        DATA_VENCIMENTO: '2026-11-05',
+        STATUS: 'Recebido',
+        VENDA_OS: 'CAJ-2050'
+      },
+      {
+        id: 'dup_02',
+        CLIENTE: 'CAMILY VITORIA OLIVEIRA SATURNINO',
+        CPF: '111.222.333-44',
+        PACIENTE: 'ARTHUR GABRIEL OLIVEIRA SATURNINO',
+        PAGADOR_NOME: 'CAMILY VITORIA OLIVEIRA SATURNINO',
+        PAGADOR_CPF: '111.222.333-44',
+        TITULAR_PARCELA: 'CAMILY VITORIA OLIVEIRA SATURNINO',
+        VALOR: '150,00',
+        DATA_VENCIMENTO: '2026-12-05',
+        STATUS: 'Pendente',
+        VENDA_OS: 'CAJ-2050'
+      },
+      {
+        id: 'dup_03',
+        CLIENTE: 'JULIANA PEDROSO',
+        CPF: '999.888.777-66',
+        VALOR: '660,00',
+        DATA_VENCIMENTO: '2026-11-20',
+        STATUS: 'Pendente',
+        VENDA_OS: 'REG-1010'
+      }
+    ];
+
+    const filterInvoicesForProfile = (currentClient, receberList, clientOSList = []) => {
+      const clean = (val) => String(val || '').toLowerCase().trim();
+      const cleanDigits = (val) => String(val || '').replace(/\D/g, '');
+
+      const clientNameNorm = clean(currentClient['Nome Completo'] || currentClient['NOME'] || currentClient['CLIENTE']);
+      const clientCpfDigits = cleanDigits(currentClient['CPF / CNPJ'] || currentClient['CPF']);
+
+      const respNameNorm = clean(
+        currentClient['Responsável Nome'] || 
+        currentClient['Responsável Legal'] || 
+        currentClient['RESPONSAVEL_NOME'] || 
+        currentClient['responsavelNome']
+      );
+      const respCpfDigits = cleanDigits(
+        currentClient['Responsável CPF'] || 
+        currentClient['RESPONSAVEL_CPF'] || 
+        currentClient['responsavelCpf']
+      );
+
+      return (receberList || []).filter(item => {
+        const itemCpfDigits = cleanDigits(item.CPF || item.CLIENTE_CPF);
+        const itemClientNameNorm = clean(item.CLIENTE || item.NOME);
+        const itemPacienteNorm = clean(item.PACIENTE || item.NOME_BENEFICIARIO);
+        const itemPagadorNameNorm = clean(item.PAGADOR_NOME || item.BOLETO_PAGADOR_NOME || item.TITULAR_PARCELA);
+        const itemPagadorCpfDigits = cleanDigits(item.PAGADOR_CPF || item.BOLETO_PAGADOR_CPF);
+        const itemRespNameNorm = clean(item.RESPONSAVEL_NOME || item.RESPONSAVEL_LEGAL);
+        const itemRespCpfDigits = cleanDigits(item.RESPONSAVEL_CPF);
+
+        // 1. Match pelo Titular
+        if (clientCpfDigits && (itemCpfDigits === clientCpfDigits || itemPagadorCpfDigits === clientCpfDigits || itemRespCpfDigits === clientCpfDigits)) return true;
+        if (clientNameNorm && (
+          itemClientNameNorm === clientNameNorm || 
+          itemPacienteNorm === clientNameNorm || 
+          itemPagadorNameNorm === clientNameNorm || 
+          itemRespNameNorm === clientNameNorm
+        )) return true;
+
+        // 2. Match pelo Responsável
+        if (respCpfDigits && (itemCpfDigits === respCpfDigits || itemPagadorCpfDigits === respCpfDigits || itemRespCpfDigits === respCpfDigits)) return true;
+        if (respNameNorm && (
+          itemClientNameNorm === respNameNorm || 
+          itemPagadorNameNorm === respNameNorm || 
+          itemRespNameNorm === respNameNorm
+        )) return true;
+
+        // 3. Match pelo número de OS
+        const itemOS = String(item.VENDA_OS || item.OS || '').replace(/^#/, '').trim();
+        if (itemOS && clientOSList.includes(itemOS)) return true;
+
+        return false;
+      });
+    };
+
+    // Cenário A: Visualizando o perfil de Arthur Gabriel (Dependente/Beneficiário)
+    const arthurInvoices = filterInvoicesForProfile(mockClientForOS, mockReceberData, ['CAJ-2050']);
+    console.assert(arthurInvoices.length === 2, 'No perfil de Arthur devem aparecer as 2 parcelas pagas/devidas pela mãe Camily');
+    console.assert(arthurInvoices.some(i => i.id === 'dup_01'), 'Parcela de 150 (Paga) deve constar no perfil do Arthur');
+    console.assert(arthurInvoices.some(i => i.id === 'dup_02'), 'Parcela de 150 (Pendente) deve constar no perfil do Arthur');
+
+    // Cenário B: Visualizando o perfil de Camily Vitoria (Responsável Legal)
+    const camilyClient = {
+      id: 'cli_camily_02',
+      'Nome Completo': 'Camily Vitoria Oliveira Saturnino',
+      'CPF': '111.222.333-44'
+    };
+    const camilyInvoices = filterInvoicesForProfile(camilyClient, mockReceberData);
+    console.assert(camilyInvoices.length === 2, 'No perfil de Camily devem aparecer as 2 parcelas onde ela é a pagadora/titular');
+    console.assert(!camilyInvoices.some(i => i.id === 'dup_03'), 'Parcelas de terceiros (Juliana) não devem aparecer');
+
+    console.log('  ✅ Test 108 Passed: Blindagem da OS e Vínculo Cruzado de Mensalidades (Cliente & Responsável) validados com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 108 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

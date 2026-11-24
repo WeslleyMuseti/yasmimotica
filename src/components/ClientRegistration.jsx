@@ -572,10 +572,53 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
   // Sincronização em Tempo Real com o ERP Financeiro (CONTAS_RECEBER) e Vendas / OSs (salesData)
   const enrichedClients = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
+    const clean = (val) => String(val || '').toLowerCase().trim();
+    const cleanDigits = (val) => String(val || '').replace(/\D/g, '');
 
     return (clientsData || []).map(client => {
-      // Obter todas as duplicatas/boletos associadas a este cliente no ERP
-      const clientInvoices = (receberData || []).filter(conta => isSameClient(client, conta));
+      const clientNameNorm = clean(client['Nome Completo'] || client['NOME'] || client['CLIENTE'] || client['Nome']);
+      const clientCpfDigits = cleanDigits(client['CPF / CNPJ'] || client['CPF'] || client['CNPJ']);
+      const respNameNorm = clean(
+        client['Responsável Nome'] || 
+        client['Responsável Legal'] || 
+        client['RESPONSAVEL_NOME'] || 
+        client['responsavelNome'] ||
+        client['Nome Responsável']
+      );
+      const respCpfDigits = cleanDigits(
+        client['Responsável CPF'] || 
+        client['RESPONSAVEL_CPF'] || 
+        client['responsavelCpf'] ||
+        client['CPF Responsável']
+      );
+
+      // Obter todas as duplicatas/boletos associadas a este cliente no ERP (cruzando titular e responsável)
+      const clientInvoices = (receberData || []).filter(conta => {
+        if (!conta) return false;
+        if (isSameClient(client, conta)) return true;
+
+        const cCpfDigits = cleanDigits(conta.CPF || conta.CLIENTE_CPF || conta['CPF / CNPJ'] || conta.cpf);
+        const cClientName = clean(conta.CLIENTE || conta.NOME || conta['Nome Completo'] || conta.cliente);
+        const cPaciente = clean(conta.PACIENTE || conta.NOME_BENEFICIARIO || conta.CLIENTE_BENEFICIARIO || conta.paciente);
+        const cPagadorName = clean(conta.PAGADOR_NOME || conta.BOLETO_PAGADOR_NOME || conta.TITULAR_PARCELA || conta['Nome Pagador']);
+        const cPagadorCpf = cleanDigits(conta.PAGADOR_CPF || conta.BOLETO_PAGADOR_CPF || conta['CPF Pagador']);
+        const cRespName = clean(conta.RESPONSAVEL_NOME || conta.RESPONSAVEL_LEGAL || conta['Responsável Nome'] || conta.RESPONSAVEL);
+        const cRespCpf = cleanDigits(conta.RESPONSAVEL_CPF || conta['Responsável CPF']);
+
+        if (clientCpfDigits && clientCpfDigits.length >= 7) {
+          if (cCpfDigits === clientCpfDigits || cPagadorCpf === clientCpfDigits || cRespCpf === clientCpfDigits) return true;
+        }
+        if (clientNameNorm && clientNameNorm.length >= 3) {
+          if (cClientName === clientNameNorm || cPaciente === clientNameNorm || cPagadorName === clientNameNorm || cRespName === clientNameNorm) return true;
+        }
+        if (respCpfDigits && respCpfDigits.length >= 7) {
+          if (cCpfDigits === respCpfDigits || cPagadorCpf === respCpfDigits || cRespCpf === respCpfDigits) return true;
+        }
+        if (respNameNorm && respNameNorm.length >= 3) {
+          if (cClientName === respNameNorm || cPagadorName === respNameNorm || cRespName === respNameNorm) return true;
+        }
+        return false;
+      });
 
       // Vincula e enriquece a OS mais recente da cliente a partir de salesData
       const clientSales = (salesData || []).filter(sale => isSameClient(client, sale));

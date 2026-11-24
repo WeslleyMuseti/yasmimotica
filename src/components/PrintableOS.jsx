@@ -31,16 +31,20 @@ const formatCurrencyPrint = (val) => {
 
 const formatDatePrint = (dStr) => {
   if (!dStr) return 'Não definida';
-  if (dStr.includes('/')) return dStr;
-  const parts = dStr.split('-');
+  if (dStr instanceof Date) {
+    return isNaN(dStr.getTime()) ? 'Não definida' : dStr.toLocaleDateString('pt-BR');
+  }
+  const str = String(dStr).trim();
+  if (!str) return 'Não definida';
+  if (str.includes('/')) return str;
+  const parts = str.split('T')[0].split('-');
   if (parts.length === 3) {
     return `${parts[2]}/${parts[1]}/${parts[0]}`;
   }
-  return dStr;
+  return str;
 };
 
 const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total = 1 }) => {
-  if (!osData) return null;
   const safeClient = {
     ...(osData?.raw || {}),
     ...(osData?.clientData || {}),
@@ -241,15 +245,25 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
       try { rawItens = JSON.parse(rawItens); } catch (e) {}
     }
     if (Array.isArray(rawItens) && rawItens.length > 0) {
-      const mapped = rawItens.map(item => {
+      const mapped = rawItens.filter(Boolean).map(item => {
+        if (typeof item === 'string') {
+          return {
+            tipo: 'Produto',
+            nome: item,
+            detalhes: '',
+            qtd: 1,
+            precoUnit: 0,
+            total: 0
+          };
+        }
         let tipo = 'Produto';
-        if (item.type === 'armacoes') tipo = 'Armação';
-        else if (item.type === 'lentes') tipo = 'Lente Oftálmica';
-        else if (item.type === 'brindes') tipo = 'Brinde / Cortesia';
-        else if (item.type === 'avulso') tipo = 'Serviço / Avulso';
+        if (item.type === 'armacoes' || item.tipo === 'armacoes') tipo = 'Armação';
+        else if (item.type === 'lentes' || item.tipo === 'lentes') tipo = 'Lente Oftálmica';
+        else if (item.type === 'brindes' || item.tipo === 'brindes') tipo = 'Brinde / Cortesia';
+        else if (item.type === 'avulso' || item.tipo === 'avulso') tipo = 'Serviço / Avulso';
 
         const extraDetails = [];
-        if (item.detalhes) extraDetails.push(item.detalhes);
+        if (item.detalhes) extraDetails.push(String(item.detalhes));
         if (item.cor && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.cor).toLowerCase()))) {
           extraDetails.push(`Cor: ${item.cor}`);
         }
@@ -264,26 +278,26 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
           extraDetails.push(`Ref: ${refCode}`);
         }
         if (item.descricao && item.descricao !== item.nome && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.descricao).toLowerCase()))) {
-          extraDetails.push(item.descricao);
+          extraDetails.push(String(item.descricao));
         }
         if (item.observacoes && !extraDetails.some(d => String(d).toLowerCase().includes(String(item.observacoes).toLowerCase()))) {
-          extraDetails.push(item.observacoes);
+          extraDetails.push(String(item.observacoes));
         }
-        if ((item.type === 'armacoes' || /arma[cç][aã]o/i.test(item.nome || item.descricao || '')) && frameSpecsStr) {
-          if (!extraDetails.some(d => String(d).includes(frameSpecs[0]))) {
+        if ((item.type === 'armacoes' || item.tipo === 'armacoes' || /arma[cç][aã]o/i.test(String(item.nome || item.descricao || ''))) && frameSpecsStr) {
+          if (!frameSpecs[0] || !extraDetails.some(d => String(d).includes(frameSpecs[0]))) {
             extraDetails.push(frameSpecsStr);
           }
         }
         if (extraDetails.length === 0 && generalDetails) {
-          extraDetails.push(generalDetails);
+          extraDetails.push(String(generalDetails));
         }
 
-        const precoUnit = parseCurrencyPrint(item.preco || item.valor || 0);
+        const precoUnit = parseCurrencyPrint(item.preco ?? item.valor ?? 0);
         const qtd = Number(item.qtd) || 1;
         const total = qtd * precoUnit;
         return {
           tipo,
-          nome: item.nome || item.descricao || 'Produto do Pedido',
+          nome: String(item.nome || item.descricao || 'Produto do Pedido'),
           detalhes: extraDetails.join(' | '),
           qtd,
           precoUnit,
@@ -514,6 +528,8 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
     
     return unique.length > 0 ? unique : ['À Vista / Conforme Lançamento'];
   }, [osData, safeClient, installmentsList, resolvedFormaEntrada, resolvedFormaRestante]);
+
+  if (!osData) return null;
 
   return (
     <div className="single-os-sheet-wrapper bg-white text-slate-900 font-sans text-[9px] leading-tight select-none">
