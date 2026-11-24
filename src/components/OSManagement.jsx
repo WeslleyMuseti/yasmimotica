@@ -485,6 +485,7 @@ const OSManagement = ({
       : (finalizedRow.CPF || rawSale.CPF || '');
 
     const effectiveRespName = finalizedRow.RESPONSAVEL_NOME || finalizedRow.RESPONSAVEL || finalizedRow['Responsável Nome'] || finalizedRow['Responsável'] || '';
+    const effectiveRespCpf = finalizedRow.RESPONSAVEL_CPF || finalizedRow['Responsável CPF'] || finalizedRow.responsavelCpf || rawSale.RESPONSAVEL_CPF || rawSale['Responsável CPF'] || '';
     const osStoreUnit = finalizedRow.CIDADE || finalizedRow.LOJA || finalizedRow.UNIDADE || finalizedRow.selectedCity || editingOrder.unit || 'Cajati';
     const clientName = finalizedRow.CLIENTE || rawSale.CLIENTE || 'Cliente';
     const osProductDesc = finalizedRow.PRODUTO || finalizedRow.LENTE || rawSale.PRODUTO || 'Óculos Completo';

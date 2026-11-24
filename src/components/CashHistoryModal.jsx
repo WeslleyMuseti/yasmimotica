@@ -19,6 +19,8 @@ const formatCurrency = (val) => {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+const normStr = (v) => String(v || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
 const cleanBoletoDisplay = (val) => {
   if (!val) return '';
   return String(val)

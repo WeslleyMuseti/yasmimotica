@@ -1,4 +1,5 @@
 import { resolveOSUnit } from './reparcelamentoUtils.js';
+import * as XLSX from 'xlsx';
 
 export const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;

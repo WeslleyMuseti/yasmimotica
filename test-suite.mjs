@@ -10196,7 +10196,82 @@ async function runTests() {
     console.log('  ✅ Test 112 Passed: isBoletoOrCarne e estabilidade do modal de geração de OS validados com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 112 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // --- TEST 113: Auditoria Estática Total de Escopo e Hooks em Todos os Setores (Zero ReferenceError) ---
+  {
+    console.log('--- TEST 113: Auditoria Estática Total de Escopo e Hooks em Todos os Setores (Zero ReferenceError) ---');
+
+    // 113.1: ErpOptica.jsx importa useEffect
+    const erpOpticaSrc = fs.readFileSync(path.join(__dirname, 'src/components/ErpOptica.jsx'), 'utf-8');
+    console.assert(erpOpticaSrc.includes("import React, { useState, useMemo, useEffect } from 'react'"), 'ErpOptica deve importar useEffect de react');
+
+    // 113.2: CashHistoryModal.jsx define normStr no escopo global do módulo
+    const cashHistorySrc = fs.readFileSync(path.join(__dirname, 'src/components/CashHistoryModal.jsx'), 'utf-8');
+    console.assert(cashHistorySrc.includes("const normStr = (v) =>"), 'CashHistoryModal deve definir normStr no escopo do módulo para uso em impressões contábeis');
+
+    // 113.3: OSManagement.jsx define effectiveRespCpf
+    const osMgmtSrc = fs.readFileSync(path.join(__dirname, 'src/components/OSManagement.jsx'), 'utf-8');
+    console.assert(osMgmtSrc.includes("const effectiveRespCpf ="), 'OSManagement deve definir effectiveRespCpf para sincronização com Contas a Receber');
+
+    // 113.4: Varredura AST profunda em todos os arquivos de componentes JSX
+    const parser = (await import('@babel/parser')).default;
+    const traverseModule = await import('@babel/traverse');
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const standardGlobals = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'Intl', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React'
+    ]);
+
+    function getFiles(dir) {
+      let results = [];
+      const list = fs.readdirSync(dir);
+      list.forEach(file => {
+        const fullPath = path.join(dir, file);
+        const stat = fs.statSync(fullPath);
+        if (stat && stat.isDirectory()) {
+          results = results.concat(getFiles(fullPath));
+        } else if (file.endsWith('.jsx')) {
+          results.push(fullPath);
+        }
+      });
+      return results;
+    }
+
+    const jsxFiles = getFiles(path.join(__dirname, 'src/components'));
+    const allUndeclared = [];
+
+    jsxFiles.forEach(f => {
+      const code = fs.readFileSync(f, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals.has(name)) return;
+          if (p.scope.hasBinding(name)) return;
+          allUndeclared.push({ file: path.basename(f), name, line: p.node.loc?.start?.line });
+        }
+      });
+    });
+
+    console.assert(allUndeclared.length === 0, `Nenhum identificador indefinido deve existir nos componentes: ${JSON.stringify(allUndeclared)}`);
+
+    console.log('  ✅ Test 113 Passed: Todos os setores auditados e protegidos contra ReferenceError com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 113 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

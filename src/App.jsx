@@ -143,7 +143,7 @@ class AppErrorBoundary extends React.Component {
                       navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
                     }
                     if ('caches' in window) {
-                      caches.keys().then(names => names.forEach(n => caches.delete(n)));
+                      window.caches.keys().then(names => names.forEach(n => window.caches.delete(n)));
                     }
                   } catch (e) {}
                   window.location.href = window.location.origin + window.location.pathname + '?v=' + Date.now();

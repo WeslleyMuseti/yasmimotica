@@ -26,8 +26,8 @@ class GlobalErrorBoundary extends Component {
         });
       }
       if (typeof window !== 'undefined' && 'caches' in window) {
-        caches.keys().then(keys => {
-          for (const key of keys) caches.delete(key);
+        window.caches.keys().then(keys => {
+          for (const key of keys) window.caches.delete(key);
         });
       }
     } catch (e) {
@@ -120,9 +120,9 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
         reg.unregister();
       }
     });
-    if ('caches' in window) {
-      caches.keys().then((keys) => {
-        keys.forEach((key) => caches.delete(key));
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      window.caches.keys().then((keys) => {
+        keys.forEach((key) => window.caches.delete(key));
       });
     }
   } else {
