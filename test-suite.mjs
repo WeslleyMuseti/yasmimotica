@@ -10166,7 +10166,37 @@ async function runTests() {
     console.log('  ✅ Test 111 Passed: Redes Sociais na Gestão de OS igual na Aba de Clientes validadas com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 111 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // --- TEST 112: Blindagem contra ReferenceError: isBoletoOrCarne is not defined e Estabilidade da Interface ---
+  {
+    console.log('--- TEST 112: Blindagem contra ReferenceError: isBoletoOrCarne is not defined e Estabilidade da Interface ---');
+
+    const { isBoletoOrCarne } = await import('./src/reparcelamentoUtils.js');
+
+    // 112.1: Função utilitária exportada e funcionamento preciso com strings e objetos
+    console.assert(typeof isBoletoOrCarne === 'function', 'isBoletoOrCarne deve ser uma função exportada em reparcelamentoUtils');
+    console.assert(isBoletoOrCarne('Boleto') === true, 'Deve reconhecer "Boleto"');
+    console.assert(isBoletoOrCarne('Boleto Bancário (5x)') === true, 'Deve reconhecer "Boleto Bancário"');
+    console.assert(isBoletoOrCarne('Carnê 10x') === true, 'Deve reconhecer "Carnê"');
+    console.assert(isBoletoOrCarne('carne') === true, 'Deve reconhecer "carne" minúsculo e sem acento');
+    console.assert(isBoletoOrCarne('Cartão de Crédito') === false, 'Não deve confundir Cartão com Boleto');
+    console.assert(isBoletoOrCarne('PIX') === false, 'Não deve confundir PIX com Boleto');
+    console.assert(isBoletoOrCarne('Dinheiro') === false, 'Não deve confundir Dinheiro com Boleto');
+    console.assert(isBoletoOrCarne(null) === false, 'Null deve retornar false');
+    console.assert(isBoletoOrCarne(undefined) === false, 'Undefined deve retornar false');
+    console.assert(isBoletoOrCarne({ method: 'Boleto' }) === true, 'Deve reconhecer objeto com method Boleto');
+    console.assert(isBoletoOrCarne({ formaPagamento: 'Carnê da Loja' }) === true, 'Deve reconhecer objeto com Carnê');
+
+    // 112.2: Escopo e import no componente OSGeneratorModal.jsx
+    const osGenSrc = fs.readFileSync(path.join(__dirname, 'src/components/OSGeneratorModal.jsx'), 'utf-8');
+    console.assert(osGenSrc.includes("import { resolveOSUnit, isBoletoOrCarne as isBoletoOrCarneUtil } from '../reparcelamentoUtils'"), 'OSGeneratorModal deve importar isBoletoOrCarneUtil de reparcelamentoUtils');
+    console.assert(osGenSrc.includes("const isBoletoOrCarne = useMemo("), 'OSGeneratorModal deve declarar isBoletoOrCarne reativamente no escopo do componente');
+    console.assert(osGenSrc.includes("const isBoletoOrCarneInit = isBoletoOrCarneUtil(vFormas)"), 'useEffect deve usar isBoletoOrCarneInit sem sombreamento');
+    console.assert(osGenSrc.includes("payMethod === 'Boleto' || isBoletoOrCarne) && ("), 'JSX deve usar isBoletoOrCarne sem estourar ReferenceError');
+
+    console.log('  ✅ Test 112 Passed: isBoletoOrCarne e estabilidade do modal de geração de OS validados com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 112 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

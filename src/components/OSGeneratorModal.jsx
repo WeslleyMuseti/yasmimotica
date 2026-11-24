@@ -6,7 +6,7 @@ import {
   QrCode, Glasses, Layers, Copy, Info, MapPin, Tag, FlaskConical, ClipboardList,
   AlertOctagon, Sparkles, Ticket, Users
 } from 'lucide-react';
-import { resolveOSUnit } from '../reparcelamentoUtils';
+import { resolveOSUnit, isBoletoOrCarne as isBoletoOrCarneUtil } from '../reparcelamentoUtils';
 
 const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -598,6 +598,18 @@ const OSGeneratorModal = ({
     boletoPagadorCpf: ''
   });
 
+  // 📄 Detecção Reativa de Boleto / Carnê na OS (evita ReferenceError e atualiza interface em tempo real)
+  const isBoletoOrCarne = useMemo(() => {
+    if (payments.some(p => p.method === 'Boleto' || p.metodo === 'carne' || p.metodo === 'boleto')) return true;
+    if (formData.formaPagamentoRestante === 'Boleto' || isBoletoOrCarneUtil(formData.formaPagamentoRestante)) return true;
+    if (payMethod === 'Boleto') return true;
+    if (isBoletoOrCarneUtil(formData.formasPagamento)) return true;
+    if (isBoletoOrCarneUtil(formData.formaPagamentoEntrada)) return true;
+    const clientFormas = clientData?.['formasPagamento'] || clientData?.['FORMA_PAGTO'] || clientData?.['FORMA DE PAGAMENTO'] || saleData?.['FORMAS_PAGAMENTO'] || saleData?.['FORMA_PAGTO'] || saleData?.['formasPagamento'] || '';
+    if (isBoletoOrCarneUtil(clientFormas)) return true;
+    return false;
+  }, [payments, formData.formaPagamentoRestante, formData.formasPagamento, formData.formaPagamentoEntrada, payMethod, clientData, saleData]);
+
   // Calcula o prefixo da unidade selecionada
   const getCityPrefix = (city) => {
     if (city === 'Cajati') return 'CAJ';
@@ -635,14 +647,14 @@ const OSGeneratorModal = ({
         (clientData['VALOR DA VENDA'] ? String(clientData['VALOR DA VENDA']) : '') || 
         (clientData['VALOR DO ORÇAMENTO'] ? String(clientData['VALOR DO ORÇAMENTO']) : '') || '';
       const vFormas = clientData['formasPagamento'] || clientData['FORMA_PAGTO'] || clientData['FORMA DE PAGAMENTO'] || saleData?.['FORMAS_PAGAMENTO'] || saleData?.['FORMA_PAGTO'] || saleData?.['formasPagamento'] || '';
-      const isBoletoOrCarne = /boleto|carnê|carne/i.test(vFormas);
+      const isBoletoOrCarneInit = isBoletoOrCarneUtil(vFormas);
       const vEntrada = clientData['valorEntrada'] !== undefined && clientData['valorEntrada'] !== '' 
         ? clientData['valorEntrada'] 
         : (saleData?.['VALOR ENTRADA'] !== undefined && saleData?.['VALOR ENTRADA'] !== '' 
             ? saleData['VALOR ENTRADA'] 
             : (saleData?.['SINAL'] !== undefined && saleData?.['SINAL'] !== '' 
                 ? saleData['SINAL'] 
-                : (isBoletoOrCarne ? '0,00' : (clientData['restante'] ? '0,00' : vTotal))));
+                : (isBoletoOrCarneInit ? '0,00' : (clientData['restante'] ? '0,00' : vTotal))));
       const isOrderZero = parseCurrency(vTotal) <= 0;
       const vRestante = isOrderZero ? '0,00' : (clientData['restante'] !== undefined && clientData['restante'] !== '' 
         ? clientData['restante'] 
@@ -650,7 +662,7 @@ const OSGeneratorModal = ({
             ? saleData['RESTANTE'] 
             : (saleData?.['restante'] !== undefined && saleData?.['restante'] !== '' 
                 ? saleData['restante'] 
-                : (isBoletoOrCarne ? vTotal : '0,00'))));
+                : (isBoletoOrCarneInit ? vTotal : '0,00'))));
       // 🛡️ Ordem de Prioridade Soberana para a Loja/Unidade da OS:
       // 1. Loja ativa informada pelo chamador (propSelectedCity / initialCity do PDV)
       // 2. Unidade registrada na Venda (saleData.UNIDADE / CIDADE / LOJA / selectedCity)
@@ -671,7 +683,7 @@ const OSGeneratorModal = ({
       const derivedInitRestante = [...new Set(initRestantePay.map(p => formatMethodDisplayName(p.method, p.installments)).filter(Boolean))].join(' + ');
 
       const vFormaEntrada = clientData['formaPagamentoEntrada'] || clientData['FORMA_ENTRADA'] || saleData?.['FORMA_ENTRADA'] || derivedInitEntrada || '';
-      const rawFormaRestanteInit = clientData['formaPagamentoRestante'] || clientData['FORMA_RESTANTE'] || saleData?.['FORMA_RESTANTE'] || derivedInitRestante || (isBoletoOrCarne ? 'Boleto' : '');
+      const rawFormaRestanteInit = clientData['formaPagamentoRestante'] || clientData['FORMA_RESTANTE'] || saleData?.['FORMA_RESTANTE'] || derivedInitRestante || (isBoletoOrCarneInit ? 'Boleto' : '');
       const cardMatchInit = String(rawFormaRestanteInit).match(/^Cartão de Crédito\s*\((\d+)x\)$/i);
       const boletoMatchInit = String(rawFormaRestanteInit).match(/^Boleto\s*\((\d+)x\)$/i);
       const vFormaRestante = cardMatchInit

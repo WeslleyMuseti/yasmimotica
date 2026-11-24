@@ -1163,4 +1163,30 @@ export const computeInstallmentFinancialSummary = (rows = [], referenceTodayIso 
   };
 };
 
+/**
+ * 📄 Helper universal para detecção de Boletos ou Carnês
+ * Aceita strings ("Boleto", "Carnê 5x", etc.) ou objetos de pagamento/parcela
+ */
+export const isBoletoOrCarne = (val) => {
+  if (!val) return false;
+  if (typeof val === 'object') {
+    const s = String(
+      val.method || 
+      val.metodo || 
+      val.formaPagamento || 
+      val.forma || 
+      val.FORMA_PAGTO || 
+      val.FORMA_PAGAMENTO || 
+      val.MEIO_PAGAMENTO || 
+      val.formaPagamentoRestante || 
+      val.formaPagamentoEntrada || 
+      val.formasPagamento || 
+      ''
+    );
+    return /boleto|carn[eê]/i.test(s);
+  }
+  return /boleto|carn[eê]/i.test(String(val));
+};
+
+
 
