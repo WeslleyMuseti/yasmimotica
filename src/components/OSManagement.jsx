@@ -935,7 +935,8 @@ const OSManagement = ({
       }
       seenOSNumbers.add(saleUniqueKey);
 
-      const clientName = (sale["CLIENTE"] || sale["NOME CLIENTE"] || sale["NOME"] || sale["Cliente"] || sale["Nome Completo"] || "Cliente").trim();
+      const rawTitularName = (sale["TITULAR_NOME"] || sale["TITULAR_COMPRA"] || sale["COMPRADOR_NOME"] || sale["CLIENTE"] || sale["NOME CLIENTE"] || sale["NOME"] || sale["Cliente"] || sale["Nome Completo"] || "Cliente").trim();
+      const clientName = rawTitularName;
       
       // Localiza cliente no cadastro por ID/CPF único ou nome
       const matchedClient = clientsData.find(c => isSameClient(c, sale));
@@ -1106,6 +1107,18 @@ const OSManagement = ({
         isSecondaryOS
       );
 
+      const pacienteNome = String(sale["PACIENTE"] || sale["NOME_BENEFICIARIO"] || sale["CLIENTE_BENEFICIARIO"] || sale["nomePessoa"] || sale["beneficiario"] || "").trim();
+      const isAdditionalOS = Boolean(
+        isSecondaryOS ||
+        (osIndex > 1) ||
+        (isMultiSuffix && !/-1$/.test(osNumber))
+      );
+
+      // 🛡️ Se for OS adicional (Multi-OS #2, #3...) e tiver paciente especificada, adota a paciente como cliente principal da OS na Gestão
+      const hasSpecificPatient = Boolean(pacienteNome && pacienteNome !== '---' && !/^benefici[aá]rio\s+[oó]culos/i.test(pacienteNome));
+      const effectiveClientName = (isAdditionalOS && hasSpecificPatient) ? pacienteNome : rawTitularName;
+      const titularClientName = rawTitularName;
+
       list.push({
         raw: sale,
         id: sale.id || ("os-" + idx),
@@ -1119,8 +1132,10 @@ const OSManagement = ({
         allLinkedOS,
         financeiroUnificado,
         osNumber,
-        clientName,
-        pacienteNome: sale["PACIENTE"] || sale["NOME_BENEFICIARIO"] || sale["CLIENTE_BENEFICIARIO"] || sale["nomePessoa"] || "",
+        clientName: effectiveClientName,
+        titularClientName,
+        pacienteNome,
+        isPatientDisplay: Boolean(isAdditionalOS && hasSpecificPatient),
         clientPhone: matchedClient?.["WhatsApp"] || sale["TELEFONE CLIENTE"] || sale["TELEFONE"] || "",
         clientCPF,
         clientCity: matchedClient?.["Cidade"] || unit,
@@ -1305,6 +1320,7 @@ const OSManagement = ({
         const cleanQ = search.replace(/\D/g, '');
         const matchesOS = normalizeSearchText(order.osNumber).includes(q);
         const matchesClient = normalizeSearchText(order.clientName).includes(q);
+        const matchesTitular = normalizeSearchText(order.titularClientName || '').includes(q);
         const matchesPaciente = normalizeSearchText(order.pacienteNome || '').includes(q);
         const matchesResponsavel = Boolean(
           normalizeSearchText(order.responsavelNome || '').includes(q) ||
@@ -1374,6 +1390,7 @@ const OSManagement = ({
         if (
           !matchesOS &&
           !matchesClient &&
+          !matchesTitular &&
           !matchesPaciente &&
           !matchesResponsavel &&
           !matchesProduct &&
@@ -1936,13 +1953,16 @@ const OSManagement = ({
     }
     const fullPhone = cleanPhone.length <= 11 ? ("55" + cleanPhone) : cleanPhone;
     
+    const contactGreeting = (order.isSecondaryOS && order.titularClientName) ? order.titularClientName : order.clientName;
+    const isPatientDiff = order.isSecondaryOS && order.pacienteNome && order.pacienteNome.toLowerCase() !== contactGreeting.toLowerCase();
+
     let msg = "";
     if (order.status === "Pronto para Retirada") {
-      msg = "Olá, *" + order.clientName + "*! Tudo bem? 😊\n\nSeus óculos da *Ordem de Serviço #" + order.osNumber + "* já estão *PRONTOS PARA RETIRADA* na *Yasmin Ótica*! 👓✨\n\nVocê já pode passar na loja para fazer a retirada e ajuste. Aguardamos sua visita! 💜";
+      msg = "Olá, *" + contactGreeting + "*! Tudo bem? 😊\n\n" + (isPatientDiff ? ("Os óculos do(a) paciente *" + order.pacienteNome + "* da *Ordem de Serviço #" + order.osNumber + "*") : ("Seus óculos da *Ordem de Serviço #" + order.osNumber + "*")) + " já estão *PRONTOS PARA RETIRADA* na *Yasmin Ótica*! 👓✨\n\nVocê já pode passar na loja para fazer a retirada e ajuste. Aguardamos sua visita! 💜";
     } else if (order.status === "No Laboratório" || order.status === "Em Produção") {
-      msg = "Olá, *" + order.clientName + "*! Passando para avisar que sua *Ordem de Serviço #" + order.osNumber + "* na *Yasmin Ótica* está em produção no laboratório óptico. Em breve avisaremos assim que estiver pronto para retirada! 👓✨";
+      msg = "Olá, *" + contactGreeting + "*! Passando para avisar que " + (isPatientDiff ? ("os óculos do(a) paciente *" + order.pacienteNome + "* da *Ordem de Serviço #" + order.osNumber + "*") : ("sua *Ordem de Serviço #" + order.osNumber + "*")) + " na *Yasmin Ótica* está em produção no laboratório óptico. Em breve avisaremos assim que estiver pronto para retirada! 👓✨";
     } else {
-      msg = "Olá, *" + order.clientName + "*! Segue a confirmação da sua *Ordem de Serviço #" + order.osNumber + "* na *Yasmin Ótica*. Qualquer dúvida estamos à disposição! 👓✨";
+      msg = "Olá, *" + contactGreeting + "*! Segue a confirmação da *Ordem de Serviço #" + order.osNumber + "*" + (isPatientDiff ? (" do(a) paciente *" + order.pacienteNome + "*") : "") + " na *Yasmin Ótica*. Qualquer dúvida estamos à disposição! 👓✨";
     }
 
     window.open("https://wa.me/" + fullPhone + "?text=" + encodeURIComponent(msg), "_blank");
@@ -3268,6 +3288,15 @@ const OSManagement = ({
                         <span className="font-bold text-white text-base tracking-wide">
                           {order.clientName}
                         </span>
+                        {order.titularClientName && order.titularClientName.toLowerCase() !== order.clientName.toLowerCase() && (
+                          <span 
+                            className="text-xs text-sky-300 font-bold bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 rounded-lg flex items-center gap-1 shadow-2xs"
+                            title={`Titular da Compra / Faturamento: ${order.titularClientName}`}
+                          >
+                            <User size={12} className="text-sky-400" />
+                            <span>Titular: {order.titularClientName}</span>
+                          </span>
+                        )}
                         {order.responsavelNome && order.responsavelNome !== 'S/RESPONSAVEL' && order.responsavelNome.trim() !== '' && (
                           <span 
                             className="text-xs text-amber-300 font-bold bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-lg flex items-center gap-1 shadow-2xs"
@@ -4222,7 +4251,16 @@ const OSManagement = ({
                           <td className="px-5 py-4 min-w-[200px]">
                             <p className="font-bold text-white group-hover:text-pink-300 transition-colors text-sm flex items-center gap-2 flex-wrap">
                               <span>{order.clientName}</span>
-                              {order.pacienteNome && order.pacienteNome.toLowerCase() !== order.clientName.toLowerCase() && (
+                              {order.titularClientName && order.titularClientName.toLowerCase() !== order.clientName.toLowerCase() && (
+                                <span 
+                                  className="text-[10px] bg-sky-500/15 text-sky-300 border border-sky-500/30 px-1.5 py-0.5 rounded font-bold flex items-center gap-1 shadow-2xs"
+                                  title={`Titular da Compra / Faturamento: ${order.titularClientName}`}
+                                >
+                                  <User size={10} className="text-sky-400" />
+                                  <span>Titular: {order.titularClientName}</span>
+                                </span>
+                              )}
+                              {!order.isPatientDisplay && order.pacienteNome && order.pacienteNome.toLowerCase() !== order.clientName.toLowerCase() && (
                                 <span className="text-[10px] bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 px-1.5 py-0.5 rounded font-black">
                                   Pac: {order.pacienteNome}
                                 </span>
@@ -6090,7 +6128,7 @@ const OSManagement = ({
           onClose={() => setEditingOrder(null)}
           osData={editingOrder.raw || editingOrder}
           clientData={clientsData.find(c => isSameClient(c, editingOrder.raw || editingOrder)) || {
-            'Nome Completo': editingOrder.clientName,
+            'Nome Completo': editingOrder.titularClientName || editingOrder.clientName,
             'CPF / CNPJ': editingOrder.clientCPF,
             'WhatsApp': editingOrder.clientPhone
           }}

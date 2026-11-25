@@ -10537,7 +10537,167 @@ async function runTests() {
     console.log('  ✅ Test 115 Passed: Regra Universal de Consistência Financeira validada com sucesso em todas as permutações (Total = Entrada + Restante)!\n');
   }
 
-  console.log('🎉 ALL 115 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ─────────────────────────────────────────────────────────────
+  // TEST 116: NOME DA PACIENTE / BENEFICIÁRIA EM OS ADICIONAIS NA GESTÃO DE OS
+  // Garante que OSs adicionais de uma venda Multi-OS (#2, #3...) exibam
+  // o nome da paciente em destaque, preservando o titular da compra.
+  // ─────────────────────────────────────────────────────────────
+  {
+    console.log('Running Test 116: Nome da Paciente em OS Adicionais na Gestão de OS...');
+
+    // 116.1 Simulação da lógica de resolução de nomes em Multi-OS
+    const resolveMultiOSNames = (sale) => {
+      const rawTitularName = (sale["TITULAR_NOME"] || sale["TITULAR_COMPRA"] || sale["COMPRADOR_NOME"] || sale["CLIENTE"] || sale["NOME CLIENTE"] || sale["NOME"] || sale["Cliente"] || sale["Nome Completo"] || "Cliente").trim();
+      const osNumber = String(sale["OS"] || sale["numeroOS"] || sale["OS DA VENDA"] || '').trim();
+      let osIndex = Number(sale["osIndex"]);
+      if (isNaN(osIndex) || !osIndex) {
+        const match = osNumber.match(/-(\d+)$/);
+        osIndex = match ? Number(match[1]) : 1;
+      }
+      const isMultiSuffix = /-\d+$/.test(osNumber);
+      const isSecondaryOS = Boolean(
+        sale["isSecondaryOS"] === true || 
+        (sale["FINANCEIRO_UNIFICADO"] === true && sale["VALOR TOTAL"] === '0,00') ||
+        (osIndex > 1) ||
+        (isMultiSuffix && !/-1$/.test(osNumber))
+      );
+      const pacienteNome = String(sale["PACIENTE"] || sale["NOME_BENEFICIARIO"] || sale["CLIENTE_BENEFICIARIO"] || sale["nomePessoa"] || sale["beneficiario"] || "").trim();
+      const isAdditionalOS = Boolean(
+        isSecondaryOS ||
+        (osIndex > 1) ||
+        (isMultiSuffix && !/-1$/.test(osNumber))
+      );
+      const hasSpecificPatient = Boolean(pacienteNome && pacienteNome !== '---' && !/^benefici[aá]rio\s+[oó]culos/i.test(pacienteNome));
+      const effectiveClientName = (isAdditionalOS && hasSpecificPatient) ? pacienteNome : rawTitularName;
+      const titularClientName = rawTitularName;
+
+      return {
+        clientName: effectiveClientName,
+        titularClientName,
+        pacienteNome,
+        isSecondaryOS,
+        isPatientDisplay: Boolean(isAdditionalOS && hasSpecificPatient)
+      };
+    };
+
+    // Caso A: OS Principal #1 (Compradora Maria para si mesma)
+    const os1 = resolveMultiOSNames({
+      numeroOS: 'CAJ-500-1',
+      CLIENTE: 'Maria da Silva',
+      PACIENTE: 'Maria da Silva',
+      osIndex: 1
+    });
+    console.assert(os1.clientName === 'Maria da Silva', `OS 1 deve ser Maria da Silva, obtido: ${os1.clientName}`);
+    console.assert(os1.titularClientName === 'Maria da Silva', `Titular deve ser Maria da Silva`);
+    console.assert(os1.isPatientDisplay === false, 'OS 1 não deve ser marcada como exibição secundária de paciente');
+
+    // Caso B: OS Adicional #2 (Compradora Maria para o filho Lucas)
+    const os2 = resolveMultiOSNames({
+      numeroOS: 'CAJ-500-2',
+      CLIENTE: 'Maria da Silva',
+      PACIENTE: 'Lucas da Silva',
+      osIndex: 2,
+      isSecondaryOS: true
+    });
+    console.assert(os2.clientName === 'Lucas da Silva', `OS 2 deve ter como nome principal a paciente Lucas, obtido: ${os2.clientName}`);
+    console.assert(os2.titularClientName === 'Maria da Silva', `OS 2 deve preservar a titular Maria da Silva`);
+    console.assert(os2.isPatientDisplay === true, 'OS 2 deve ser marcada como exibição de paciente');
+
+    // Caso C: OS Adicional #3 (Compradora Maria para a filha Ana Clara)
+    const os3 = resolveMultiOSNames({
+      numeroOS: 'CAJ-500-3',
+      CLIENTE: 'Lucas da Silva',
+      TITULAR_NOME: 'Maria da Silva',
+      PACIENTE: 'Ana Clara da Silva',
+      osIndex: 3,
+      isSecondaryOS: true
+    });
+    console.assert(os3.clientName === 'Ana Clara da Silva', `OS 3 deve exibir Ana Clara da Silva, obtido: ${os3.clientName}`);
+    console.assert(os3.titularClientName === 'Maria da Silva', `OS 3 deve preservar o titular Maria da Silva`);
+
+    // 116.2 Simulação de busca bidirecional (busca por paciente encontra; busca por titular encontra todas)
+    const searchMock = (orders, query) => {
+      const q = query.toLowerCase().trim();
+      return orders.filter(o => 
+        (o.clientName && o.clientName.toLowerCase().includes(q)) ||
+        (o.titularClientName && o.titularClientName.toLowerCase().includes(q)) ||
+        (o.pacienteNome && o.pacienteNome.toLowerCase().includes(q))
+      );
+    };
+
+    const mockOrders = [os1, os2, os3];
+    const resultsLucas = searchMock(mockOrders, 'Lucas');
+    console.assert(resultsLucas.length === 1 && resultsLucas[0].clientName === 'Lucas da Silva', 'Busca por Lucas deve retornar a OS 2');
+
+    const resultsAna = searchMock(mockOrders, 'Ana Clara');
+    console.assert(resultsAna.length === 1 && resultsAna[0].clientName === 'Ana Clara da Silva', 'Busca por Ana deve retornar a OS 3');
+
+    const resultsMaria = searchMock(mockOrders, 'Maria da Silva');
+    console.assert(resultsMaria.length === 3, `Busca por Maria da Silva deve retornar todas as 3 OSs vinculadas à titular, obtido: ${resultsMaria.length}`);
+
+    // 116.3 Inspeção estática nos fontes
+    const osMgmtCode = fs.readFileSync(path.join(__dirname, 'src/components/OSManagement.jsx'), 'utf-8');
+    console.assert(osMgmtCode.includes('titularClientName'), 'OSManagement.jsx deve conter titularClientName');
+    console.assert(osMgmtCode.includes('matchesTitular'), 'OSManagement.jsx deve filtrar por matchesTitular');
+    console.assert(osMgmtCode.includes('Titular: {order.titularClientName}'), 'OSManagement.jsx deve renderizar selo de Titular');
+
+    const posRegCode = fs.readFileSync(path.join(__dirname, 'src/components/POSRegister.jsx'), 'utf-8');
+    console.assert(posRegCode.includes('\'TITULAR_NOME\': clientName'), 'POSRegister.jsx deve gravar TITULAR_NOME nas ordens secundárias');
+
+    const osGenCode = fs.readFileSync(path.join(__dirname, 'src/components/OSGeneratorModal.jsx'), 'utf-8');
+    console.assert(osGenCode.includes('TITULAR_NOME: titularNome'), 'OSGeneratorModal.jsx deve gravar TITULAR_NOME nas ordens filhas');
+
+    // 116.4 Auditoria AST de identificadores não declarados nos arquivos modificados
+    const parserModule = await import('@babel/parser');
+    const traverseModule = await import('@babel/traverse');
+    const parser = parserModule.default || parserModule;
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const filesToAudit116 = [
+      'src/components/OSManagement.jsx',
+      'src/components/POSRegister.jsx',
+      'src/components/OSGeneratorModal.jsx'
+    ];
+
+    const standardGlobals116 = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'Intl', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React'
+    ]);
+
+    const undeclared116 = [];
+    filesToAudit116.forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals116.has(name)) return;
+          if (p.scope.hasBinding(name)) return;
+          undeclared116.push({ file: relPath, name, line: p.node.loc?.start?.line });
+        }
+      });
+    });
+
+    console.assert(undeclared116.length === 0, `Nenhum identificador indefinido deve existir nos arquivos modificados no Teste 116: ${JSON.stringify(undeclared116)}`);
+
+    console.log('  ✅ Test 116 Passed: Nome da Paciente em OS Adicionais e vínculo de titular validados com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 116 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

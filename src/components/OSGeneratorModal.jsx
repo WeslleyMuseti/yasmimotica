@@ -1667,6 +1667,12 @@ const OSGeneratorModal = ({
           return {
             ...formData,
             ...item,
+            CLIENTE: idx === 0 ? titularNome : (item.nomePessoa || titularNome),
+            'NOME CLIENTE': idx === 0 ? titularNome : (item.nomePessoa || titularNome),
+            NOME: idx === 0 ? titularNome : (item.nomePessoa || titularNome),
+            TITULAR_NOME: titularNome,
+            TITULAR_COMPRA: titularNome,
+            COMPRADOR_NOME: titularNome,
             cor: item.cor || formData.cor || '',
             material: item.material || formData.material || '',
             tratamento: item.tratamento || formData.tratamento || '',
