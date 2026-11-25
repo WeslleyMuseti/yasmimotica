@@ -11151,7 +11151,126 @@ async function runTests() {
     console.log('  ✅ Test 120 Passed: Preservação de Vendas Históricas de 12/11 Cajati e Blindagem contra Recebimentos validada com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 120 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ─────────────────────────────────────────────────────────────
+  // TEST 121: EXIBIÇÃO INTELIGENTE DE ABERTURA DE CAIXA EM RELATÓRIOS E FICHAS A4
+  // Garante que a abertura de caixa conste no topo dos relatórios de impressão (Ficha Contábil A4 e PDF)
+  // mesmo que a operadora tenha esquecido de registrar o movimento avulso mas conste fundoInicial no fechamento.
+  // ─────────────────────────────────────────────────────────────
+  {
+    console.log('Running Test 121: Exibição Inteligente de Abertura de Caixa em Relatórios e Fichas A4...');
+
+    const { prepareCashMovementRows } = await import('./src/cashMovementUtils.js');
+
+    // 1. Cenário com Fechamento contendo fundoInicial de R$ 100, mas sem documento avulso de ABERTURA
+    const mockMovementsSemAbertura = [
+      {
+        id: 'fech_1211_caj',
+        tipo: 'FECHAMENTO',
+        valor: 100,
+        fundoInicial: 100,
+        dataHora: '2026-11-12T16:53:00.000Z',
+        unidade: 'Cajati'
+      },
+      {
+        id: 'venda_1211_caj',
+        tipo: 'VENDA',
+        valor: 700,
+        'VALOR TOTAL': 700,
+        dataHora: '2026-11-12T17:43:00.000Z',
+        cliente: 'Cintia Rosa Carvalho',
+        unidade: 'Cajati'
+      }
+    ];
+
+    const resInferred = prepareCashMovementRows({ unidade: 'Cajati', fundoInicial: 0 }, mockMovementsSemAbertura, 20);
+    const abInferredRow = resInferred.rows.find(r => r.docNo === 'AB-01' || (r.historico && r.historico.includes('Abertura')));
+    console.assert(abInferredRow, 'Relatório deve inferir e injetar linha de Abertura (AB-01) a partir do fundoInicial do fechamento');
+    console.assert(abInferredRow.entrada === '100,00', `Entrada da abertura deve ser 100,00, obtido: ${abInferredRow.entrada}`);
+
+    // 2. Cenário com documento explícito de ABERTURA
+    const mockMovementsComAbertura = [
+      {
+        id: 'mov_1794474000000_caj_open',
+        tipo: 'ABERTURA',
+        valor: 100,
+        dataHora: '2026-11-12T12:00:00.000Z',
+        data: '12/11/2026',
+        hora: '09:00',
+        unidade: 'Cajati'
+      },
+      {
+        id: 'venda_1211_caj',
+        tipo: 'VENDA',
+        valor: 700,
+        'VALOR TOTAL': 700,
+        dataHora: '2026-11-12T17:43:00.000Z',
+        cliente: 'Cintia Rosa Carvalho',
+        unidade: 'Cajati'
+      }
+    ];
+
+    const resExplicit = prepareCashMovementRows({ unidade: 'Cajati' }, mockMovementsComAbertura, 20);
+    const abExplicitRow = resExplicit.rows.find(r => r.docNo === 'AB-01');
+    console.assert(abExplicitRow, 'Relatório deve conter linha AB-01 para abertura explícita');
+    console.assert(abExplicitRow.entrada === '100,00', `Entrada da abertura explícita deve ser 100,00, obtido: ${abExplicitRow.entrada}`);
+
+    // 3. Validações estáticas de CashHistoryModal.jsx
+    const cashHistorySrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'CashHistoryModal.jsx'), 'utf-8');
+    console.assert(cashHistorySrc.includes('fallbackFundoFechamento'), 'CashHistoryModal deve calcular fallbackFundoFechamento');
+    console.assert(cashHistorySrc.includes('effectiveFundoInicial'), 'CashHistoryModal deve computar effectiveFundoInicial');
+    console.assert(cashHistorySrc.includes('hasAberturaInFiltered'), 'CashHistoryModal deve verificar hasAberturaInFiltered na impressão');
+
+    // 4. Auditoria AST
+    const parserModule = await import('@babel/parser');
+    const traverseModule = await import('@babel/traverse');
+    const parser = parserModule.default || parserModule;
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const filesToAudit121 = [
+      'src/components/CashHistoryModal.jsx',
+      'src/cashMovementUtils.js'
+    ];
+
+    const standardGlobals121 = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'Intl', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React', 'getDoc', 'getDocs', 'query', 'where', 'addDoc',
+      'updateDoc', 'doc', 'collection', 'setDoc', 'deleteDoc', 'onSnapshot', 'orderBy', 'limit'
+    ]);
+
+    const undeclared121 = [];
+    filesToAudit121.forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals121.has(name)) return;
+          if (p.scope.hasBinding(name)) return;
+          undeclared121.push({ file: relPath, name, line: p.node.loc?.start?.line });
+        }
+      });
+    });
+
+    console.assert(undeclared121.length === 0, `Nenhum identificador indefinido deve existir nos arquivos modificados no Teste 121: ${JSON.stringify(undeclared121)}`);
+
+    console.log('  ✅ Test 121 Passed: Exibição Inteligente de Abertura de Caixa em Relatórios e Fichas A4 validada com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 121 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

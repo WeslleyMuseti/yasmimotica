@@ -1010,6 +1010,7 @@ export const CashHistoryContent = ({
   // Cálculos de Resumo Financeiro
   const metrics = useMemo(() => {
     let totalAberturas = 0;
+    let fallbackFundoFechamento = 0;
     let totalSangrias = 0;
     let totalSuprimentos = 0;
     let totalRecebimentosDinheiro = 0;
@@ -1083,16 +1084,21 @@ export const CashHistoryContent = ({
         }
       } else if (tipo === 'FECHAMENTO') {
         totalFechamentos++;
+        const fi = parseCurrency(item.fundoInicial);
+        if (fi > fallbackFundoFechamento) {
+          fallbackFundoFechamento = fi;
+        }
       }
     });
 
+    const effectiveFundoInicial = totalAberturas > 0 ? totalAberturas : fallbackFundoFechamento;
     const totalRecebidosCaixa = totalVendasDinheiro + totalRecebimentosDinheiro + totalPix + totalDebito + totalCredito;
-    const saldoEstimadoGaveta = (totalAberturas + totalSuprimentos + totalVendasDinheiro + totalRecebimentosDinheiro) - totalSangrias - totalSaidas;
+    const saldoEstimadoGaveta = (effectiveFundoInicial + totalSuprimentos + totalVendasDinheiro + totalRecebimentosDinheiro) - totalSangrias - totalSaidas;
 
     return {
       count: filteredMovements.length,
-      fundoInicial: totalAberturas,
-      totalAberturas,
+      fundoInicial: effectiveFundoInicial,
+      totalAberturas: effectiveFundoInicial,
       totalSangrias,
       totalSuprimentos,
       totalRecebimentosDinheiro,
@@ -1238,12 +1244,29 @@ export const CashHistoryContent = ({
     const reportTitle = `RELATÓRIO DE CAIXA & MOVIMENTAÇÕES • ${unit.toUpperCase()}`;
     setLocalPrintData(null);
 
+    let movementsForPdf = [...filteredMovements];
+    const hasAberturaInFilteredPdf = movementsForPdf.some(m => String(m.tipo || m.TIPO || '').toUpperCase() === 'ABERTURA');
+    if (!hasAberturaInFilteredPdf && metrics.fundoInicial > 0) {
+      movementsForPdf.unshift({
+        id: `synth_ab_${Date.now()}`,
+        tipo: 'ABERTURA',
+        docNo: 'AB-01',
+        valor: metrics.fundoInicial,
+        formaPagamento: 'DINHEIRO',
+        motivo: 'Fundo de Troco / Abertura de Caixa',
+        cliente: 'Fundo de Troco Inicial',
+        dataHora: closingData.dataAbertura || new Date().toISOString(),
+        DATA: closingData.dataAbertura || new Date().toLocaleDateString('pt-BR'),
+        unidade: unit
+      });
+    }
+
     if (onPrint) {
       setPdfReportData(null);
       onPrint({
         type: 'PDF_REPORT',
         closingData,
-        movements: filteredMovements,
+        movements: movementsForPdf,
         storeName: unit,
         periodLabel: periodoLabel,
         title: reportTitle,
@@ -1252,7 +1275,7 @@ export const CashHistoryContent = ({
     } else {
       setPdfReportData({
         closingData,
-        movements: filteredMovements,
+        movements: movementsForPdf,
         storeName: unit,
         periodLabel: periodoLabel,
         title: reportTitle,
@@ -1321,10 +1344,27 @@ export const CashHistoryContent = ({
     };
 
     // 🛡️ filteredMovements já contém todas as movimentações e vendas unificadas e filtradas pela loja e período selecionados
+    let movementsForSheet = [...filteredMovements];
+    const hasAberturaInFiltered = movementsForSheet.some(m => String(m.tipo || m.TIPO || '').toUpperCase() === 'ABERTURA');
+    if (!hasAberturaInFiltered && metrics.fundoInicial > 0) {
+      movementsForSheet.unshift({
+        id: `synth_ab_${Date.now()}`,
+        tipo: 'ABERTURA',
+        docNo: 'AB-01',
+        valor: metrics.fundoInicial,
+        formaPagamento: 'DINHEIRO',
+        motivo: 'Fundo de Troco / Abertura de Caixa',
+        cliente: 'Fundo de Troco Inicial',
+        dataHora: closingData.dataAbertura || new Date().toISOString(),
+        DATA: closingData.dataAbertura || new Date().toLocaleDateString('pt-BR'),
+        unidade: unit
+      });
+    }
+
     const sheetPayload = {
       type: 'CONTABIL_SHEET',
       closingData,
-      movements: filteredMovements,
+      movements: movementsForSheet,
       storeName: unit,
       shiftNumber: 'HISTORICO',
       dateStr: periodoLabel

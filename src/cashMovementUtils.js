@@ -210,19 +210,37 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
       }
     }
 
-    // Se não houver abertura lançada mas fundoInicial > 0 no fechamento
+    // Se não houver abertura lançada mas houver fundoInicial no fechamento ou closingData
     const hasAbertura = effectiveMovements.some(m => String(m?.tipo || m?.TIPO || '').toUpperCase().trim() === 'ABERTURA');
     const closingDateStr = closingData.dataAbertura || closingData.dataHoraAbertura || closingData.dataFechamento || '';
-    if (!hasAbertura && parseMovementNum(closingData.fundoInicial) > 0) {
+    let fallbackFundo = parseMovementNum(closingData.fundoInicial);
+    let fallbackDate = closingDateStr;
+    let fallbackOp = closingData.operador || 'Operador de Caixa';
+
+    if (!hasAbertura && fallbackFundo === 0) {
+      // Procurar em movements por algum fechamento com fundoInicial
+      const closingWithFundo = (Array.isArray(movements) ? movements : []).find(m => {
+        const t = String(m?.tipo || m?.TIPO || '').toUpperCase().trim();
+        return (t === 'FECHAMENTO' || t === 'ABERTURA') && parseMovementNum(m?.fundoInicial || m?.valor) > 0;
+      });
+      if (closingWithFundo) {
+        fallbackFundo = parseMovementNum(closingWithFundo.fundoInicial || closingWithFundo.valor);
+        fallbackDate = closingWithFundo.dataAbertura || closingWithFundo.dataHoraAbertura || closingWithFundo.data || closingWithFundo.dataHora || fallbackDate;
+        fallbackOp = closingWithFundo.operador || fallbackOp;
+      }
+    }
+
+    if (!hasAbertura && fallbackFundo > 0) {
       effectiveMovements.unshift({
         tipo: 'ABERTURA',
         docNo: 'AB-01',
-        valor: parseMovementNum(closingData.fundoInicial),
+        valor: fallbackFundo,
         formaPagamento: 'DINHEIRO',
         motivo: 'Fundo de Troco / Abertura de Caixa',
         cliente: 'Fundo de Troco Inicial',
-        dataHora: closingData.dataAbertura || closingData.dataHoraAbertura,
-        DATA: closingData.dataAbertura || closingData.dataHoraAbertura
+        dataHora: fallbackDate,
+        DATA: fallbackDate,
+        operador: fallbackOp
       });
     }
 
