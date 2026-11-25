@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Search, Table2, Edit2, Save, X, ClipboardList, Eye, Trash2, Printer, Tag, AlertTriangle, Paperclip, Upload, FileText, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Table2, Edit2, Save, X, ClipboardList, Eye, Trash2, Printer, Tag, AlertTriangle, Paperclip, Upload, FileText, RefreshCw, CheckCircle2 } from 'lucide-react';
 import RowEditModal from './RowEditModal';
 import PrintableOS from './PrintableOS';
 import PrintableReceipt from './PrintableReceipt';
@@ -703,6 +703,36 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                       >
                         <Eye size={13} />
                         <span>Quem Usou 👁️</span>
+                      </button>
+                    )}
+                    {sheetName === 'CONTAS_RECEBER' && !['recebido', 'pago', 'liquidado'].includes(String(row.STATUS || row.status || '').toLowerCase()) && onRowUpdate && (
+                      <button 
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const valFmt = String(row.VALOR || row.valor || '0,00');
+                          const cliName = row.CLIENTE || row.NOME || row['NOME CLIENTE'] || 'Cliente';
+                          const confirmBaixa = window.confirm(`Confirmar baixa / recebimento da parcela de R$ ${valFmt} de ${cliName}?`);
+                          if (!confirmBaixa) return;
+
+                          const todayBr = new Date().toLocaleDateString('pt-BR');
+                          const todayIso = new Date().toISOString().split('T')[0];
+                          const updated = {
+                            ...row,
+                            STATUS: 'Recebido',
+                            status: 'Recebido',
+                            DATA_RECEBIMENTO: todayBr,
+                            DATA_PAGAMENTO: todayBr,
+                            data_recebimento: todayIso,
+                            data_pagamento: todayIso
+                          };
+                          await onRowUpdate(sheetName, row, updated);
+                        }}
+                        className="p-1.5 flex items-center gap-1 px-2.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 rounded-lg transition-all font-black text-xs shadow-sm cursor-pointer"
+                        title="Dar Baixa Imediata / Marcar Parcela como Recebida"
+                      >
+                        <CheckCircle2 size={13} className="text-emerald-400" />
+                        <span>Dar Baixa</span>
                       </button>
                     )}
                     {sheetName === 'CONTAS_RECEBER' && (

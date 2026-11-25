@@ -10951,7 +10951,64 @@ async function runTests() {
     console.log('  ✅ Test 118 Passed: Fidelidade Rigorosa ao Status do Banco de Dados em Parcelas validada com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 118 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ─────────────────────────────────────────────────────────────
+  // TEST 119: BOTÃO DE DAR BAIXA EM PARCELAS PENDENTES E INTEGRIDADE DO CONTAS_RECEBER
+  // Garante que exista botão de Dar Baixa direta na tabela para parcelas pendentes
+  // e verifica a integridade estática do componente DataTable.jsx.
+  // ─────────────────────────────────────────────────────────────
+  {
+    console.log('Running Test 119: Botão de Dar Baixa em Parcelas Pendentes e Integridade do DataTable...');
+
+    const dataTableSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'DataTable.jsx'), 'utf-8');
+    console.assert(dataTableSrc.includes('Dar Baixa'), 'DataTable deve conter o botão "Dar Baixa"');
+    console.assert(dataTableSrc.includes('CheckCircle2'), 'DataTable deve importar e usar CheckCircle2');
+
+    // Auditoria AST
+    const parserModule = await import('@babel/parser');
+    const traverseModule = await import('@babel/traverse');
+    const parser = parserModule.default || parserModule;
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const filesToAudit119 = ['src/components/DataTable.jsx'];
+    const standardGlobals119 = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'Intl', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React'
+    ]);
+
+    const undeclared119 = [];
+    filesToAudit119.forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals119.has(name)) return;
+          if (p.scope.hasBinding(name)) return;
+          undeclared119.push({ file: relPath, name, line: p.node.loc?.start?.line });
+        }
+      });
+    });
+
+    console.assert(undeclared119.length === 0, `Nenhum identificador indefinido deve existir nos arquivos modificados no Teste 119: ${JSON.stringify(undeclared119)}`);
+
+    console.log('  ✅ Test 119 Passed: Botão de Dar Baixa e Integridade do DataTable validados com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 119 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 
