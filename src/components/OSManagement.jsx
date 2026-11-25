@@ -12,6 +12,7 @@ import PrintableLabOS from "./PrintableLabOS";
 import PrintableReceipt from "./PrintableReceipt";
 import { PrintableLabelModal } from "./PrintableLabel";
 import EditOSModal from "./EditOSModal";
+import { resolveOSFinancials } from "../reparcelamentoUtils";
 import { isSameClient, normalizeSearchText } from "../firebaseSync";
 import { findOSRelatedEntities, executeOSCascadeDeletion } from "../osDeletionUtils";
 import { SocialMediaButtons, InstagramIcon, FacebookIcon, TikTokIcon, WhatsAppIcon } from './SocialMediaButtons';
@@ -1006,28 +1007,11 @@ const OSManagement = ({
       }
 
       const clientCPF = matchedClient?.["CPF / CNPJ"] || matchedClient?.["CPF"] || sale["CPF"] || "";
-      const valorTotal = sale["VALOR TOTAL"] || sale["VALOR"] || "0,00";
       const formasPagamento = sale["FORMAS_PAGAMENTO"] || sale["FORMA_PAGTO"] || sale["FORMA DE PAGAMENTO"] || sale["MEIO_PAGAMENTO"] || "";
-      let valorEntrada = sale["VALOR ENTRADA"] || sale["SINAL"];
-      let restante = sale["RESTANTE"];
-
-      // Se for pagamento exclusivo em Boleto e não tiver entrada expressa
-      const isApenasBoleto = /boleto|carnê|carne/i.test(formasPagamento) && !/dinheiro|pix|débito|debito|crédito|credito/i.test(formasPagamento);
-      if (valorEntrada === undefined || valorEntrada === '') {
-        if (isApenasBoleto) {
-          valorEntrada = "0,00";
-          if (!restante) restante = valorTotal;
-        } else {
-          valorEntrada = "0,00";
-        }
-      }
-      if (restante === undefined || restante === '') {
-        if (isApenasBoleto) {
-          restante = valorTotal;
-        } else {
-          restante = "0,00";
-        }
-      }
+      const resolvedFin = resolveOSFinancials(sale, matchedClient);
+      const valorTotal = resolvedFin.totalFmt;
+      let valorEntrada = resolvedFin.entradaFmt;
+      let restante = resolvedFin.restanteFmt;
 
       // Resolução do método de pagamento da Entrada e do Restante
       let formaEntrada = sale["FORMA_ENTRADA"] || sale["formaPagamentoEntrada"] || matchedClient?.["FORMA_ENTRADA"] || matchedClient?.["formaPagamentoEntrada"] || "";
@@ -2052,9 +2036,12 @@ const OSManagement = ({
       referenciaSku: order.referenciaSku || order.raw?.["REFERENCIA_SKU"] || order.raw?.["CODIGO"] || targetClient?.["REFERENCIA_SKU"] || "",
       valorArmacao: order.valorArmacao || order.raw?.["VALOR ARMAÇÃO"] || order.raw?.["VALOR_ARMACAO"] || "",
       valorLente: order.valorLente || order.raw?.["VALOR LENTE"] || order.raw?.["VALOR_LENTE"] || "",
-      valorTotal: order.valorTotal,
-      valorEntrada: order.raw["VALOR ENTRADA"] || "0,00",
-      restante: order.raw["RESTANTE"] || "0,00",
+      valorTotal: order.valorTotal || order.raw?.["VALOR TOTAL"] || "0,00",
+      valorEntrada: order.valorEntrada || order.raw?.["VALOR ENTRADA"] || "0,00",
+      restante: order.restante || order.raw?.["RESTANTE"] || "0,00",
+      "VALOR TOTAL": order.valorTotal || order.raw?.["VALOR TOTAL"] || "0,00",
+      "VALOR ENTRADA": order.valorEntrada || order.raw?.["VALOR ENTRADA"] || "0,00",
+      "RESTANTE": order.restante || order.raw?.["RESTANTE"] || "0,00",
       FORMA_ENTRADA: order.formaEntrada || order.raw?.["FORMA_ENTRADA"] || "",
       formaPagamentoEntrada: order.formaEntrada || order.raw?.["formaPagamentoEntrada"] || "",
       FORMA_RESTANTE: order.formaRestante || order.raw?.["FORMA_RESTANTE"] || "",
@@ -2346,9 +2333,12 @@ const OSManagement = ({
         referenciaSku: o.referenciaSku || o.raw?.["REFERENCIA_SKU"] || o.raw?.["CODIGO"] || orderTargetClient?.["REFERENCIA_SKU"] || "",
         valorArmacao: o.valorArmacao || o.raw?.["VALOR ARMAÇÃO"] || o.raw?.["VALOR_ARMACAO"] || "",
         valorLente: o.valorLente || o.raw?.["VALOR LENTE"] || o.raw?.["VALOR_LENTE"] || "",
-        valorTotal: o.valorTotal,
-        valorEntrada: o.raw?.["VALOR ENTRADA"] || "0,00",
-        restante: o.raw?.["RESTANTE"] || "0,00",
+        valorTotal: o.valorTotal || o.raw?.["VALOR TOTAL"] || "0,00",
+        valorEntrada: o.valorEntrada || o.raw?.["VALOR ENTRADA"] || "0,00",
+        restante: o.restante || o.raw?.["RESTANTE"] || "0,00",
+        "VALOR TOTAL": o.valorTotal || o.raw?.["VALOR TOTAL"] || "0,00",
+        "VALOR ENTRADA": o.valorEntrada || o.raw?.["VALOR ENTRADA"] || "0,00",
+        "RESTANTE": o.restante || o.raw?.["RESTANTE"] || "0,00",
         FORMA_ENTRADA: o.formaEntrada || o.raw?.["FORMA_ENTRADA"] || primary.formaEntrada || "",
         formaPagamentoEntrada: o.formaEntrada || o.raw?.["formaPagamentoEntrada"] || primary.formaEntrada || "",
         FORMA_RESTANTE: o.formaRestante || o.raw?.["FORMA_RESTANTE"] || primary.formaRestante || "",

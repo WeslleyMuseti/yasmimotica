@@ -28,6 +28,239 @@ export const formatCurrencyBr = (val) => {
 };
 
 /**
+ * REGRA UNIVERSAL DE CONSISTÊNCIA FINANCEIRA DE ORDENS DE SERVIÇO & VENDAS
+ * Garante matematicamente a invariância:
+ * Valor Total = Valor Entrada + Restante
+ * NUNCA permite que o Valor Total fique zerado (R$ 0,00) quando há Valor de Entrada > 0,
+ * Restante > 0, Itens com preço ou Parcelas registradas.
+ */
+export const resolveOSFinancials = (primarySource = {}, secondarySource = {}) => {
+  const p = primarySource || {};
+  const s = secondarySource || {};
+  const pRaw = p.raw || {};
+  const sRaw = s.raw || {};
+
+  // 1. Extração robusta do Total declarado em todos os aliases
+  const rawTotal =
+    p.valorTotal ??
+    p['VALOR TOTAL'] ??
+    p['VALOR DA VENDA'] ??
+    p['VALOR_TOTAL'] ??
+    p['Valor Total'] ??
+    p['VALOR DO ORÇAMENTO'] ??
+    p['VALOR'] ??
+    p.totalVenda ??
+    pRaw.valorTotal ??
+    pRaw['VALOR TOTAL'] ??
+    pRaw['VALOR DA VENDA'] ??
+    pRaw['VALOR_TOTAL'] ??
+    pRaw['Valor Total'] ??
+    pRaw['VALOR'] ??
+    s.valorTotal ??
+    s['VALOR TOTAL'] ??
+    s['VALOR DA VENDA'] ??
+    s['VALOR_TOTAL'] ??
+    s['Valor Total'] ??
+    s['VALOR'] ??
+    sRaw.valorTotal ??
+    sRaw['VALOR TOTAL'] ??
+    sRaw['VALOR DA VENDA'] ??
+    sRaw['VALOR_TOTAL'] ??
+    null;
+
+  // 2. Extração da Entrada declarada
+  const rawEntrada =
+    p.valorEntrada ??
+    p['VALOR ENTRADA'] ??
+    p['VALOR_ENTRADA'] ??
+    p['Valor Entrada'] ??
+    p['SINAL'] ??
+    p.sinal ??
+    p.entrada ??
+    pRaw.valorEntrada ??
+    pRaw['VALOR ENTRADA'] ??
+    pRaw['VALOR_ENTRADA'] ??
+    pRaw['SINAL'] ??
+    s.valorEntrada ??
+    s['VALOR ENTRADA'] ??
+    s['VALOR_ENTRADA'] ??
+    s['Valor Entrada'] ??
+    s['SINAL'] ??
+    sRaw.valorEntrada ??
+    sRaw['VALOR ENTRADA'] ??
+    null;
+
+  // 3. Extração do Restante declarado
+  const rawRestante =
+    p.restante ??
+    p['RESTANTE'] ??
+    p['VALOR RESTANTE'] ??
+    p['VALOR_RESTANTE'] ??
+    p['Valor Restante'] ??
+    p.saldo ??
+    pRaw.restante ??
+    pRaw['RESTANTE'] ??
+    pRaw['VALOR RESTANTE'] ??
+    s.restante ??
+    s['RESTANTE'] ??
+    s['VALOR RESTANTE'] ??
+    s['Valor Restante'] ??
+    sRaw.restante ??
+    sRaw['RESTANTE'] ??
+    null;
+
+  let totalNum = parseCurrencyValue(rawTotal);
+  let entradaNum = parseCurrencyValue(rawEntrada);
+  let restanteNum = parseCurrencyValue(rawRestante);
+
+  // 4. Soma de Itens do pedido (se existirem)
+  let rawItens = p.itens || pRaw.itens || s.itens || sRaw.itens || [];
+  if (!Array.isArray(rawItens) || rawItens.length === 0) {
+    const rawItensJson = p.ITENS_JSON || pRaw.ITENS_JSON || s.ITENS_JSON || sRaw.ITENS_JSON;
+    if (typeof rawItensJson === 'string') {
+      try { rawItens = JSON.parse(rawItensJson); } catch (e) {}
+    }
+  }
+
+  let itensSum = 0;
+  if (Array.isArray(rawItens) && rawItens.length > 0) {
+    itensSum = rawItens.reduce((acc, it) => {
+      if (!it) return acc;
+      const preco = parseCurrencyValue(it.preco ?? it.valor ?? it.precoUnit ?? 0);
+      const qtd = Number(it.qtd) || 1;
+      const tot = parseCurrencyValue(it.total ?? (preco * qtd));
+      return acc + (tot > 0 ? tot : (preco * qtd));
+    }, 0);
+  }
+
+  const valArmacao = parseCurrencyValue(p.valorArmacao || pRaw['VALOR ARMAÇÃO'] || pRaw['VALOR_ARMACAO'] || s['VALOR ARMAÇÃO'] || 0);
+  const valLente = parseCurrencyValue(p.valorLente || pRaw['VALOR LENTE'] || pRaw['VALOR_LENTE'] || s['VALOR LENTE'] || 0);
+  const armLenteSum = valArmacao + valLente;
+  if (armLenteSum > itensSum) {
+    itensSum = armLenteSum;
+  }
+
+  // 5. Soma de parcelas (se existirem)
+  let rawParcelas = p.parcelas || pRaw.parcelas || s.parcelas || sRaw.parcelas || [];
+  if (!Array.isArray(rawParcelas) || rawParcelas.length === 0) {
+    const rawParcJson = p.PARCELAS_JSON || pRaw.PARCELAS_JSON || s.PARCELAS_JSON || sRaw.PARCELAS_JSON;
+    if (typeof rawParcJson === 'string') {
+      try { rawParcelas = JSON.parse(rawParcJson); } catch (e) {}
+    }
+  }
+
+  let parcelasSum = 0;
+  if (Array.isArray(rawParcelas) && rawParcelas.length > 0) {
+    parcelasSum = rawParcelas.reduce((acc, parc) => {
+      return acc + parseCurrencyValue(parc?.valor ?? parc?.VALOR ?? 0);
+    }, 0);
+  }
+
+  // 6. Detecção de forma de pagamento exclusiva Boleto/Carnê
+  const formasPgto = String(
+    p.formasPagamento ||
+    p['FORMAS_PAGAMENTO'] ||
+    p['FORMA_PAGTO'] ||
+    p['FORMA DE PAGAMENTO'] ||
+    pRaw['FORMAS_PAGAMENTO'] ||
+    pRaw['FORMA_PAGTO'] ||
+    s['FORMAS_PAGAMENTO'] ||
+    ''
+  ).toLowerCase();
+  const isApenasBoleto =
+    (formasPgto.includes('boleto') || formasPgto.includes('carnê') || formasPgto.includes('carne')) &&
+    !formasPgto.includes('dinheiro') &&
+    !formasPgto.includes('pix') &&
+    !formasPgto.includes('débito') &&
+    !formasPgto.includes('debito') &&
+    !formasPgto.includes('crédito') &&
+    !formasPgto.includes('credito') &&
+    !formasPgto.includes('entrada') &&
+    !formasPgto.includes('sinal');
+
+  // ─── REGRAS MATEMÁTICAS INQUEBRÁVEIS ─────────────────────────────
+  // A. Se o total está zerado ou menor que a soma de Entrada + Restante:
+  const entradaPlusRestante = entradaNum + restanteNum;
+  if (totalNum <= 0) {
+    if (entradaPlusRestante > 0) {
+      totalNum = entradaPlusRestante;
+    } else if (itensSum > 0) {
+      totalNum = itensSum;
+    } else if (parcelasSum > 0) {
+      totalNum = parcelasSum;
+    }
+  } else if (entradaPlusRestante > totalNum + 0.01) {
+    // Se entrada + restante superam o total digitado, o total real é a soma de ambos
+    totalNum = entradaPlusRestante;
+  }
+
+  // B. Se temos Total positivo:
+  if (totalNum > 0) {
+    // Se não há restante nem entrada especificados:
+    if (entradaNum <= 0 && restanteNum <= 0) {
+      if (isApenasBoleto || parcelasSum >= totalNum - 0.05) {
+        restanteNum = totalNum;
+        entradaNum = 0;
+      } else {
+        // Venda à vista padrão: tudo é entrada/pago
+        entradaNum = totalNum;
+        restanteNum = 0;
+      }
+    } else if (entradaNum > 0 && restanteNum <= 0) {
+      // Se há entrada e não há restante:
+      if (totalNum > entradaNum + 0.01) {
+        // Se há parcelas ou é a prazo, o restante é a diferença
+        if (parcelasSum > 0 || formasPgto.includes('boleto') || formasPgto.includes('restante') || formasPgto.includes('prazo')) {
+          restanteNum = Math.max(0, +(totalNum - entradaNum).toFixed(2));
+        } else if (Math.abs(itensSum - entradaNum) < 0.05) {
+          // Os itens somam o mesmo que a entrada: total é a entrada
+          totalNum = entradaNum;
+          restanteNum = 0;
+        } else {
+          restanteNum = Math.max(0, +(totalNum - entradaNum).toFixed(2));
+        }
+      } else if (totalNum < entradaNum) {
+        totalNum = entradaNum;
+        restanteNum = 0;
+      }
+    } else if (restanteNum > 0 && entradaNum <= 0) {
+      // Se há restante e entrada não foi informada:
+      if (totalNum > restanteNum + 0.01) {
+        entradaNum = Math.max(0, +(totalNum - restanteNum).toFixed(2));
+      } else {
+        // Restante cobre o total todo
+        entradaNum = 0;
+      }
+    } else if (entradaNum > 0 && restanteNum > 0) {
+      // Ambos informados: garantir consistência
+      if (Math.abs(totalNum - (entradaNum + restanteNum)) > 0.01) {
+        totalNum = +(entradaNum + restanteNum).toFixed(2);
+      }
+    }
+  }
+
+  // C. Invariante final absoluta: Total = Entrada + Restante
+  if (totalNum <= 0 && (entradaNum > 0 || restanteNum > 0)) {
+    totalNum = +(entradaNum + restanteNum).toFixed(2);
+  }
+
+  return {
+    total: totalNum,
+    entrada: entradaNum,
+    restante: restanteNum,
+    totalFmt: formatMoneyBr(totalNum),
+    entradaFmt: formatMoneyBr(entradaNum),
+    restanteFmt: formatMoneyBr(restanteNum),
+    totalCurrency: formatCurrencyBr(totalNum),
+    entradaCurrency: formatCurrencyBr(entradaNum),
+    restanteCurrency: formatCurrencyBr(restanteNum),
+    isFreeOrder: totalNum <= 0 && entradaNum <= 0 && restanteNum <= 0,
+    hasEntrada: entradaNum > 0,
+    hasRestante: restanteNum > 0
+  };
+};
+
+/**
  * Normaliza qualquer formato de data (YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, Date, Serial Excel) para ISO YYYY-MM-DD
  */
 export const normalizeInstallmentDateIso = (raw) => {

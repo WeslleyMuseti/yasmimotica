@@ -6,7 +6,7 @@ import {
   QrCode, Glasses, Layers, Copy, Info, MapPin, Tag, FlaskConical, ClipboardList,
   AlertOctagon, Sparkles, Ticket, Users
 } from 'lucide-react';
-import { resolveOSUnit, isBoletoOrCarne as isBoletoOrCarneUtil } from '../reparcelamentoUtils';
+import { resolveOSUnit, isBoletoOrCarne as isBoletoOrCarneUtil, resolveOSFinancials } from '../reparcelamentoUtils';
 
 const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -663,6 +663,17 @@ const OSGeneratorModal = ({
             : (saleData?.['restante'] !== undefined && saleData?.['restante'] !== '' 
                 ? saleData['restante'] 
                 : (isBoletoOrCarneInit ? vTotal : '0,00'))));
+      const resolvedInitFin = resolveOSFinancials({
+        valorTotal: vTotal,
+        valorEntrada: vEntrada,
+        restante: vRestante,
+        formasPagamento: vFormas,
+        itens: clientData?.itens || saleData?.itens || []
+      }, clientData || saleData || {});
+
+      const finalInitTotal = resolvedInitFin.totalFmt;
+      const finalInitEntrada = resolvedInitFin.entradaFmt;
+      const finalInitRestante = resolvedInitFin.restanteFmt;
       // 🛡️ Ordem de Prioridade Soberana para a Loja/Unidade da OS:
       // 1. Loja ativa informada pelo chamador (propSelectedCity / initialCity do PDV)
       // 2. Unidade registrada na Venda (saleData.UNIDADE / CIDADE / LOJA / selectedCity)
@@ -844,15 +855,27 @@ const OSGeneratorModal = ({
       setIsManualTotal(initialHasPriorTotal);
 
       const autoCalculatedSum = calculateTotalFromOSList(generatedList);
-      const effectiveTotal = initialHasPriorTotal 
+      const preliminaryTotal = initialHasPriorTotal 
         ? vTotal 
         : (autoCalculatedSum > 0 ? formatCurrency(autoCalculatedSum) : (vTotal || '0,00'));
 
-      const numEffTotal = parseCurrency(effectiveTotal);
+      const numEffTotal = parseCurrency(preliminaryTotal);
       const numEffEntrada = parseCurrency(vEntrada);
-      const effectiveRestante = initialHasPriorTotal || parseCurrency(vRestante) > 0
+      const preliminaryRestante = initialHasPriorTotal || parseCurrency(vRestante) > 0
         ? vRestante 
         : (numEffTotal > numEffEntrada ? formatCurrency(numEffTotal - numEffEntrada) : '0,00');
+
+      const resolvedFinEff = resolveOSFinancials({
+        valorTotal: preliminaryTotal,
+        valorEntrada: vEntrada,
+        restante: preliminaryRestante,
+        formasPagamento: vFormas,
+        itens: clientData?.itens || saleData?.itens || []
+      }, clientData || saleData || {});
+
+      const effectiveTotal = resolvedFinEff.totalFmt;
+      const effectiveEntrada = resolvedFinEff.entradaFmt;
+      const effectiveRestante = resolvedFinEff.restanteFmt;
 
       setFormData(prev => ({
         ...prev,
@@ -896,7 +919,7 @@ const OSGeneratorModal = ({
         ponte: clientData['PONTE'] || clientData['ponte'] || '',
         aro: clientData['ARO'] || clientData['aro'] || '',
         valorTotal: effectiveTotal,
-        valorEntrada: vEntrada,
+        valorEntrada: effectiveEntrada,
         restante: effectiveRestante,
         formaPagamentoEntrada: vFormaEntrada,
         formaPagamentoRestante: vFormaRestante,
@@ -1189,8 +1212,12 @@ const OSGeneratorModal = ({
 
       let newFormData = { ...formData, [name]: value };
       if (name === 'valorTotal' || name === 'valorEntrada') {
-        const total = parseCurrency(newFormData.valorTotal) || 0;
+        let total = parseCurrency(newFormData.valorTotal) || 0;
         const entrada = parseCurrency(newFormData.valorEntrada) || 0;
+        if (total <= 0 && entrada > 0) {
+          total = entrada;
+          newFormData.valorTotal = formatCurrency(total);
+        }
         const rest = total - entrada;
         newFormData.restante = rest > 0 ? formatCurrency(rest) : '0,00';
       }
@@ -1491,10 +1518,17 @@ const OSGeneratorModal = ({
       const activeOS = osList[0] || {};
       const titularNome = safeClient['Nome Completo'] || safeClient['CLIENTE'] || safeClient['Nome'] || '';
       const finalNomePessoa = activeOS.nomePessoa || formData.nomePessoa || titularNome;
+      const resolvedSingleFin = resolveOSFinancials({ ...formData, ...activeOS }, safeClient);
 
       const singleData = {
         ...formData,
         ...activeOS,
+        valorTotal: resolvedSingleFin.totalFmt,
+        valorEntrada: resolvedSingleFin.entradaFmt,
+        restante: resolvedSingleFin.restanteFmt,
+        'VALOR TOTAL': resolvedSingleFin.totalFmt,
+        'VALOR ENTRADA': resolvedSingleFin.entradaFmt,
+        'RESTANTE': resolvedSingleFin.restanteFmt,
         cor: activeOS.cor || formData.cor || '',
         material: activeOS.material || formData.material || '',
         tratamento: activeOS.tratamento || formData.tratamento || '',
@@ -1569,6 +1603,7 @@ const OSGeneratorModal = ({
       onSaveAndPrint(singleData);
     } else {
       const titularNome = safeClient['Nome Completo'] || safeClient['CLIENTE'] || safeClient['Nome'] || '';
+      const resolvedMultiFin = resolveOSFinancials(formData, safeClient);
 
       const multiPayload = {
         isMultiOS: true,
@@ -1596,9 +1631,12 @@ const OSGeneratorModal = ({
         parcelasRestante: formData.parcelasRestante || '1',
         parcelas: finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || []),
         PARCELAS_JSON: JSON.stringify(finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || [])),
-        valorTotal: formData.valorTotal,
-        valorEntrada: formData.valorEntrada,
-        restante: formData.restante,
+        valorTotal: resolvedMultiFin.totalFmt,
+        valorEntrada: resolvedMultiFin.entradaFmt,
+        restante: resolvedMultiFin.restanteFmt,
+        'VALOR TOTAL': resolvedMultiFin.totalFmt,
+        'VALOR ENTRADA': resolvedMultiFin.entradaFmt,
+        'RESTANTE': resolvedMultiFin.restanteFmt,
         voucher: formData.voucher || safeClient['VOUCHER'] || safeClient['voucher'] || saleData?.['VOUCHER'] || saleData?.voucher || '',
         descontoVoucher: formData.descontoVoucher || safeClient['DESCONTO_VOUCHER'] || safeClient['descontoVoucher'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || '',
         VOUCHER: formData.voucher || safeClient['VOUCHER'] || safeClient['voucher'] || saleData?.['VOUCHER'] || saleData?.voucher || '',
@@ -1689,9 +1727,12 @@ const OSGeneratorModal = ({
             selectedCity: selectedCity || 'Cajati',
             unidade: selectedCity || 'Cajati',
             isSecondaryOS: idx > 0,
-            valorTotal: idx === 0 ? formData.valorTotal : '0,00',
-            valorEntrada: idx === 0 ? formData.valorEntrada : '0,00',
-            restante: idx === 0 ? formData.restante : '0,00',
+            valorTotal: idx === 0 ? resolvedMultiFin.totalFmt : '0,00',
+            valorEntrada: idx === 0 ? resolvedMultiFin.entradaFmt : '0,00',
+            restante: idx === 0 ? resolvedMultiFin.restanteFmt : '0,00',
+            'VALOR TOTAL': idx === 0 ? resolvedMultiFin.totalFmt : '0,00',
+            'VALOR ENTRADA': idx === 0 ? resolvedMultiFin.entradaFmt : '0,00',
+            'RESTANTE': idx === 0 ? resolvedMultiFin.restanteFmt : '0,00',
             formasPagamento: idx === 0 ? finalFormas : `Faturamento Unificado (Ver OS #${baseOSNumber}${osList.length > 1 ? '-1' : ''})`,
             formaPagamentoEntrada: idx === 0 ? finalFormaEntrada : '',
             FORMA_ENTRADA: idx === 0 ? finalFormaEntrada : '',

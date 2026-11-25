@@ -9664,7 +9664,7 @@ async function runTests() {
     // 105.10: POSRegister gravação de dados do responsável legal em FLUXO_CAIXA
     console.assert(posRegisterSrc.includes('responsavelNome: effectiveRespName || \'\''), 'POSRegister deve salvar responsavelNome em FLUXO_CAIXA');
     console.assert(posRegisterSrc.includes('responsavelCpf: effectiveRespCpf || \'\''), 'POSRegister deve salvar responsavelCpf em FLUXO_CAIXA');
-    console.assert(posRegisterSrc.includes('\'valorTotal\': completedSale?.valorTotal || completedSale?.[\'VALOR TOTAL\'] || \'0,00\''), 'POSRegister deve salvar valorTotal em mergedSaleData');
+    console.assert(posRegisterSrc.includes('\'valorTotal\': resolvedFin.totalFmt') || posRegisterSrc.includes('\'valorTotal\': completedSale?.valorTotal'), 'POSRegister deve salvar valorTotal em mergedSaleData');
 
     // 105.11: DataTable e RowDetailsModal botão de imprimir Recibo de Venda ao Consumidor com PrintableReceipt
     console.assert(dataTableSrc.includes('<PrintableReceipt'), 'DataTable deve renderizar PrintableReceipt');
@@ -10188,7 +10188,7 @@ async function runTests() {
 
     // 112.2: Escopo e import no componente OSGeneratorModal.jsx
     const osGenSrc = fs.readFileSync(path.join(__dirname, 'src/components/OSGeneratorModal.jsx'), 'utf-8');
-    console.assert(osGenSrc.includes("import { resolveOSUnit, isBoletoOrCarne as isBoletoOrCarneUtil } from '../reparcelamentoUtils'"), 'OSGeneratorModal deve importar isBoletoOrCarneUtil de reparcelamentoUtils');
+    console.assert(osGenSrc.includes("isBoletoOrCarne as isBoletoOrCarneUtil"), 'OSGeneratorModal deve importar isBoletoOrCarneUtil de reparcelamentoUtils');
     console.assert(osGenSrc.includes("const isBoletoOrCarne = useMemo("), 'OSGeneratorModal deve declarar isBoletoOrCarne reativamente no escopo do componente');
     console.assert(osGenSrc.includes("const isBoletoOrCarneInit = isBoletoOrCarneUtil(vFormas)"), 'useEffect deve usar isBoletoOrCarneInit sem sombreamento');
     console.assert(osGenSrc.includes("payMethod === 'Boleto' || isBoletoOrCarne) && ("), 'JSX deve usar isBoletoOrCarne sem estourar ReferenceError');
@@ -10392,7 +10392,152 @@ async function runTests() {
     console.log('  ✅ Test 114 Passed: Reconciliação de Parcelas Pagas, Datas em Sangria/Suprimento/Abertura e Relatório Personalizado PDV validados com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 114 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ─────────────────────────────────────────────────────────────
+  // TEST 115: REGRA UNIVERSAL DE CONSISTÊNCIA FINANCEIRA DE OS & VENDAS
+  // Garante que o Valor Total NUNCA fique zerado (R$ 0,00) quando há
+  // entrada > 0, restante > 0, itens com preço ou parcelas registradas.
+  // ─────────────────────────────────────────────────────────────
+  {
+    console.log('Running Test 115: Regra Universal de Consistência Financeira de OS & Vendas...');
+
+    const { resolveOSFinancials } = await import('./src/reparcelamentoUtils.js');
+
+    // 1. Caso do usuário: JAC-161 (Marilda) - valorTotal: "0,00", valorEntrada: "130,00", restante: "0,00"
+    const caseUser = resolveOSFinancials({
+      numeroOS: 'JAC-161',
+      valorTotal: '0,00',
+      valorEntrada: '130,00',
+      restante: '0,00',
+      formaPagamentoEntrada: 'Cartão de Débito',
+      itens: [
+        { tipo: 'Armação', nome: 'Armação Ray-Ban', precoUnit: 130, qtd: 1, total: 130 },
+        { tipo: 'Lente Oftálmica', nome: 'Lente Incolor', precoUnit: 0, qtd: 1, total: 0 }
+      ]
+    });
+
+    console.assert(caseUser.total === 130, `Total deve ser R$ 130,00, obtido: ${caseUser.total}`);
+    console.assert(caseUser.totalFmt === '130,00', `Total formatado deve ser 130,00, obtido: ${caseUser.totalFmt}`);
+    console.assert(caseUser.entrada === 130, `Entrada deve ser R$ 130,00, obtido: ${caseUser.entrada}`);
+    console.assert(caseUser.restante === 0, `Restante deve ser 0, obtido: ${caseUser.restante}`);
+    console.assert(!caseUser.isFreeOrder, 'Não deve ser considerado pedido gratuito');
+
+    // 2. Caso entrada + restante sem total explícito
+    const caseEntradaRestante = resolveOSFinancials({
+      valorTotal: '0,00',
+      valorEntrada: '50,00',
+      restante: '80,00'
+    });
+    console.assert(caseEntradaRestante.total === 130, `Total deve ser 130 (50+80), obtido: ${caseEntradaRestante.total}`);
+    console.assert(caseEntradaRestante.entradaFmt === '50,00', `Entrada deve ser 50,00`);
+    console.assert(caseEntradaRestante.restanteFmt === '80,00', `Restante deve ser 80,00`);
+
+    // 3. Caso à vista padrão (Total 200, sem entrada nem restante informados explicitamente)
+    const caseAVista = resolveOSFinancials({
+      valorTotal: '200,00',
+      valorEntrada: '0,00',
+      restante: '0,00',
+      formasPagamento: 'Dinheiro'
+    });
+    console.assert(caseAVista.total === 200, `Total deve ser 200`);
+    console.assert(caseAVista.entrada === 200, `Entrada à vista deve ser 200, obtido: ${caseAVista.entrada}`);
+    console.assert(caseAVista.restante === 0, `Restante à vista deve ser 0`);
+
+    // 4. Caso com entrada e restante pendente (Total 250, Entrada 100, sem restante explícito, mas com parcelas)
+    const caseComParcelas = resolveOSFinancials({
+      valorTotal: '250,00',
+      valorEntrada: '100,00',
+      restante: '0,00',
+      formasPagamento: 'Entrada PIX + Restante Boleto',
+      parcelas: [{ numero: 1, valor: 150 }]
+    });
+    console.assert(caseComParcelas.total === 250, `Total deve ser 250`);
+    console.assert(caseComParcelas.entrada === 100, `Entrada deve ser 100`);
+    console.assert(caseComParcelas.restante === 150, `Restante deve ser calculado como 150, obtido: ${caseComParcelas.restante}`);
+
+    // 5. Caso apenas boleto (Total 300, Entrada 0, Restante não preenchido)
+    const caseApenasBoleto = resolveOSFinancials({
+      valorTotal: '300,00',
+      valorEntrada: '0,00',
+      restante: '0,00',
+      formasPagamento: 'Boleto 3x'
+    });
+    console.assert(caseApenasBoleto.total === 300, `Total deve ser 300`);
+    console.assert(caseApenasBoleto.entrada === 0, `Entrada em boleto exclusivo deve ser 0`);
+    console.assert(caseApenasBoleto.restante === 300, `Restante em boleto exclusivo deve ser 300, obtido: ${caseApenasBoleto.restante}`);
+
+    // 6. Caso com apenas itens (sem total, entrada ou restante declarados)
+    const caseApenasItens = resolveOSFinancials({
+      itens: [
+        { nome: 'Armação', precoUnit: 90, qtd: 1 },
+        { nome: 'Lente', precoUnit: 120, qtd: 1 }
+      ]
+    });
+    console.assert(caseApenasItens.total === 210, `Total dos itens deve ser 210, obtido: ${caseApenasItens.total}`);
+
+    // 7. Caso de pedido 100% gratuito (garantia / brinde genuíno)
+    const caseGratuito = resolveOSFinancials({
+      valorTotal: '0,00',
+      valorEntrada: '0,00',
+      restante: '0,00',
+      itens: []
+    });
+    console.assert(caseGratuito.total === 0, `Total deve ser 0`);
+    console.assert(caseGratuito.isFreeOrder === true, `Deve ser marcado como isFreeOrder`);
+
+    // 8. Validação estática AST de variáveis não declaradas nos arquivos modificados
+    const parserModule = await import('@babel/parser');
+    const traverseModule = await import('@babel/traverse');
+    const parser = parserModule.default || parserModule;
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const filesToAudit115 = [
+      'src/reparcelamentoUtils.js',
+      'src/components/PrintableOS.jsx',
+      'src/components/OSManagement.jsx',
+      'src/components/POSRegister.jsx',
+      'src/components/OSGeneratorModal.jsx',
+      'src/components/EditOSModal.jsx'
+    ];
+
+    const standardGlobals115 = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'Intl', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React'
+    ]);
+
+    const undeclared115 = [];
+    filesToAudit115.forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals115.has(name)) return;
+          if (p.scope.hasBinding(name)) return;
+          undeclared115.push({ file: relPath, name, line: p.node.loc?.start?.line });
+        }
+      });
+    });
+
+    console.assert(undeclared115.length === 0, `Nenhum identificador indefinido deve existir nos arquivos modificados no Teste 115: ${JSON.stringify(undeclared115)}`);
+
+    console.log('  ✅ Test 115 Passed: Regra Universal de Consistência Financeira validada com sucesso em todas as permutações (Total = Entrada + Restante)!\n');
+  }
+
+  console.log('🎉 ALL 115 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

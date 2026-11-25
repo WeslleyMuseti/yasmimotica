@@ -27,6 +27,7 @@ import {
   Users
 } from 'lucide-react';
 import { buildNormalizedDateTime } from '../dateSyncUtils';
+import { resolveOSFinancials } from '../reparcelamentoUtils';
 
 const cleanVal = (v) => {
   if (v === null || v === undefined || v === '') return 0;
@@ -283,12 +284,10 @@ const EditOSModal = ({
   useEffect(() => {
     if (osData) {
       const numOS = String(osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['OS da COMPRA'] || osData.numeroOS || osData.osNumber || osData['Nº DA OS'] || osData['Num OS'] || '').trim();
-      const rawTotal = osData['VALOR TOTAL'] || osData['VALOR DO ORÇAMENTO'] || osData['VALOR DA VENDA'] || osData['VALOR'] || '';
-      const totalNum = cleanVal(rawTotal);
-      const rawEntrada = osData['VALOR ENTRADA'] || osData['SINAL'] || '';
-      const entradaNum = cleanVal(rawEntrada);
-      const rawRestante = osData['RESTANTE'] || '';
-      const restanteNum = cleanVal(rawRestante) || Math.max(0, totalNum - entradaNum);
+      const resolvedFin = resolveOSFinancials(osData);
+      const totalNum = resolvedFin.total;
+      const entradaNum = resolvedFin.entrada;
+      const restanteNum = resolvedFin.restante;
       const fpStr = osData['FORMAS_PAGAMENTO'] || osData['FORMA_PAGTO'] || osData['FORMA DE PAGAMENTO'] || osData['MEIO_PAGAMENTO'] || '';
       const rawFormaEntrada = osData['FORMA_ENTRADA'] || osData['formaPagamentoEntrada'] || '';
       const rawFormaRestante = osData['FORMA_RESTANTE'] || osData['formaPagamentoRestante'] || '';
@@ -978,9 +977,12 @@ const EditOSModal = ({
       'VALOR TOTAL': formatMoney(totalVal),
       'VALOR': formatMoney(totalVal),
       'VALOR DA VENDA': formatMoney(totalVal),
+      'valorTotal': formatMoney(totalVal),
       'VALOR ENTRADA': formatMoney(entradaFinal),
       'SINAL': formatMoney(entradaFinal),
+      'valorEntrada': formatMoney(entradaFinal),
       'RESTANTE': formatMoney(restanteFinal),
+      'restante': formatMoney(restanteFinal),
       'FORMA_ENTRADA': finalFormaEntrada,
       'formaPagamentoEntrada': finalFormaEntrada,
       'FORMA_RESTANTE': finalFormaRestante,

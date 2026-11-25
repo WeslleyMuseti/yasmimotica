@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { resolveOSUnit } from '../reparcelamentoUtils';
+import { resolveOSUnit, resolveOSFinancials } from '../reparcelamentoUtils';
 
 export { resolveOSUnit };
 
@@ -179,33 +179,14 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
     ''
   ).trim();
 
-  // Valores canônicos com suporte total a todos os aliases e fallbacks
-  const displayTotal = (() => {
-    const directTotal = osData.valorTotal ??
-      osData['VALOR TOTAL'] ??
-      osData['VALOR DA VENDA'] ??
-      osData['VALOR_TOTAL'] ??
-      osData['Valor Total'] ??
-      osData['VALOR'] ??
-      safeClient['VALOR TOTAL'] ??
-      safeClient['Valor Total'] ??
-      safeClient['VALOR DA VENDA'] ??
-      safeClient['VALOR_TOTAL'] ??
-      safeClient.valorTotal ??
-      osData.raw?.['VALOR TOTAL'] ??
-      osData.raw?.['VALOR DA VENDA'] ??
-      osData.raw?.['VALOR_TOTAL'] ??
-      osData.raw?.['Valor Total'] ??
-      osData.raw?.['VALOR'] ??
-      osData.raw?.valorTotal;
+  // Valores canônicos com suporte total à regra de consistência financeira universal
+  const resolvedFin = useMemo(() => {
+    return resolveOSFinancials(osData, safeClient);
+  }, [osData, safeClient]);
 
-    if (directTotal !== null && directTotal !== undefined && parseCurrencyPrint(directTotal) > 0) {
-      return directTotal;
-    }
-    return directTotal || '0,00';
-  })();
-  const displayEntrada = osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? safeClient['VALOR ENTRADA'] ?? safeClient['Valor Entrada'] ?? '0,00';
-  const displayRestante = osData.restante ?? osData['RESTANTE'] ?? safeClient['RESTANTE'] ?? safeClient['Restante'] ?? '0,00';
+  const displayTotal = resolvedFin.totalFmt;
+  const displayEntrada = resolvedFin.entradaFmt;
+  const displayRestante = resolvedFin.restanteFmt;
   const displayOSNumber = String(osData.numeroOS || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || safeClient['OS DA VENDA'] || safeClient['OS'] || '---').replace(/^#+/, '');
 
   // ─── PADRÃO DE ITENS DO PEDIDO (PRODUTOS & SERVIÇOS) ─────────────
@@ -979,18 +960,18 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
           <div className="mt-2 pt-1.5 border-t-2 border-slate-300 grid grid-cols-3 gap-2 text-center bg-white p-1.5 rounded-md border border-slate-200 shadow-2xs">
             <div className="text-[9px] font-black text-slate-950">
               <span className="text-slate-500 font-bold block text-[7.5px] uppercase tracking-wider">Valor do Produto / Venda</span>
-              <span>Total: R$ {formatCurrencyPrint(osData.valorTotal ?? osData['VALOR TOTAL'] ?? osData['VALOR DA VENDA'] ?? osData['VALOR'] ?? osData.total ?? osData.valor ?? safeClient['VALOR TOTAL'] ?? safeClient['Valor Total'])}</span>
+              <span>Total: R$ {formatCurrencyPrint(displayTotal)}</span>
             </div>
             <div className="text-[9px] font-black text-emerald-800 border-x border-slate-200">
               <span className="text-emerald-700 font-bold block text-[7.5px] uppercase tracking-wider">Entrada / Sinal</span>
-              <span>Entrada: R$ {formatCurrencyPrint(osData.valorEntrada ?? osData['VALOR ENTRADA'] ?? osData['SINAL'] ?? osData.entrada ?? osData.sinal ?? safeClient['VALOR ENTRADA'] ?? safeClient['Valor Entrada'])}</span>
+              <span>Entrada: R$ {formatCurrencyPrint(displayEntrada)}</span>
               {!isSecondary && resolvedFormaEntrada && (
                 <span className="block text-[7px] font-bold text-emerald-700 uppercase">({resolvedFormaEntrada})</span>
               )}
             </div>
             <div className="text-[9px] font-black text-slate-950">
               <span className="text-slate-500 font-bold block text-[7.5px] uppercase tracking-wider">Saldo Restante</span>
-              <span>Restante: R$ {formatCurrencyPrint(osData.restante ?? osData['RESTANTE'] ?? osData.saldoRestante ?? safeClient['RESTANTE'] ?? safeClient['Restante'])}</span>
+              <span>Restante: R$ {formatCurrencyPrint(displayRestante)}</span>
               {!isSecondary && resolvedFormaRestante && (
                 <span className="block text-[7px] font-bold text-rose-700 uppercase">({resolvedFormaRestante})</span>
               )}

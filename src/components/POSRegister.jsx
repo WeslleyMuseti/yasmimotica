@@ -18,7 +18,7 @@ import PrintableCashClosingReport from './PrintableCashClosingReport';
 import PrintableCashMovementSheet from './PrintableCashMovementSheet';
 import { PrintableLabelModal } from './PrintableLabel';
 import { decrementStockAtomically, isSameClient } from '../firebaseSync';
-import { resolveOSUnit } from '../reparcelamentoUtils';
+import { resolveOSUnit, resolveOSFinancials } from '../reparcelamentoUtils';
 import { InstagramIcon, WhatsAppIcon } from './SocialMediaButtons';
 
 const cleanVal = (v) => {
@@ -2137,8 +2137,9 @@ const POSRegister = ({
       if (!isMulti || osList.length <= 1) {
         // ─── FLUXO CONVENCIONAL DE 1 OS ────────────────────────────────
         const singleData = osList[0] || osGeneratedData;
-        const isFreeOrder = parseCurrency(singleData.valorTotal) <= 0 || (completedSale && parseCurrency(completedSale?.['VALOR TOTAL']) <= 0);
-        const osRestante = isFreeOrder ? 0 : Math.max(0, parseCurrency(singleData.valorTotal) - parseCurrency(singleData.valorEntrada));
+        const resolvedFin = resolveOSFinancials(singleData, completedSale);
+        const isFreeOrder = resolvedFin.isFreeOrder;
+        const osRestante = resolvedFin.restante;
 
         const singleSaleDate = singleData.dataVenda || completedSale?.['DATA  DA VENDA'] || completedSale?.['DATA'] || todayStr;
         const singleSaleIso = completedSale?.dataHora || (singleData.dataHora) || new Date().toISOString();
@@ -2189,11 +2190,11 @@ const POSRegister = ({
         'LENTE': singleData.lente || '',
         'ARMAÇÃO': singleData.armacao || '',
         'LABORATORIO': singleData.laboratorio || '',
-        'VALOR TOTAL': singleData.valorTotal || completedSale?.['VALOR TOTAL'],
-        'VALOR DA VENDA': singleData.valorTotal || completedSale?.['VALOR DA VENDA'],
-        'VALOR ENTRADA': singleData.valorEntrada || completedSale?.['VALOR ENTRADA'] || '0,00',
-        'SINAL': singleData.valorEntrada || completedSale?.['SINAL'] || '0,00',
-        'RESTANTE': isFreeOrder ? '0,00' : (singleData.restante || (osRestante > 0 ? osRestante.toFixed(2).replace('.', ',') : '0,00')),
+        'VALOR TOTAL': resolvedFin.totalFmt,
+        'VALOR DA VENDA': resolvedFin.totalFmt,
+        'VALOR ENTRADA': resolvedFin.entradaFmt,
+        'SINAL': resolvedFin.entradaFmt,
+        'RESTANTE': resolvedFin.restanteFmt,
         'FORMAS_PAGAMENTO': singleData.formasPagamento || completedSale?.['FORMA_PAGTO'] || '',
         'FORMA_ENTRADA': resolvedFormaEntrada,
         'formaPagamentoEntrada': resolvedFormaEntrada,
@@ -2239,9 +2240,9 @@ const POSRegister = ({
         'alturaVertical': singleData.alturaVertical || singleData.ALTURA_VERTICAL || completedSale?.alturaVertical || '',
         'ponte': singleData.ponte || singleData.PONTE || completedSale?.ponte || '',
         'aro': singleData.aro || singleData.ARO || completedSale?.aro || '',
-        'valorTotal': completedSale?.valorTotal || completedSale?.['VALOR TOTAL'] || '0,00',
-        'valorEntrada': completedSale?.valorEntrada || completedSale?.['VALOR ENTRADA'] || '0,00',
-        'restante': completedSale?.restante || completedSale?.['RESTANTE'] || '0,00',
+        'valorTotal': resolvedFin.totalFmt,
+        'valorEntrada': resolvedFin.entradaFmt,
+        'restante': resolvedFin.restanteFmt,
         'TELEFONE': savedClientForOS['WhatsApp'] || savedClientForOS['TELEFONE'] || completedSale?.TELEFONE || '',
         'CIDADE': resolveOSUnit({ numeroOS: singleData.numeroOS, unidade: singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity }, savedClientForOS) || 'Cajati',
         'LOJA': resolveOSUnit({ numeroOS: singleData.numeroOS, unidade: singleData.selectedCity || singleData.unidade || userFixedCity || selectedPOSCity }, savedClientForOS) || 'Cajati',
@@ -2454,6 +2455,12 @@ const POSRegister = ({
       setReceiptPrintData(null);
       setOsPrintData({
         ...singleData,
+        valorTotal: resolvedFin.totalFmt,
+        valorEntrada: resolvedFin.entradaFmt,
+        restante: resolvedFin.restanteFmt,
+        'VALOR TOTAL': resolvedFin.totalFmt,
+        'VALOR ENTRADA': resolvedFin.entradaFmt,
+        'RESTANTE': resolvedFin.restanteFmt,
         FORMA_ENTRADA: resolvedFormaEntrada,
         formaPagamentoEntrada: resolvedFormaEntrada,
         FORMA_RESTANTE: resolvedFormaRestante,
@@ -2483,6 +2490,7 @@ const POSRegister = ({
     const multiFormaRestante = osGeneratedData.formaPagamentoRestante || osGeneratedData.FORMA_RESTANTE || primaryOS.formaPagamentoRestante || primaryOS.FORMA_RESTANTE || completedSale?.['FORMA_RESTANTE'] || '';
 
     // 1. Atualizar a Venda Principal / OS #1
+    const resolvedMultiFin = resolveOSFinancials(osGeneratedData || primaryOS, completedSale);
     const mergedPrimarySaleData = {
       ...(completedSale || {}),
       id: saleId,
@@ -2514,11 +2522,14 @@ const POSRegister = ({
       LENTE: primaryOS.lente || '',
       ARMAÇÃO: primaryOS.armacao || '',
       LABORATORIO: primaryOS.laboratorio || '',
-      'VALOR TOTAL': osGeneratedData.valorTotal || primaryOS.valorTotal || completedSale?.['VALOR TOTAL'] || completedSale?.['VALOR DA VENDA'] || '0,00',
-      'VALOR DA VENDA': osGeneratedData.valorTotal || primaryOS.valorTotal || completedSale?.['VALOR DA VENDA'] || completedSale?.['VALOR TOTAL'] || '0,00',
-      'VALOR ENTRADA': osGeneratedData.valorEntrada || primaryOS.valorEntrada || completedSale?.['VALOR ENTRADA'] || completedSale?.['SINAL'] || '0,00',
-      'SINAL': osGeneratedData.valorEntrada || primaryOS.valorEntrada || completedSale?.['SINAL'] || completedSale?.['VALOR ENTRADA'] || '0,00',
-      'RESTANTE': osGeneratedData.restante || primaryOS.restante || completedSale?.['RESTANTE'] || '0,00',
+      'VALOR TOTAL': resolvedMultiFin.totalFmt,
+      'VALOR DA VENDA': resolvedMultiFin.totalFmt,
+      'VALOR ENTRADA': resolvedMultiFin.entradaFmt,
+      'SINAL': resolvedMultiFin.entradaFmt,
+      'RESTANTE': resolvedMultiFin.restanteFmt,
+      'valorTotal': resolvedMultiFin.totalFmt,
+      'valorEntrada': resolvedMultiFin.entradaFmt,
+      'restante': resolvedMultiFin.restanteFmt,
       'FORMAS_PAGAMENTO': osGeneratedData.formasPagamento || primaryOS.formasPagamento || completedSale?.['FORMAS_PAGAMENTO'] || completedSale?.['FORMA_PAGTO'] || '',
       'FORMA_PAGTO': osGeneratedData.formasPagamento || primaryOS.formasPagamento || completedSale?.['FORMA_PAGTO'] || completedSale?.['FORMAS_PAGAMENTO'] || '',
       'FORMA_ENTRADA': multiFormaEntrada,
@@ -2923,9 +2934,12 @@ const POSRegister = ({
         clientData: savedClientForOS,
         isSecondaryOS: idx > 0,
         financeiroUnificado: true,
-        valorTotal: idx === 0 ? (osGeneratedData.valorTotal || o.valorTotal || completedSale?.['VALOR TOTAL'] || '0,00') : '0,00',
-        valorEntrada: idx === 0 ? (osGeneratedData.valorEntrada || o.valorEntrada || completedSale?.['VALOR ENTRADA'] || '0,00') : '0,00',
-        restante: idx === 0 ? (osGeneratedData.restante || o.restante || completedSale?.['RESTANTE'] || '0,00') : '0,00',
+        valorTotal: idx === 0 ? resolvedMultiFin.totalFmt : '0,00',
+        valorEntrada: idx === 0 ? resolvedMultiFin.entradaFmt : '0,00',
+        restante: idx === 0 ? resolvedMultiFin.restanteFmt : '0,00',
+        'VALOR TOTAL': idx === 0 ? resolvedMultiFin.totalFmt : '0,00',
+        'VALOR ENTRADA': idx === 0 ? resolvedMultiFin.entradaFmt : '0,00',
+        'RESTANTE': idx === 0 ? resolvedMultiFin.restanteFmt : '0,00',
         formasPagamento: idx === 0 ? (osGeneratedData.formasPagamento || o.formasPagamento || completedSale?.['FORMAS_PAGAMENTO'] || '') : `Cobrança Unificada (Venda #${saleId})`,
         FORMA_ENTRADA: multiFormaEntrada,
         formaPagamentoEntrada: multiFormaEntrada,
