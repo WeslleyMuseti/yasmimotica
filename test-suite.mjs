@@ -10697,7 +10697,133 @@ async function runTests() {
     console.log('  ✅ Test 116 Passed: Nome da Paciente em OS Adicionais e vínculo de titular validados com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 116 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ─── TEST 117: Filtragem Personalizada de Movimento de Caixa & Totalizadores por Método de Pagamento ───
+  {
+    console.log('Running Test 117: Filtragem Personalizada de Movimento de Caixa & Totalizadores por Método...');
+
+    const { extractItemDateIso, parseItemDate } = await import('./src/cashShiftUtils.js');
+    const { prepareCashMovementRows, formatMovementMoney } = await import('./src/cashMovementUtils.js');
+    const { normalizeInstallmentDateIso } = await import('./src/reparcelamentoUtils.js');
+
+    // 117.1 Validação de extractItemDateIso em todas as variações de formatos sem desvio de fuso UTC
+    const dateSamples = [
+      { input: { data: '10/11/2026' }, expected: '2026-11-10', desc: 'Data pt-BR DD/MM/AAAA' },
+      { input: { dataHora: '10/11/2026 14:30:00' }, expected: '2026-11-10', desc: 'Data pt-BR com horário' },
+      { input: { dataHora: '2026-11-10T01:30:00.000Z', data: '10/11/2026' }, expected: '2026-11-10', desc: 'ISO UTC madruga + data local (prioriza local)' },
+      { input: { dataHora: '2026-11-12T23:30:00.000Z', data: '12/11/2026' }, expected: '2026-11-12', desc: 'ISO UTC noite + data local (prioriza local)' },
+      { input: { 'DATA  DA VENDA': '11/11/2026' }, expected: '2026-11-11', desc: 'DATA  DA VENDA (espaço duplo)' },
+      { input: { 'DATA DA VENDA': '11/11/2026' }, expected: '2026-11-11', desc: 'DATA DA VENDA (espaço simples)' },
+      { input: { dataVenda: '2026-11-10' }, expected: '2026-11-10', desc: 'ISO YYYY-MM-DD direto' },
+      { input: { timestamp: 1794283800000 }, expected: '2026-11-10', desc: 'Timestamp numérico' }
+    ];
+
+    dateSamples.forEach(s => {
+      const extracted = extractItemDateIso(s.input);
+      console.assert(extracted === s.expected, `[${s.desc}] Esperado: ${s.expected}, obtido: ${extracted}`);
+    });
+
+    // 117.2 Validação de filtragem por período personalizado (10/11/2026 a 12/11/2026)
+    const mockCashList = [
+      { id: 'm1', data: '09/11/2026', tipo: 'VENDA', valor: 200, formaPagamento: 'Dinheiro' },
+      { id: 'm2', data: '10/11/2026', tipo: 'ABERTURA', valor: 700, formaPagamento: 'Dinheiro' },
+      { id: 'm3', dataHora: '10/11/2026 10:15', tipo: 'VENDA', valor: 400, valorTotalOS: 400, formaPagamento: 'PIX' },
+      { id: 'm4', dataHora: '2026-11-11T14:00:00.000Z', data: '11/11/2026', tipo: 'VENDA', valor: 700, valorTotalOS: 700, formaPagamento: 'Cartão de Crédito' },
+      { id: 'm5', 'DATA  DA VENDA': '12/11/2026', tipo: 'VENDA', valor: 300, valorTotalOS: 300, formaPagamento: 'Dinheiro' },
+      { id: 'm6', data: '12/11/2026', tipo: 'SANGRIA', valor: 150, formaPagamento: 'Dinheiro' },
+      { id: 'm7', data: '13/11/2026', tipo: 'VENDA', valor: 500, formaPagamento: 'Dinheiro' }
+    ];
+
+    const filterRange = (items, start, end) => {
+      const cStart = normalizeInstallmentDateIso(start);
+      const cEnd = normalizeInstallmentDateIso(end);
+      return items.filter(it => {
+        const itIso = extractItemDateIso(it);
+        if (cStart && itIso < cStart) return false;
+        if (cEnd && itIso > cEnd) return false;
+        return true;
+      });
+    };
+
+    const filtered = filterRange(mockCashList, '10/11/2026', '12/11/2026');
+    console.assert(filtered.length === 5, `Esperado 5 registros no intervalo 10/11 a 12/11, obtido: ${filtered.length}`);
+    console.assert(!filtered.some(m => m.id === 'm1'), 'Registro do dia 09/11 não deve cair no filtro');
+    console.assert(!filtered.some(m => m.id === 'm7'), 'Registro do dia 13/11 não deve cair no filtro');
+    console.assert(filtered.some(m => m.id === 'm2') && filtered.some(m => m.id === 'm5'), 'Registros de 10/11 a 12/11 devem cair com precisão');
+
+    // 117.3 Validação de prepareCashMovementRows e cálculo de DETALHES DO SALDO a partir dos movimentos
+    const sampleMovements = [
+      { docNo: 'AB-01', tipo: 'ABERTURA', valor: 700, formaPagamento: 'DINHEIRO', motivo: 'Abertura de Caixa' },
+      { docNo: 'OS-101', tipo: 'VENDA', valor: 700, valorTotalOS: 700, formaPagamento: 'Cartão de Crédito', motivo: 'Venda Óculos' },
+      { docNo: 'OS-102', tipo: 'VENDA', valor: 400, valorTotalOS: 400, formaPagamento: 'PIX', motivo: 'Venda Lente' },
+      { docNo: 'OS-103', tipo: 'VENDA', valor: 300, valorTotalOS: 300, formaPagamento: 'Dinheiro', motivo: 'Venda Armação' },
+      { docNo: 'OS-104', tipo: 'VENDA', valor: 0, valorTotalOS: 500, valorRestanteBoleto: 500, formaPagamento: 'Boleto/Carnê', motivo: 'Venda a Prazo' },
+      { docNo: 'SG-01', tipo: 'SANGRIA', valor: 150, formaPagamento: 'DINHEIRO', motivo: 'Sangria de Caixa' }
+    ];
+
+    const result = prepareCashMovementRows({}, sampleMovements, 20);
+
+    console.assert(result.totalDinheiroDetalhes === 300, `totalDinheiroDetalhes deve ser 300, obtido: ${result.totalDinheiroDetalhes}`);
+    console.assert(result.totalChequesPixDetalhes === 400, `totalChequesPixDetalhes deve ser 400, obtido: ${result.totalChequesPixDetalhes}`);
+    console.assert(result.totalCreditoDetalhes === 700, `totalCreditoDetalhes deve ser 700, obtido: ${result.totalCreditoDetalhes}`);
+    console.assert(result.totalBoletoDetalhes === 500, `totalBoletoDetalhes deve ser 500, obtido: ${result.totalBoletoDetalhes}`);
+    console.assert(result.totalGeralDetalhes === 1900, `totalGeralDetalhes deve ser 1900 (300+400+700+500), obtido: ${result.totalGeralDetalhes}`);
+    console.assert(result.totalVendasFinal === 1900, `totalVendasFinal deve ser 1900, obtido: ${result.totalVendasFinal}`);
+    console.assert(result.totalSaidasFinal === 150, `totalSaidasFinal deve ser 150, obtido: ${result.totalSaidasFinal}`);
+    console.assert(result.saldoAnterior === 0, `saldoAnterior sem closingData deve ser 0`);
+    console.assert(result.saldoAtual === 150, `saldoAtual da gaveta física deve ser 300 - 150 = 150, obtido: ${result.saldoAtual}`);
+
+    // 117.4 Auditoria AST de identificadores não declarados nos arquivos modificados
+    const parserModule = await import('@babel/parser');
+    const traverseModule = await import('@babel/traverse');
+    const parser = parserModule.default || parserModule;
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const filesToAudit117 = [
+      'src/cashShiftUtils.js',
+      'src/cashMovementUtils.js',
+      'src/components/CashHistoryModal.jsx',
+      'src/components/PrintableCashMovementSheet.jsx'
+    ];
+
+    const standardGlobals117 = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'Intl', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React'
+    ]);
+
+    const undeclared117 = [];
+    filesToAudit117.forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals117.has(name)) return;
+          if (p.scope.hasBinding(name)) return;
+          undeclared117.push({ file: relPath, name, line: p.node.loc?.start?.line });
+        }
+      });
+    });
+
+    console.assert(undeclared117.length === 0, `Nenhum identificador indefinido deve existir nos arquivos modificados no Teste 117: ${JSON.stringify(undeclared117)}`);
+
+    console.log('  ✅ Test 117 Passed: Filtragem Personalizada de Movimento de Caixa & Totalizadores por Método validados com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 117 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

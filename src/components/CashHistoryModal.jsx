@@ -9,9 +9,9 @@ import {
 import { PrintableCashVoucher } from './CashManagementModal';
 import PrintableCashClosingReport from './PrintableCashClosingReport';
 import PrintableCashMovementSheet from './PrintableCashMovementSheet';
-import { buildCombinedShiftMovements } from '../cashShiftUtils';
+import { buildCombinedShiftMovements, parseItemDate, extractItemDateIso } from '../cashShiftUtils';
 import { buildCashHistoryXml, downloadXmlFile } from '../xmlUtils';
-import { resolveOSUnit } from '../reparcelamentoUtils';
+import { resolveOSUnit, normalizeInstallmentDateIso, formatInstallmentDateBr } from '../reparcelamentoUtils';
 import * as XLSX from 'xlsx';
 
 const formatCurrency = (val) => {
@@ -50,50 +50,6 @@ const parseCurrency = (val) => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
-const parseItemDate = (item) => {
-  if (!item) return null;
-  const raw = item.dataHora || item.timestamp || item.DATA || item['DATA  DA VENDA'] || item['DATA DA VENDA'] || item.DATA_HORA || item.dataHoraAbertura || item.dataHoraFechamento || item.data;
-  if (!raw) return null;
-  if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
-  if (typeof raw === 'string') {
-    const trimmed = raw.trim();
-    if (trimmed.includes('/')) {
-      const parts = trimmed.split(' ')[0].split('/');
-      if (parts.length === 3) {
-        const d = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const y = parseInt(parts[2], 10);
-        const dateObj = new Date(y, m, d);
-        if (trimmed.includes(':')) {
-          const timeParts = trimmed.split(' ')[1]?.split(':') || [];
-          if (timeParts.length >= 2) {
-            dateObj.setHours(parseInt(timeParts[0], 10) || 0, parseInt(timeParts[1], 10) || 0, parseInt(timeParts[2], 10) || 0);
-          }
-        }
-        return isNaN(dateObj.getTime()) ? null : dateObj;
-      }
-    }
-    if (trimmed.includes('-') && !trimmed.includes('T')) {
-      const parts = trimmed.split('-');
-      if (parts.length === 3) {
-        const y = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const d = parseInt(parts[2], 10);
-        const dateObj = new Date(y, m, d, 12, 0, 0);
-        return isNaN(dateObj.getTime()) ? null : dateObj;
-      }
-    }
-    const d = new Date(trimmed);
-    if (!isNaN(d.getTime())) return d;
-  }
-  if (typeof raw === 'number') {
-    if (raw > 1000000000000) return new Date(raw);
-    if (raw > 20000 && raw < 80000) {
-      return new Date((raw - (25567 + 2)) * 86400 * 1000);
-    }
-  }
-  return null;
-};
 
 const formatDate = (dateVal) => {
   if (!dateVal) return '---';
@@ -493,8 +449,13 @@ export const CashHistoryContent = ({
           })
           .map((m, idx) => {
             const tipo = String(m.tipo || m.TIPO || '').toUpperCase();
+            const osNum = m.osNumero || m['OS DA VENDA'] || m.OS || m['Nº DA OS'] || m['Num OS'] || '';
+            const resolvedUnit = resolveOSUnit({ numeroOS: osNum, ...m });
+            const mUnit = m.unidade || m.CIDADE || m.LOJA || m.cidade || m.loja || resolvedUnit || (defaultUnit !== 'Todas' && defaultUnit !== 'Todas as Lojas' ? defaultUnit : '');
+
             let enriched = {
               ...m,
+              unidade: mUnit,
               id: m.id || `fc_${idx}_${m.dataHora || ''}_${m.valor || ''}`,
               _source: 'FLUXO_CAIXA',
               rawItem: m
@@ -543,7 +504,6 @@ export const CashHistoryContent = ({
     
     // Identificar vendas e recebimentos já presentes no fluxo de caixa para evitar duplicar
     const existingSalesIds = new Set();
-    const existingClientDateKeys = new Set();
 
     list.forEach(m => {
       const tipo = (m.tipo || '').toUpperCase();
@@ -568,16 +528,6 @@ export const CashHistoryContent = ({
           existingSalesIds.add(String(m['OS DA VENDA']).trim().toLowerCase());
           existingSalesIds.add(cleanId(m['OS DA VENDA']));
         }
-        if (tipo === 'VENDA') {
-          const cli = normStr(
-            m.cliente || m.CLIENTE ||
-            String(m.motivo || '').replace(/^venda\s+os\s*#[a-z0-9-]+\s*-\s*/i, '').replace(/^venda\s+pdv\s*-\s*/i, '').replace(/\s*\(.*\)$/, '')
-          );
-          const dtStr = String(m.data || m.DATA || m.dataHora || '').slice(0, 10);
-          if (cli && dtStr) {
-            existingClientDateKeys.add(`${cli}|${dtStr}`);
-          }
-        }
       }
     });
 
@@ -594,12 +544,12 @@ export const CashHistoryContent = ({
         // Ignorar se for quitação de parcela ou recebimento de boleto/mensalidade (já registrado em FLUXO_CAIXA como RECEBIMENTO)
         const prod = String(s['PRODUTO'] || s['SERVIÇO'] || s['Produto'] || '').toLowerCase();
         const sTipo = String(s.tipo || s.TIPO || '').toUpperCase();
-        if (prod.includes('recebimento') || prod.includes('mensalidade') || prod.includes('carnê') || prod.includes('carne') || prod.includes('boleto') || sTipo === 'RECEBIMENTO') {
+        const isParcelaReceipt = sTipo === 'RECEBIMENTO' || prod.includes('recebimento de parcela') || prod.includes('quitação de parcela') || prod.includes('quitacao de parcela') || prod.includes('mensalidade de carnê') || prod.includes('mensalidade carnê');
+        if (isParcelaReceipt) {
           return;
         }
 
         const cliente = s['CLIENTE'] || s['NOME DO CLIENTE'] || s['Cliente'] || 'Consumidor Final';
-        const normCli = normStr(cliente);
         const osRaw = String(s['OS DA VENDA'] || s['Nº DA OS'] || s['OS'] || s['Num OS'] || '').trim();
         const osNum = osRaw.toLowerCase();
         const cleanOsNum = cleanId(osNum);
@@ -609,15 +559,13 @@ export const CashHistoryContent = ({
         const sId = rawId || (osNum ? `os_${osNum}` : `venda_${idx}`);
         const cleanSId = cleanId(sId);
         const rawDate = s['DATA  DA VENDA'] || s['DATA DA VENDA'] || s['DATA'] || s['timestamp'] || s['data'] || s['Data'];
-        const dtKey = `${normCli}|${String(rawDate || '').slice(0, 10)}`;
 
         const isDuplicate = (rawId && existingSalesIds.has(rawId)) ||
                             (cleanRawId && existingSalesIds.has(cleanRawId)) ||
                             (osNum && existingSalesIds.has(osNum)) ||
                             (cleanOsNum && existingSalesIds.has(cleanOsNum)) ||
-                            existingSalesIds.has(sId) ||
-                            (cleanSId && existingSalesIds.has(cleanSId)) ||
-                            (normCli && String(rawDate || '').length >= 8 && existingClientDateKeys.has(dtKey));
+                            (sId && existingSalesIds.has(sId)) ||
+                            (cleanSId && existingSalesIds.has(cleanSId));
 
         if (!isDuplicate) {
           const valorTotalOS = parseCurrency(s['VALOR TOTAL'] || s['VALOR DA VENDA'] || s['VALOR'] || s['VALOR_TOTAL'] || s['Valor'] || 0);
@@ -636,7 +584,8 @@ export const CashHistoryContent = ({
             const produto = s['PRODUTO'] || s['SERVIÇO'] || s['Produto'] || 'Venda Balcão';
 
             // 🛡️ Se a venda/OS possui saldo parcelado no Boleto ou Restante a Prazo, o valor que entrou no caixa no ato é APENAS a Entrada!
-            const hasBoleto = /boleto|carnê|carne|crediario|crediário/i.test(formaRaw) || valorRestante > 0;
+            const isBoletoMethod = /boleto|carn[eê]|carne|crediario|crediário/i.test(formaRaw);
+            const hasBoleto = isBoletoMethod || (valorRestante > 0 && !/cart[aã]o|cr[eé]dito|d[eé]bito|pix/i.test(formaRaw));
             let valorCaixaImediato = valorTotalOS;
             let saldoBoleto = valorRestante;
 
@@ -651,6 +600,9 @@ export const CashHistoryContent = ({
                 valorCaixaImediato = 0;
                 saldoBoleto = valorTotalOS;
               }
+            } else if (valorEntrada > 0 && valorRestante > 0) {
+              valorCaixaImediato = valorEntrada;
+              saldoBoleto = 0;
             }
 
             if (rawId) {
@@ -663,9 +615,6 @@ export const CashHistoryContent = ({
             }
             existingSalesIds.add(sId);
             if (cleanSId) existingSalesIds.add(cleanSId);
-            if (normCli && String(rawDate || '').length >= 8) {
-              existingClientDateKeys.add(dtKey);
-            }
 
             // Se foi 100% a prazo sem entrada em caixa no ato, usa formaRestanteExplicit ou BOLETO (A PRAZO)
             // Se houve entrada no ato e FORMA_ENTRADA foi especificada, usa FORMA_ENTRADA para não contaminar a gaveta com método do Restante!
@@ -922,23 +871,43 @@ export const CashHistoryContent = ({
 
   // Filtragem dos registros
   const filteredMovements = useMemo(() => {
-    const now = new Date();
-    const todayStr = now.toLocaleDateString('pt-BR');
+    const todayIso = normalizeInstallmentDateIso(new Date());
 
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toLocaleDateString('pt-BR');
+    const yesterdayIso = normalizeInstallmentDateIso(yesterday);
 
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sevenDaysAgoIso = normalizeInstallmentDateIso(sevenDaysAgo);
+
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = String(now.getMonth() + 1).padStart(2, '0');
+    const mesStartIso = `${curYear}-${curMonth}-01`;
+    const lastDayOfMonth = new Date(curYear, now.getMonth() + 1, 0).getDate();
+    const mesEndIso = `${curYear}-${curMonth}-${String(lastDayOfMonth).padStart(2, '0')}`;
+
+    let cleanStart = normalizeInstallmentDateIso(customStartDate);
+    let cleanEnd = normalizeInstallmentDateIso(customEndDate);
+    if (cleanStart && cleanEnd && cleanStart > cleanEnd) {
+      const temp = cleanStart;
+      cleanStart = cleanEnd;
+      cleanEnd = temp;
+    }
 
     return allMovements.filter(item => {
       // 1. Filtro por Loja
       if (selectedUnit && selectedUnit !== 'Todas' && selectedUnit !== 'Todas as Lojas') {
-        const itemUnit = String(item.unidade || item.CIDADE || item.LOJA || item.Cidade || item.loja || item.UNIDADE || item.cidade || '').trim().toLowerCase();
+        const osNum = item.osNumero || item['OS DA VENDA'] || item.OS || item['Nº DA OS'] || item['Num OS'] || '';
+        const resolvedUnit = resolveOSUnit({ numeroOS: osNum, ...item });
+        const rawItemUnit = item.unidade || item.CIDADE || item.LOJA || item.Cidade || item.loja || item.UNIDADE || item.cidade || resolvedUnit || '';
+        const itemUnit = String(rawItemUnit).trim().toLowerCase();
         const selUnit = String(selectedUnit).trim().toLowerCase();
-        if (!itemUnit || (!itemUnit.includes(selUnit) && !selUnit.includes(itemUnit))) {
-          return false;
+        if (itemUnit) {
+          if (!itemUnit.includes(selUnit) && !selUnit.includes(itemUnit)) {
+            return false;
+          }
         }
       }
 
@@ -952,80 +921,63 @@ export const CashHistoryContent = ({
 
       // 3. Filtro por Período
       if (selectedPeriod !== 'TODOS') {
-        const itemDate = parseItemDate(item);
-        if (!itemDate) {
-          // Se não conseguir parsear a data mas tiver string de hoje
-          const rawStr = String(item.dataHora || item.DATA || item.data || item['DATA DA VENDA'] || item['DATA  DA VENDA'] || '');
-          if (selectedPeriod === 'HOJE' && !rawStr.includes(todayStr)) return false;
-          if (selectedPeriod === 'ONTEM' && !rawStr.includes(yesterdayStr)) return false;
-          if (selectedPeriod === 'PERSONALIZADO') {
-            let startCal = 0;
-            let endCal = 99999999;
-            if (customStartDate) {
-              const [sy, sm, sd] = customStartDate.split('-').map(Number);
-              startCal = sy * 10000 + sm * 100 + sd;
-            }
-            if (customEndDate) {
-              const [ey, em, ed] = customEndDate.split('-').map(Number);
-              endCal = ey * 10000 + em * 100 + ed;
-            }
-            if (startCal > endCal) {
-              const temp = startCal;
-              startCal = endCal;
-              endCal = temp;
-            }
+        const itemIso = extractItemDateIso(item);
 
-            const brMatch = rawStr.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-            const isoMatch = rawStr.match(/(\d{4})-(\d{2})-(\d{2})/);
-            let rawCal = null;
-            if (brMatch) {
-              rawCal = parseInt(brMatch[3], 10) * 10000 + parseInt(brMatch[2], 10) * 100 + parseInt(brMatch[1], 10);
-            } else if (isoMatch) {
-              rawCal = parseInt(isoMatch[1], 10) * 10000 + parseInt(isoMatch[2], 10) * 100 + parseInt(isoMatch[3], 10);
-            }
-
-            if (rawCal !== null) {
-              if (rawCal < startCal || rawCal > endCal) return false;
-            } else if (customStartDate) {
-              const [sy, sm, sd] = customStartDate.split('-');
-              const brDate = `${sd}/${sm}/${sy}`;
-              if (!rawStr.includes(customStartDate) && !rawStr.includes(brDate)) return false;
-            }
+        if (selectedPeriod === 'HOJE') {
+          if (itemIso) {
+            if (itemIso !== todayIso) return false;
+          } else {
+            const rawStr = String(item.dataHora || item.DATA || item.data || item['DATA DA VENDA'] || item['DATA  DA VENDA'] || '');
+            const todayBr = formatInstallmentDateBr(todayIso);
+            if (!rawStr.includes(todayIso) && !rawStr.includes(todayBr)) return false;
           }
-        } else {
-          const itemDateStr = itemDate.toLocaleDateString('pt-BR');
-          if (selectedPeriod === 'HOJE') {
-            if (itemDateStr !== todayStr) return false;
-          } else if (selectedPeriod === 'ONTEM') {
-            if (itemDateStr !== yesterdayStr) return false;
-          } else if (selectedPeriod === '7DIAS') {
-            if (itemDate < sevenDaysAgo) return false;
-          } else if (selectedPeriod === 'MES') {
-            if (itemDate.getMonth() !== now.getMonth() || itemDate.getFullYear() !== now.getFullYear()) return false;
-          } else if (selectedPeriod === 'PERSONALIZADO') {
-            const toCal = (d) => d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
-            const itemCal = toCal(itemDate);
-            let startCal = 0;
-            let endCal = 99999999;
-            if (customStartDate) {
-              const [sy, sm, sd] = customStartDate.split('-').map(Number);
-              startCal = sy * 10000 + sm * 100 + sd;
+        } else if (selectedPeriod === 'ONTEM') {
+          if (itemIso) {
+            if (itemIso !== yesterdayIso) return false;
+          } else {
+            const rawStr = String(item.dataHora || item.DATA || item.data || item['DATA DA VENDA'] || item['DATA  DA VENDA'] || '');
+            const yesterdayBr = formatInstallmentDateBr(yesterdayIso);
+            if (!rawStr.includes(yesterdayIso) && !rawStr.includes(yesterdayBr)) return false;
+          }
+        } else if (selectedPeriod === '7DIAS') {
+          if (itemIso) {
+            if (itemIso < sevenDaysAgoIso || itemIso > todayIso) return false;
+          }
+        } else if (selectedPeriod === 'MES') {
+          if (itemIso) {
+            if (itemIso < mesStartIso || itemIso > mesEndIso) return false;
+          }
+        } else if (selectedPeriod === 'PERSONALIZADO') {
+          if (cleanStart && cleanEnd) {
+            if (itemIso) {
+              if (itemIso < cleanStart || itemIso > cleanEnd) return false;
+            } else {
+              const rawStr = String(item.dataHora || item.DATA || item.data || item['DATA DA VENDA'] || item['DATA  DA VENDA'] || '');
+              const startBr = formatInstallmentDateBr(cleanStart);
+              const endBr = formatInstallmentDateBr(cleanEnd);
+              if (!rawStr.includes(cleanStart) && !rawStr.includes(startBr) && !rawStr.includes(cleanEnd) && !rawStr.includes(endBr)) return false;
             }
-            if (customEndDate) {
-              const [ey, em, ed] = customEndDate.split('-').map(Number);
-              endCal = ey * 10000 + em * 100 + ed;
+          } else if (cleanStart) {
+            if (itemIso) {
+              if (itemIso < cleanStart) return false;
+            } else {
+              const rawStr = String(item.dataHora || item.DATA || item.data || item['DATA DA VENDA'] || item['DATA  DA VENDA'] || '');
+              const startBr = formatInstallmentDateBr(cleanStart);
+              if (!rawStr.includes(cleanStart) && !rawStr.includes(startBr)) return false;
             }
-            if (startCal > endCal) {
-              const temp = startCal;
-              startCal = endCal;
-              endCal = temp;
+          } else if (cleanEnd) {
+            if (itemIso) {
+              if (itemIso > cleanEnd) return false;
+            } else {
+              const rawStr = String(item.dataHora || item.DATA || item.data || item['DATA DA VENDA'] || item['DATA  DA VENDA'] || '');
+              const endBr = formatInstallmentDateBr(cleanEnd);
+              if (!rawStr.includes(cleanEnd) && !rawStr.includes(endBr)) return false;
             }
-            if (itemCal < startCal || itemCal > endCal) return false;
           }
         }
       }
 
-      // 4. Busca Textual (Operador, Motivo, Categoria, Detalhes, Valor)
+      // 4. Busca Textual (Operador, Motivo, Categoria, Detalhes, Valor, Cliente, OS)
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
         const searchPool = [
@@ -1035,7 +987,9 @@ export const CashHistoryContent = ({
           item.detalhes, item.DETALHES, item.OBSERVAÇÕES,
           item.unidade, item.CIDADE,
           item.tipo, item.formaPagamento,
-          String(item.valor || '')
+          item.cliente, item.osNumero,
+          String(item.valor || ''),
+          String(item.valorTotalOS || '')
         ].filter(Boolean).join(' ').toLowerCase();
 
         if (!searchPool.includes(q)) return false;
@@ -1064,8 +1018,14 @@ export const CashHistoryContent = ({
 
     filteredMovements.forEach((item, idx) => {
       const v = parseCurrency(item.valor);
+      const entradaSinal = parseCurrency(item.valorEntradaOS || item.valorEntrada || item['VALOR ENTRADA'] || item['ENTRADA'] || 0);
+      const restBoleto = parseCurrency(item.valorRestanteBoleto || item['RESTANTE'] || item['VALOR RESTANTE'] || 0);
+      const fullOSVal = parseCurrency(item.valorTotalOS || item['VALOR TOTAL'] || item['VALOR DA VENDA'] || item.valorTotal || v);
       const tipo = (item.tipo || item.TIPO || '').toUpperCase();
-      const forma = String(item.formaPagamento || item['FORMA DE PAGAMENTO'] || '').toUpperCase();
+      const forma = String(
+        item.formaPagamento || item.forma || item['FORMA DE PAGAMENTO'] ||
+        item.formaEntradaOS || (item.rawItem && item.rawItem['FORMA DE PAGAMENTO']) || ''
+      ).toUpperCase();
 
       if (tipo === 'ABERTURA') {
         totalAberturas += v;
@@ -1073,10 +1033,10 @@ export const CashHistoryContent = ({
         totalSangrias += v;
       } else if (tipo === 'SUPRIMENTO') {
         totalSuprimentos += v;
-      } else if (tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'PAGAMENTO') {
+      } else if (tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'PAGAMENTO' || tipo === 'DESPESA') {
         totalSaidas += v;
       } else if (tipo === 'RECEBIMENTO') {
-        if (forma.includes('PIX')) {
+        if (forma.includes('PIX') || forma.includes('TRANSFERENCIA') || forma.includes('TRANSFERÊNCIA')) {
           totalPix += v;
         } else if (forma.includes('DEBITO') || forma.includes('DÉBITO')) {
           totalDebito += v;
@@ -1085,33 +1045,31 @@ export const CashHistoryContent = ({
         } else {
           totalRecebimentosDinheiro += v;
         }
-      } else if (tipo === 'VENDA') {
-        const fullOSVal = parseCurrency(item.valorTotalOS || item['VALOR TOTAL'] || item['VALOR DA VENDA'] || v);
-        totalVendasGeral += fullOSVal > 0 ? fullOSVal : v;
-        if (v > 0) {
-          if (forma.includes('PIX')) {
-            totalPix += v;
+      } else if (tipo === 'VENDA' || tipo.startsWith('VENDA')) {
+        totalVendasGeral += (fullOSVal > 0 ? fullOSVal : v);
+        const vImmediate = entradaSinal > 0 ? entradaSinal : v;
+
+        if (vImmediate > 0) {
+          if (forma.includes('PIX') || forma.includes('TRANSFERENCIA') || forma.includes('TRANSFERÊNCIA')) {
+            totalPix += vImmediate;
           } else if (forma.includes('DEBITO') || forma.includes('DÉBITO')) {
-            totalDebito += v;
+            totalDebito += vImmediate;
           } else if (forma.includes('CREDITO') || forma.includes('CRÉDITO') || forma.includes('CARTAO') || forma.includes('CARTÃO')) {
-            totalCredito += v;
-          } else if (
-            forma.includes('DINHEIRO') ||
-            (!forma.includes('BOLETO') && !forma.includes('CARNE') && !forma.includes('CARNÊ') && !forma.includes('PRAZO') && !forma.includes('COMBINAR'))
-          ) {
-            totalVendasDinheiro += v;
+            totalCredito += vImmediate;
+          } else if (forma.includes('BOLETO') || forma.includes('CARNE') || forma.includes('CARNÊ')) {
+            // Se a entrada foi explicitamente em boleto
+          } else {
+            totalVendasDinheiro += vImmediate;
           }
         }
 
-        const restBoleto = parseCurrency(item.valorRestanteBoleto || 0);
-        const isPureBoletoMov = restBoleto === 0 && v > 0 && (forma.includes('BOLETO') || forma.includes('CARNE') || forma.includes('CARNÊ'));
-        const boletoValToCount = restBoleto > 0 ? restBoleto : (isPureBoletoMov ? v : 0);
-
-        if (boletoValToCount > 0) {
+        const isPureBoleto = /boleto|carn[eê]|carne|crediario|crediário|a prazo/i.test(forma);
+        const effectiveBoleto = restBoleto > 0 ? restBoleto : (vImmediate === 0 && isPureBoleto ? (fullOSVal > 0 ? fullOSVal : v) : 0);
+        if (effectiveBoleto > 0) {
           const osKey = String(item.osNumero || item.saleId || item.id || `b_${idx}`).toLowerCase();
           if (!countedOsForBoleto.has(osKey)) {
             countedOsForBoleto.add(osKey);
-            totalFaturadoBoletoOS += boletoValToCount;
+            totalFaturadoBoletoOS += effectiveBoleto;
             vendasBoletoQtd++;
           }
         }
@@ -1232,13 +1190,12 @@ export const CashHistoryContent = ({
     } else if (selectedPeriod === 'MES') {
       periodoLabel = 'Mês Atual';
     } else if (selectedPeriod === 'PERSONALIZADO') {
-      if (customStartDate && customEndDate) {
-        const [sy, sm, sd] = customStartDate.split('-');
-        const [ey, em, ed] = customEndDate.split('-');
-        periodoLabel = `${sd}/${sm}/${sy} a ${ed}/${em}/${ey}`;
-      } else if (customStartDate) {
-        const [sy, sm, sd] = customStartDate.split('-');
-        periodoLabel = `${sd}/${sm}/${sy}`;
+      const cStart = normalizeInstallmentDateIso(customStartDate);
+      const cEnd = normalizeInstallmentDateIso(customEndDate);
+      if (cStart && cEnd) {
+        periodoLabel = `${formatInstallmentDateBr(cStart)} a ${formatInstallmentDateBr(cEnd)}`;
+      } else if (cStart) {
+        periodoLabel = formatInstallmentDateBr(cStart);
       }
     }
 
@@ -1319,13 +1276,12 @@ export const CashHistoryContent = ({
     } else if (selectedPeriod === 'MES') {
       periodoLabel = 'Mês Atual';
     } else if (selectedPeriod === 'PERSONALIZADO') {
-      if (customStartDate && customEndDate) {
-        const [sy, sm, sd] = customStartDate.split('-');
-        const [ey, em, ed] = customEndDate.split('-');
-        periodoLabel = `${sd}/${sm}/${sy} a ${ed}/${em}/${ey}`;
-      } else if (customStartDate) {
-        const [sy, sm, sd] = customStartDate.split('-');
-        periodoLabel = `${sd}/${sm}/${sy}`;
+      const cStart = normalizeInstallmentDateIso(customStartDate);
+      const cEnd = normalizeInstallmentDateIso(customEndDate);
+      if (cStart && cEnd) {
+        periodoLabel = `${formatInstallmentDateBr(cStart)} a ${formatInstallmentDateBr(cEnd)}`;
+      } else if (cStart) {
+        periodoLabel = formatInstallmentDateBr(cStart);
       }
     }
 
@@ -1478,13 +1434,12 @@ export const CashHistoryContent = ({
     } else if (selectedPeriod === 'MES') {
       periodoLabel = 'Mês Atual';
     } else if (selectedPeriod === 'PERSONALIZADO') {
-      if (customStartDate && customEndDate) {
-        const [sy, sm, sd] = customStartDate.split('-');
-        const [ey, em, ed] = customEndDate.split('-');
-        periodoLabel = `Personalizado (${sd}/${sm}/${sy} a ${ed}/${em}/${ey})`;
-      } else if (customStartDate) {
-        const [sy, sm, sd] = customStartDate.split('-');
-        periodoLabel = `Personalizado (${sd}/${sm}/${sy})`;
+      const cStart = normalizeInstallmentDateIso(customStartDate);
+      const cEnd = normalizeInstallmentDateIso(customEndDate);
+      if (cStart && cEnd) {
+        periodoLabel = `Personalizado (${formatInstallmentDateBr(cStart)} a ${formatInstallmentDateBr(cEnd)})`;
+      } else if (cStart) {
+        periodoLabel = `Personalizado (${formatInstallmentDateBr(cStart)})`;
       } else {
         periodoLabel = 'Personalizado';
       }

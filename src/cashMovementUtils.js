@@ -507,29 +507,82 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
   const totalSangrias = parseMovementNum(closingData.totalSangrias);
   const totalSaidas = parseMovementNum(closingData.totalSaidas);
 
-  // Extração de suprimentos, sangrias e entradas em espécie a partir dos movimentos
+  // Extração minuciosa e auditável dos métodos de pagamento a partir dos movimentos
   let suprimentosCalculados = 0;
   let sangriasCalculadas = 0;
   let dinheiroEntradasCalculadas = 0;
+  let pixCalculados = 0;
+  let debitoCalculados = 0;
+  let creditoCalculados = 0;
+  let boletoCalculados = 0;
 
   effectiveMovements.forEach(m => {
     if (!m) return;
     const tipo = String(m.tipo || m.TIPO || '').toUpperCase().trim();
-    const fp = String(m.formaPagamento || m.forma || '').toUpperCase();
-    const val = parseMovementNum(m.valor ?? 0);
-    const entradaSinal = parseMovementNum(m.valorEntrada ?? m.ENTRADA ?? 0);
-    const isDinheiro = fp.includes('DINHEIRO') || !fp;
+    const fp = String(
+      m.formaPagamento || m.forma || m.FORMA_PAGTO || m['FORMA DE PAGAMENTO'] ||
+      m.formaEntradaOS || (m.matchedSale && (m.matchedSale['FORMA DE PAGAMENTO'] || m.matchedSale['FORMA_PAGTO'])) ||
+      (m.rawSale && (m.rawSale['FORMA DE PAGAMENTO'] || m.rawSale['FORMA_PAGTO'])) || ''
+    ).toUpperCase();
+
+    const val = parseMovementNum(m.valor ?? m.VALOR ?? 0);
+    const entradaSinal = parseMovementNum(
+      m.valorEntrada ?? m.ENTRADA ?? m.valorEntradaOS ?? m['VALOR ENTRADA'] ??
+      (m.matchedSale && (m.matchedSale['VALOR ENTRADA'] ?? m.matchedSale['ENTRADA'])) ?? 0
+    );
+    const restBoleto = parseMovementNum(
+      m.valorRestanteBoleto ?? m.RESTANTE ?? m['RESTANTE'] ??
+      (m.matchedSale && (m.matchedSale['RESTANTE'] ?? m.matchedSale['VALOR RESTANTE'])) ?? 0
+    );
+    const totalOSVal = parseMovementNum(
+      m.valorTotalOS ?? m['VALOR TOTAL'] ?? m['VALOR DA VENDA'] ?? m.valorTotal ??
+      (m.matchedSale && (m.matchedSale['VALOR TOTAL'] ?? m.matchedSale['VALOR DA VENDA'])) ?? val
+    );
 
     if (tipo === 'SUPRIMENTO') {
       suprimentosCalculados += val;
       dinheiroEntradasCalculadas += val;
     } else if (tipo === 'SANGRIA') {
       sangriasCalculadas += val;
-    } else if (tipo === 'VENDA' && isDinheiro) {
-      const vRec = entradaSinal > 0 ? entradaSinal : val;
-      dinheiroEntradasCalculadas += vRec;
-    } else if (tipo === 'RECEBIMENTO' && isDinheiro) {
-      dinheiroEntradasCalculadas += val;
+    } else if (tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'DESPESA' || tipo === 'PAGAMENTO') {
+      // Saídas contabilizadas em totalSaidasCalculadas
+    } else if (tipo === 'ABERTURA') {
+      // Fundo inicial
+    } else if (tipo === 'RECEBIMENTO') {
+      if (fp.includes('PIX') || fp.includes('TRANSFERENCIA') || fp.includes('TRANSFERÊNCIA')) {
+        pixCalculados += val;
+      } else if (fp.includes('DEBITO') || fp.includes('DÉBITO')) {
+        debitoCalculados += val;
+      } else if (fp.includes('CREDITO') || fp.includes('CRÉDITO') || fp.includes('CARTAO') || fp.includes('CARTÃO')) {
+        creditoCalculados += val;
+      } else {
+        dinheiroEntradasCalculadas += val;
+      }
+    } else if (tipo === 'VENDA' || tipo.startsWith('VENDA')) {
+      // 1. Entrada / Valor recebido no ato da venda
+      const isPureBoleto = val === 0 && (restBoleto > 0 || /boleto|carn[eê]|a prazo/i.test(fp));
+      const vRec = isPureBoleto ? 0 : (entradaSinal > 0 ? entradaSinal : val);
+
+      if (vRec > 0) {
+        if (fp.includes('PIX') || fp.includes('TRANSFERENCIA') || fp.includes('TRANSFERÊNCIA')) {
+          pixCalculados += vRec;
+        } else if (fp.includes('DEBITO') || fp.includes('DÉBITO')) {
+          debitoCalculados += vRec;
+        } else if (fp.includes('CREDITO') || fp.includes('CRÉDITO') || fp.includes('CARTAO') || fp.includes('CARTÃO')) {
+          creditoCalculados += vRec;
+        } else if (fp.includes('BOLETO') || fp.includes('CARNE') || fp.includes('CARNÊ')) {
+          boletoCalculados += vRec;
+        } else {
+          dinheiroEntradasCalculadas += vRec;
+        }
+      }
+
+      // 2. Parcela / Restante a prazo no Boleto / Carnê
+      if (restBoleto > 0) {
+        boletoCalculados += restBoleto;
+      } else if (isPureBoleto || (vRec === 0 && (fp.includes('BOLETO') || fp.includes('CARNE') || fp.includes('CARNÊ')))) {
+        boletoCalculados += (totalOSVal > 0 ? totalOSVal : (val > 0 ? val : restBoleto));
+      }
     }
   });
 
@@ -537,26 +590,25 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
   const sangriasEfetivas = sangriasCalculadas > 0 ? sangriasCalculadas : totalSangrias;
   const totalSaidasFinal = totalSaidasCalculadas > 0 ? totalSaidasCalculadas : (sangriasEfetivas + totalSaidas);
 
+  const totalChequesPixDetalhes = Math.max(pixCalculados, vendasPix);
+  const totalDebitoDetalhes = Math.max(debitoCalculados, vendasDebito);
+  const totalCreditoDetalhes = Math.max(creditoCalculados, vendasCredito);
+  const totalBoletoDetalhes = Math.max(boletoCalculados, vendasBoleto);
+  const totalDinheiroDetalhes = Math.max(
+    dinheiroEntradasCalculadas,
+    (vendasDinheiro + totalRecebimentosDinheiro + suprimentosEfetivos)
+  );
+
+  const totalGeralDetalhes = totalDinheiroDetalhes + totalChequesPixDetalhes + totalDebitoDetalhes + totalCreditoDetalhes + totalBoletoDetalhes;
+
   const fallbackTotalVendas = parseMovementNum(
     closingData.totalVendas ?? closingData.totalFaturadoGeral ??
     (vendasDinheiro + vendasPix + vendasDebito + vendasCredito + vendasBoleto)
   );
-  const totalVendasFinal = Math.max(totalVendasCalculadas, fallbackTotalVendas);
+  const totalVendasFinal = Math.max(totalVendasCalculadas, fallbackTotalVendas, totalGeralDetalhes);
 
-  const fallbackTotalEntradas = vendasDinheiro + totalRecebimentosDinheiro + vendasPix + vendasDebito + vendasCredito + suprimentosEfetivos;
+  const fallbackTotalEntradas = totalDinheiroDetalhes + totalChequesPixDetalhes + totalDebitoDetalhes + totalCreditoDetalhes;
   const totalEntradasFinal = totalEntradasCalculadas > 0 ? totalEntradasCalculadas : fallbackTotalEntradas;
-
-  const totalDinheiroDetalhes = (dinheiroEntradasCalculadas > 0 && vendasDinheiro === 0)
-    ? dinheiroEntradasCalculadas
-    : (vendasDinheiro === 0 && totalRecebimentosDinheiro === 0 && suprimentosEfetivos === 0 && fundoInicial > 0)
-      ? fundoInicial
-      : (vendasDinheiro + totalRecebimentosDinheiro + suprimentosEfetivos);
-
-  const totalChequesPixDetalhes = vendasPix;
-  const totalDebitoDetalhes = vendasDebito;
-  const totalCreditoDetalhes = vendasCredito;
-  const totalBoletoDetalhes = vendasBoleto;
-  const totalGeralDetalhes = totalDinheiroDetalhes + totalChequesPixDetalhes + totalDebitoDetalhes + totalCreditoDetalhes + totalBoletoDetalhes;
 
   const saldoAnterior = fundoInicial;
   const totalEntradasGaveta = dinheiroEntradasCalculadas > 0

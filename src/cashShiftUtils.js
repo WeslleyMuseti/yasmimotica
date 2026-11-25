@@ -1,4 +1,4 @@
-import { resolveOSUnit } from './reparcelamentoUtils.js';
+import { resolveOSUnit, normalizeInstallmentDateIso } from './reparcelamentoUtils.js';
 
 export const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -25,48 +25,107 @@ export const formatCurrency = (val) => {
 };
 
 /**
+ * 🛡️ Extrai a data representativa de um item em formato ISO estrito 'YYYY-MM-DD'
+ * Prioriza datas locais brasileiras (DD/MM/AAAA) para prevenir deslocamento de fuso horário UTC (UTC-3).
+ */
+export const extractItemDateIso = (item) => {
+  if (!item) return '';
+  if (typeof item === 'string') {
+    const s = item.trim().split(/[T\s]/)[0];
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+      const [d, m, y] = s.split('/');
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(s)) {
+      const [d, m, y] = s.split('-');
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    return normalizeInstallmentDateIso(item);
+  }
+  if (item instanceof Date) {
+    if (isNaN(item.getTime())) return '';
+    const y = item.getFullYear();
+    const m = String(item.getMonth() + 1).padStart(2, '0');
+    const d = String(item.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  if (typeof item === 'number') {
+    if (item > 1000000000000) {
+      const dt = new Date(item);
+      if (!isNaN(dt.getTime())) {
+        return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+      }
+    }
+    return normalizeInstallmentDateIso(item);
+  }
+
+  // 1. Campos explícitos de data local em formato pt-BR DD/MM/AAAA (prioridade máxima sobre ISO UTC)
+  const explicitBr = item.data || item.DATA || item['DATA  DA VENDA'] || item['DATA DA VENDA'] || item['DATA_VENDA'] || item['Data da Venda'] || item.dataVenda || item.dataAbertura || item.dataFechamento;
+  if (explicitBr) {
+    const res = extractItemDateIso(explicitBr);
+    if (res) return res;
+  }
+
+  // 2. Demais candidatos
+  const candidates = [
+    item.dataHoraAbertura,
+    item.dataHoraFechamento,
+    item.dataHora,
+    item.DATA_HORA,
+    item.timestamp,
+    item.createdAt,
+    item.created_at
+  ];
+
+  for (const c of candidates) {
+    if (c !== null && c !== undefined && c !== '') {
+      const res = extractItemDateIso(c);
+      if (res) return res;
+    }
+  }
+
+  return '';
+};
+
+/**
  * 🛡️ Parser universal e tolerante a datas em múltiplos formatos (ISO, pt-BR DD/MM/YYYY, Timestamp, etc.)
  */
 export const parseItemDate = (item) => {
   if (!item) return null;
-  const raw = item.dataHora || item.timestamp || item.DATA_HORA || item.dataHoraAbertura || item.dataHoraFechamento ||
-    item['DATA  DA VENDA'] || item['DATA DA VENDA'] || item['DATA_VENDA'] || item['Data da Venda'] || item['data_venda'] || 
-    item.dataVenda || item.DATA || item.data || item.createdAt || item.created_at;
+  if (item instanceof Date) return isNaN(item.getTime()) ? null : item;
+
+  const iso = extractItemDateIso(item);
+  if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const [y, m, d] = iso.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+
+    const rawTimeCandidate = (item && typeof item === 'object')
+      ? (item.hora || item.HORA || item.dataHora || item.DATA_HORA || '')
+      : (typeof item === 'string' ? item : '');
+
+    if (typeof rawTimeCandidate === 'string' && rawTimeCandidate.includes(':')) {
+      const match = rawTimeCandidate.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+      if (match) {
+        dateObj.setHours(parseInt(match[1], 10), parseInt(match[2], 10), parseInt(match[3] || 0, 10));
+      }
+    }
+    return dateObj;
+  }
+
+  const raw = (item && typeof item === 'object')
+    ? (item.dataHora || item.timestamp || item.DATA_HORA || item.dataHoraAbertura || item.dataHoraFechamento ||
+       item['DATA  DA VENDA'] || item['DATA DA VENDA'] || item['DATA_VENDA'] || item['Data da Venda'] || item['data_venda'] || 
+       item.dataVenda || item.DATA || item.data || item.createdAt || item.created_at)
+    : item;
+
   if (!raw) return null;
-  if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
   if (typeof raw === 'number') {
     const d = new Date(raw);
     return isNaN(d.getTime()) ? null : d;
   }
   if (typeof raw === 'string') {
-    const trimmed = raw.trim();
-    if (trimmed.includes('/')) {
-      const parts = trimmed.split(' ')[0].split('/');
-      if (parts.length === 3) {
-        const d = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const y = parseInt(parts[2], 10);
-        const dateObj = new Date(y, m, d);
-        if (trimmed.includes(':')) {
-          const timeParts = trimmed.split(' ')[1]?.split(':') || [];
-          if (timeParts.length >= 2) {
-            dateObj.setHours(parseInt(timeParts[0], 10) || 0, parseInt(timeParts[1], 10) || 0, parseInt(timeParts[2], 10) || 0);
-          }
-        }
-        return isNaN(dateObj.getTime()) ? null : dateObj;
-      }
-    }
-    if (trimmed.includes('-') && !trimmed.includes('T')) {
-      const parts = trimmed.split('-');
-      if (parts.length === 3) {
-        const y = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const d = parseInt(parts[2], 10);
-        const dateObj = new Date(y, m, d, 12, 0, 0);
-        return isNaN(dateObj.getTime()) ? null : dateObj;
-      }
-    }
-    const d = new Date(trimmed);
+    const d = new Date(raw.trim());
     if (!isNaN(d.getTime())) return d;
   }
   return null;
