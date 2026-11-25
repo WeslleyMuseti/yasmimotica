@@ -16,6 +16,7 @@ import DataTable from './DataTable';
 import VendorRanking from './VendorRanking';
 import { buildSalesHistoryXml, downloadXmlFile } from '../xmlUtils';
 import { resolveOSUnit } from '../reparcelamentoUtils';
+import { extractItemDateIso } from '../cashShiftUtils';
 import * as XLSX from 'xlsx';
 
 const COLORS = ['#38bdf8', '#818cf8', '#10b981', '#f59e0b', '#f43f5e', '#a855f7', '#14b8a6', '#ec4899', '#64748b'];
@@ -834,6 +835,19 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
     const unique = [];
     combined.forEach(item => {
       if (!item || typeof item !== 'object') return;
+
+      // 🛡️ Ignorar recebimentos de parcelas que não são vendas de óculos/produtos
+      const prod = String(item['PRODUTO'] || item['SERVIÇO'] || item['Produto'] || '').toLowerCase();
+      const tipo = String(item.tipo || item.TIPO || '').toUpperCase();
+      if (
+        tipo === 'RECEBIMENTO' ||
+        item.isInstallmentReceipt === true ||
+        item.isInstallment === true ||
+        /recebimento\s+de\s+mensalidade|quitação\s+de\s+parcela|mensalidade\s+de\s+carnê/i.test(prod)
+      ) {
+        return;
+      }
+
       const osKey = String(
         item.id || 
         item._id || 
@@ -869,8 +883,22 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
     });
   };
 
-  // Dados filtrados das coleções em tempo real
-  const vendasRows = useMemo(() => filterByCity(allSales), [allSales, selectedCity]);
+  // Dados filtrados das coleções em tempo real ordenados da venda mais recente para a mais antiga
+  const vendasRows = useMemo(() => {
+    const list = filterByCity(allSales);
+    return [...list].sort((a, b) => {
+      const dateA = a['DATA DA VENDA'] || a['DATA  DA VENDA'] || a.DATA || a.dataHora || a.data_venda || a.data || '';
+      const dateB = b['DATA DA VENDA'] || b['DATA  DA VENDA'] || b.DATA || b.dataHora || b.data_venda || b.data || '';
+      const isoA = extractItemDateIso(dateA || a);
+      const isoB = extractItemDateIso(dateB || b);
+      if (isoA && isoB && isoA !== isoB) {
+        return isoB.localeCompare(isoA);
+      }
+      const timeA = a.timestamp || (a.dataHora ? new Date(a.dataHora).getTime() : 0);
+      const timeB = b.timestamp || (b.dataHora ? new Date(b.dataHora).getTime() : 0);
+      return timeB - timeA;
+    });
+  }, [allSales, selectedCity]);
   const clientesRows = useMemo(() => filterByCity(sheets['CLIENTES_CADASTRADOS'] || []), [sheets, selectedCity]);
 
   // Exportação do Histórico de Vendas em formato nativo Excel (.xlsx) compatível com Excel Online
@@ -880,7 +908,8 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
       const client = String(v['CLIENTE'] || v['Nome Completo'] || v.cliente || v['NOME'] || v['NOME DO CLIENTE'] || '').trim();
       const os = String(v['OS DA VENDA'] || v['OS'] || v['VENDA_OS'] || v.osNumero || '').trim();
       const tot = cleanVal(v['VALOR TOTAL'] || v['VALOR DO ORÇAMENTO'] || v['VALOR DA VENDA'] || v.VALOR || 0);
-      return Boolean(client || (os && os !== '—') || tot > 0);
+      const sub = cleanVal(v.subtotal || v.SUBTOTAL || 0);
+      return Boolean(client || (os && os !== '—') || tot > 0 || sub > 0);
     });
 
     if (cleanVendas.length === 0) {

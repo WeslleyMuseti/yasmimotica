@@ -502,12 +502,13 @@ export const CashHistoryContent = ({
           })
       : [];
     
-    // Identificar vendas e recebimentos já presentes no fluxo de caixa para evitar duplicar
+    // Identificar vendas já presentes no fluxo de caixa para evitar duplicar
     const existingSalesIds = new Set();
 
     list.forEach(m => {
       const tipo = (m.tipo || '').toUpperCase();
-      if (tipo === 'VENDA' || tipo === 'RECEBIMENTO') {
+      // 🛡️ Apenas lançamentos do tipo VENDA desduplicam a venda original; recebimentos de parcelas NÃO podem anular a venda!
+      if (tipo === 'VENDA') {
         if (m.id) {
           existingSalesIds.add(String(m.id).trim().toLowerCase());
           existingSalesIds.add(cleanId(m.id));
@@ -544,7 +545,11 @@ export const CashHistoryContent = ({
         // Ignorar se for quitação de parcela ou recebimento de boleto/mensalidade (já registrado em FLUXO_CAIXA como RECEBIMENTO)
         const prod = String(s['PRODUTO'] || s['SERVIÇO'] || s['Produto'] || '').toLowerCase();
         const sTipo = String(s.tipo || s.TIPO || '').toUpperCase();
-        const isParcelaReceipt = sTipo === 'RECEBIMENTO' || prod.includes('recebimento de parcela') || prod.includes('quitação de parcela') || prod.includes('quitacao de parcela') || prod.includes('mensalidade de carnê') || prod.includes('mensalidade carnê');
+        const isParcelaReceipt = sTipo === 'RECEBIMENTO' ||
+          s.isInstallmentReceipt === true ||
+          s.isInstallment === true ||
+          s.isParcelaReceipt === true ||
+          /recebimento|quitação|quitacao|mensalidade|carne|carnê|parcela|pagamento de boleto/i.test(prod);
         if (isParcelaReceipt) {
           return;
         }
@@ -571,8 +576,11 @@ export const CashHistoryContent = ({
           const valorTotalOS = parseCurrency(s['VALOR TOTAL'] || s['VALOR DA VENDA'] || s['VALOR'] || s['VALOR_TOTAL'] || s['Valor'] || 0);
           const valorEntrada = parseCurrency(s['VALOR ENTRADA'] ?? s['ENTRADA'] ?? s['Sinal'] ?? 0);
           const valorRestante = parseCurrency(s['RESTANTE'] ?? s['VALOR RESTANTE'] ?? s['Restante'] ?? 0);
+          const subtotalOS = parseCurrency(s['subtotal'] || s['SUBTOTAL'] || 0);
+          const hasItems = Array.isArray(s.itens) && s.itens.length > 0;
 
-          if (valorTotalOS > 0 || valorEntrada > 0) {
+          // 🛡️ Permite também vendas com 100% de desconto/cortesia (ex: CAJ-038) ou com subtotal/itens cadastrados
+          if (valorTotalOS > 0 || valorEntrada > 0 || subtotalOS > 0 || hasItems || Boolean(osRaw)) {
             const resolvedUnit = resolveOSUnit({ numeroOS: osRaw, ...s });
             const loja = resolvedUnit || s['LOJA'] || s['CIDADE'] || s['UNIDADE'] || s['Loja'] || s['loja'] || s['Cidade'] || s['cidade'] || s['unidade'] || s['assignedStore'] || 'Cajati';
             const vendedor = s['VENDEDOR'] || s['OPERADOR'] || s['Vendedor'] || 'Vendedor';
@@ -651,7 +659,7 @@ export const CashHistoryContent = ({
               formaPagamento: formaEfetivaCaixa,
               motivo: osRaw ? `Venda OS #${osRaw} - ${cliente}` : `Venda OS #${osDisplay} - ${produto}`,
               detalhes: detalhesTexto,
-              dataHora: rawDate,
+              dataHora: s.dataHora || rawDate,
               DATA: rawDate,
               _source: 'Registro_Vendas',
               rawItem: s

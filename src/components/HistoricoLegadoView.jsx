@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export const HistoricoLegadoView = ({ onBack, currentUser }) => {
+export const HistoricoLegadoView = ({ onBack, currentUser, salesData = [] }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('marketing'); // 'marketing', 'vendas', 'vouchers', 'parcelas', 'estoque', 'todas'
   const [loading, setLoading] = useState(false);
@@ -45,6 +45,74 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
     estoque: []
   });
   const [totalFound, setTotalFound] = useState(0);
+
+  // 🛡️ Integração das vendas em tempo real do Firebase (Registro_Vendas / Nuvem)
+  const liveSalesFormatted = useMemo(() => {
+    if (!Array.isArray(salesData) || salesData.length === 0) return [];
+    return salesData
+      .filter(s => {
+        if (!s || typeof s !== 'object') return false;
+        const prod = String(s['PRODUTO'] || s['SERVIÇO'] || s['Produto'] || '').toLowerCase();
+        const tipo = String(s.tipo || s.TIPO || '').toUpperCase();
+        if (
+          tipo === 'RECEBIMENTO' ||
+          s.isInstallmentReceipt === true ||
+          s.isInstallment === true ||
+          /recebimento\s+de\s+mensalidade|quitação\s+de\s+parcela|mensalidade\s+de\s+carnê/i.test(prod)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map(s => {
+        const os = s['OS DA VENDA'] || s.OS || s.numeroOS || s.os || s.VENDA_OS || s['Nº DA OS'] || '';
+        const dt = s['DATA DA VENDA'] || s['DATA  DA VENDA'] || s.DATA || s.data_venda || s.dataVenda || s.data || (s.dataHora ? s.dataHora.slice(0, 10) : '');
+        const client = s.CLIENTE || s.cliente || s.NOME || s['Nome Completo'] || s['NOME CLIENTE'] || 'Consumidor';
+        const tel = s['TELEFONE CLIENTE'] || s.WhatsApp || s.TELEFONE || s.telefone || '';
+        const loja = s.UNIDADE || s.CIDADE || s.LOJA || s.loja || s.unidade || (String(os).startsWith('CAJ') ? 'Cajati' : String(os).startsWith('REG') ? 'Registro' : String(os).startsWith('JAC') ? 'Jacupiranga' : 'Cajati');
+        const vend = s.VENDEDOR || s.vendedor || s.OPERADOR || s.operador || 'Vendedora';
+        const arm = s['ARMAÇÃO'] || s.armacao || '';
+        const len = s.LENTE || s.lente || s.PRODUTO || '';
+        const diop = s.DIOPTRIA || s.dioptria || '';
+        const tot = s['VALOR TOTAL'] || s.valorTotal || s.VALOR || s['VALOR DA VENDA'] || '0,00';
+        const ent = s['VALOR ENTRADA'] || s.valorEntrada || s.ENTRADA || s.SINAL || '0,00';
+        return {
+          id: s.id || `live_${os}`,
+          os: String(os).replace(/^#/, ''),
+          data_venda: dt,
+          cliente: client,
+          telefone_cliente: tel,
+          loja: String(loja).toUpperCase(),
+          vendedora: vend,
+          armacao: arm,
+          lente: len,
+          dioptria: diop,
+          valor_produto: typeof tot === 'number' ? tot.toFixed(2).replace('.', ',') : String(tot),
+          valor_venda: typeof tot === 'number' ? tot.toFixed(2).replace('.', ',') : String(tot),
+          valor_entrada: typeof ent === 'number' ? ent.toFixed(2).replace('.', ',') : String(ent),
+          _isLive: true,
+          raw: s
+        };
+      });
+  }, [salesData]);
+
+  // Lista unificada de vendas exibidas (Vendas da Nuvem com prioridade + Vendas do arquivo legado)
+  const displayVendas = useMemo(() => {
+    const q = (searchTerm || '').trim().toLowerCase();
+    const liveFiltered = liveSalesFormatted.filter(item => {
+      if (!q) return true;
+      return Object.values(item).some(v => String(v || '').toLowerCase().includes(q));
+    });
+
+    const apiList = Array.isArray(results.vendas) ? results.vendas : [];
+    const seenOS = new Set(liveFiltered.map(l => String(l.os || '').toLowerCase().replace(/[^a-z0-9]/g, '')));
+    const filteredApi = apiList.filter(item => {
+      const k = String(item.os || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      return !k || !seenOS.has(k);
+    });
+
+    return [...liveFiltered, ...filteredApi];
+  }, [liveSalesFormatted, results.vendas, searchTerm]);
 
   // Paginação inteligente de 50 em 50 registros
   const [currentPage, setCurrentPage] = useState(1);
@@ -381,7 +449,7 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
             <ShoppingBag className="w-4 h-4 text-sky-400" />
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-black text-white font-mono">{stats.vendas.toLocaleString('pt-BR')}</span>
+            <span className="text-2xl font-black text-white font-mono">{(stats.vendas + liveSalesFormatted.length).toLocaleString('pt-BR')}</span>
             <span className="text-[10px] text-slate-500 block">vendas registradas</span>
           </div>
         </div>
@@ -670,25 +738,25 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
             )}
 
             {/* ─── 2. TABELA DE VENDAS ─── */}
-            {(activeTab === 'todas' || activeTab === 'vendas') && results.vendas.length > 0 && (
+            {(activeTab === 'todas' || activeTab === 'vendas') && displayVendas.length > 0 && (
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
                 <div className="px-5 py-4 bg-slate-800/60 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">
                     <ShoppingBag className="w-5 h-5 text-sky-400" />
                     <div>
                       <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                        Vendas Registradas ({(tabCounts.vendas ?? stats.vendas).toLocaleString('pt-BR')})
+                        Vendas Registradas ({displayVendas.length.toLocaleString('pt-BR')})
                       </h3>
                       <p className="text-[11px] text-slate-400">
-                        Tabela de vendas de óculos, lentes e armações • Página {currentPage} de {totalPages} (50 por página)
+                        Tabela de vendas integradas (Nuvem em tempo real + Arquivo Histórico)
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="px-2.5 py-1 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20 text-xs font-mono font-bold">
-                      {Math.min((currentPage - 1) * perPage + 1, tabCounts.vendas ?? stats.vendas)} - {Math.min(currentPage * perPage, tabCounts.vendas ?? stats.vendas)} de {(tabCounts.vendas ?? stats.vendas).toLocaleString('pt-BR')}
+                      {displayVendas.length.toLocaleString('pt-BR')} registros
                     </span>
-                    <span className="text-[11px] font-bold text-slate-400">Tabela tb_vendas_legado</span>
+                    <span className="text-[11px] font-bold text-slate-400">Vendas Integradas</span>
                   </div>
                 </div>
 
@@ -710,10 +778,15 @@ export const HistoricoLegadoView = ({ onBack, currentUser }) => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-medium">
-                      {results.vendas.map((v, idx) => (
+                      {displayVendas.map((v, idx) => (
                         <tr key={v.id || idx} className="hover:bg-slate-800/40 transition-colors">
                           <td className="py-3 px-3.5 font-mono font-black text-sky-400 whitespace-nowrap">
                             #{v.os || 'S/N'}
+                            {v._isLive && (
+                              <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                Nuvem
+                              </span>
+                            )}
                           </td>
                           <td className="py-3 px-3.5 whitespace-nowrap text-slate-400">
                             {v.data_venda || '-'}

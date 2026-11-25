@@ -165,9 +165,12 @@ export const buildCombinedShiftMovements = (movList = [], salesList = [], unitNa
     const digK = String(osRaw || '').replace(/\D/g, '');
     const cpfK = String(m.CLIENTE_CPF || m.CPF || m.cpf || '').replace(/\D/g, '');
 
-    if (osK) seenSaleKeys.add(osK);
-    if (idK) seenSaleKeys.add(idK);
-    if (digK) seenSaleKeys.add(digK);
+    const mTipo = String(m.tipo || m.TIPO || '').toUpperCase();
+    if (mTipo === 'VENDA') {
+      if (osK) seenSaleKeys.add(osK);
+      if (idK) seenSaleKeys.add(idK);
+      if (digK) seenSaleKeys.add(digK);
+    }
 
     const matchedSale = (osK && salesByOs.get(osK)) ||
                         (idK && salesById.get(idK)) ||
@@ -212,6 +215,15 @@ export const buildCombinedShiftMovements = (movList = [], salesList = [], unitNa
   (salesList || []).forEach(s => {
     if (!s || typeof s !== 'object') return;
     if (s.MULTI_OS_PRINCIPAL === false || s.isSecondaryOS === true || s.FATURAMENTO_UNIFICADO === 'SECUNDARIA') return;
+    const prod = String(s['PRODUTO'] || s['SERVIÇO'] || s['Produto'] || '').toLowerCase();
+    const sTipo = String(s.tipo || s.TIPO || '').toUpperCase();
+    const isParcelaReceipt = sTipo === 'RECEBIMENTO' ||
+      s.isInstallmentReceipt === true ||
+      s.isInstallment === true ||
+      s.isParcelaReceipt === true ||
+      /recebimento|quitação|quitacao|mensalidade|carne|carnê|parcela|pagamento de boleto/i.test(prod);
+    if (isParcelaReceipt) return;
+
     const osRaw = s['OS DA VENDA'] || s['OS da VENDA'] || s['Nº DA OS'] || s['Num OS'] || s.OS || s.os || s.osNumero || s.numeroOS || '';
     const idRaw = s.id || s._id || s.saleId || '';
     const osK = cleanKey(osRaw);

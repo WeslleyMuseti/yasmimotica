@@ -185,6 +185,11 @@ export const cleanBoletoDisplay = (val) => {
 export const isInstallmentRow = (sale) => {
   if (!sale) return false;
   if (
+    sale.isInstallmentReceipt === true || sale.isInstallment === true || sale.isParcelaReceipt === true
+  ) {
+    return true;
+  }
+  if (
     sale['PARCELA'] || sale.parcela || sale['NUMERO_PARCELA'] ||
     sale['PARCELA_NUM'] || sale['N_PARCELA'] || sale['NUM_PARCELA'] ||
     sale['REPARCELADO_EM'] || sale['ORIGEM_REPARCELAMENTO'] ||
@@ -224,7 +229,8 @@ export const isInstallmentRow = (sale) => {
   const prod = String(sale['PRODUTO'] || sale['Produto'] || '').toLowerCase();
   if (
     /^parcela\s*\d+/i.test(prod) || /^duplicata\s*\d+/i.test(prod) ||
-    /^boleto\s*\d+/i.test(prod) || prod.includes('reparcelamento') || prod.includes('mensalidade')
+    /^boleto\s*\d+/i.test(prod) || prod.includes('reparcelamento') || prod.includes('mensalidade') ||
+    prod.includes('recebimento') || prod.includes('quitação') || prod.includes('quitacao')
   ) {
     return true;
   }

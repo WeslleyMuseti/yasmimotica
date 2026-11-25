@@ -1310,6 +1310,18 @@ function App() {
     const result = [];
     [...list1, ...list2, ...list3].forEach(item => {
       if (!item || typeof item !== 'object') return;
+
+      // 🛡️ Ignorar recebimentos de mensalidades e parcelas para manter o histórico de vendas estritamente limpo
+      const prod = String(item['PRODUTO'] || item['SERVIÇO'] || item['Produto'] || '').toLowerCase();
+      const tipo = String(item.tipo || item.TIPO || '').toUpperCase();
+      if (
+        tipo === 'RECEBIMENTO' ||
+        item.isInstallmentReceipt === true ||
+        item.isInstallment === true ||
+        /recebimento\s+de\s+mensalidade|quitação\s+de\s+parcela|mensalidade\s+de\s+carnê/i.test(prod)
+      ) {
+        return;
+      }
       const osKey = String(
         item.id || 
         item._id || 
@@ -1874,6 +1886,7 @@ function App() {
           ) : view === 'historico-legado' ? (
             <HistoricoLegadoView
               currentUser={currentUser}
+              salesData={unifiedSalesData}
               onBack={() => setView(currentUser?.role === 'vendedor' ? 'pos' : 'dashboard')}
             />
           ) : (

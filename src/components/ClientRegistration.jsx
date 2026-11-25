@@ -1242,7 +1242,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     }
     setProfileClientData(updatedClient);
 
-    // 4. Histórico de Vendas / Recebimentos
+    // 4. Histórico de Vendas / Recebimentos (marcado com TIPO RECEBIMENTO para não sobrepor a venda original)
     if (onAddSale) {
       onAddSale({
         'CLIENTE_ID': clientId,
@@ -1255,6 +1255,12 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         'VALOR DA VENDA': amountPaid.toFixed(2).replace('.', ','),
         'SITUAÇÃO': 'Pago',
         'STATUS_OS': 'Pago',
+        'TIPO': 'RECEBIMENTO',
+        'tipo': 'RECEBIMENTO',
+        'TIPO_REGISTRO': 'RECEBIMENTO',
+        'isInstallmentReceipt': true,
+        'isInstallment': true,
+        'isParcelaReceipt': true,
         'OS DA VENDA': osClean || (specificInvoice?.VENDA_OS || '—'),
         'NOME CLIENTE': clientName,
         'CLIENTE': clientName,

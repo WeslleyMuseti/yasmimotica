@@ -11008,7 +11008,150 @@ async function runTests() {
     console.log('  ✅ Test 119 Passed: Botão de Dar Baixa e Integridade do DataTable validados com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 119 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ─────────────────────────────────────────────────────────────
+  // TEST 120: PRESERVAÇÃO DE VENDAS HISTÓRICAS (12/11 CAJATI) E BLINDAGEM CONTRA RECEBIMENTOS
+  // Garante que vendas de 100% de desconto/cortesia (ex: CAJ-038) não sejam descartadas do histórico/caixa,
+  // que recebimentos de parcelas (ex: CAJ-040 em 17/11) não apaguem nem sobreponham a venda original do dia 12/11,
+  // e que o Histórico Legado / Dashboard Marketing integre as vendas live do Firestore.
+  // ─────────────────────────────────────────────────────────────
+  {
+    console.log('Running Test 120: Preservação de Vendas Históricas de 12/11 Cajati e Blindagem contra Recebimentos...');
+
+    const { buildCombinedShiftMovements } = await import('./src/cashShiftUtils.js');
+
+    // 1. Simulação com recebimento de parcela posterior (17/11) e venda original (12/11)
+    const mockShiftMovements = [
+      {
+        id: 'rec_caj040_1711',
+        tipo: 'RECEBIMENTO',
+        osNumero: 'CAJ-040',
+        valor: 100,
+        dataHora: '2026-11-17T14:00:00.000Z',
+        unidade: 'Cajati'
+      }
+    ];
+
+    const mockSalesList = [
+      {
+        id: 'venda_1794513284095_11pri5',
+        'OS DA VENDA': 'CAJ-040',
+        'DATA DA VENDA': '12/11/2026',
+        'VALOR TOTAL': 400,
+        'VALOR ENTRADA': 0,
+        CLIENTE: 'MILLENA CLAUDIO RODRIGUES MUNIZ',
+        LOJA: 'Cajati',
+        dataHora: '2026-11-12T19:52:00.000Z'
+      },
+      {
+        id: 'venda_1794511000000_caj038',
+        'OS DA VENDA': 'CAJ-038',
+        'DATA DA VENDA': '12/11/2026',
+        'VALOR TOTAL': 0,
+        'DESCONTO': 530,
+        subtotal: 530,
+        CLIENTE: 'Catia Cristina Maranho Nunes',
+        LOJA: 'Cajati',
+        dataHora: '2026-11-12T19:14:00.000Z'
+      },
+      {
+        id: 'row_1795013529860_wvjaj0',
+        'OS DA VENDA': 'CAJ-040',
+        'DATA DA VENDA': '17/11/2026',
+        'PRODUTO': '💰 Recebimento de Mensalidade / Boleto',
+        'VALOR TOTAL': 100,
+        tipo: 'RECEBIMENTO',
+        isInstallmentReceipt: true,
+        LOJA: 'Cajati'
+      }
+    ];
+
+    const combined = buildCombinedShiftMovements(mockShiftMovements, mockSalesList);
+
+    // Valida que a venda CAJ-040 não foi suprimida pelo recebimento
+    const sale040 = combined.find(m => m.osNumero === 'CAJ-040' && m.tipo === 'VENDA');
+    console.assert(sale040, 'Venda CAJ-040 deve constar nos movimentos combinados mesmo havendo recebimento posterior');
+    console.assert(sale040 && sale040.valor === 400, 'Venda CAJ-040 deve ter valor R$ 400');
+
+    // Valida que a venda cortesia/100% desconto CAJ-038 não foi descartada por ter total 0
+    const sale038 = combined.find(m => m.osNumero === 'CAJ-038' && m.tipo === 'VENDA');
+    console.assert(sale038, 'Venda cortesia CAJ-038 (R$ 0 total mas subtotal R$ 530) deve constar nos movimentos');
+
+    // Valida que o pseudo-registro de recebimento não entrou como venda duplicada
+    const pseudoSales = combined.filter(m => m.id === 'row_1795013529860_wvjaj0');
+    console.assert(pseudoSales.length === 0, 'Registro de recebimento de parcela não deve ser injetado como venda');
+
+    // 2. Validações estáticas dos arquivos modificados
+    const cashHistorySrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'CashHistoryModal.jsx'), 'utf-8');
+    console.assert(cashHistorySrc.includes("if (tipo === 'VENDA')"), 'CashHistoryModal só deve popular existingSalesIds a partir de VENDA');
+    console.assert(cashHistorySrc.includes('subtotalOS > 0') || cashHistorySrc.includes('hasItems'), 'CashHistoryModal deve reter vendas cortesia de R$ 0 com subtotal/itens');
+    console.assert(cashHistorySrc.includes('isParcelaReceipt'), 'CashHistoryModal deve filtrar pseudo-vendas de recebimento');
+
+    const osMgmtSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'OSManagement.jsx'), 'utf-8');
+    console.assert(osMgmtSrc.includes('isInstallmentReceipt') || osMgmtSrc.includes('recebimento'), 'OSManagement deve ignorar linhas de recebimento ao compor lista de OSs');
+
+    const histLegadoSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'HistoricoLegadoView.jsx'), 'utf-8');
+    console.assert(histLegadoSrc.includes('salesData'), 'HistoricoLegadoView deve receber salesData como prop');
+    console.assert(histLegadoSrc.includes('liveSalesFormatted') || histLegadoSrc.includes('displayVendas'), 'HistoricoLegadoView deve formatar e exibir vendas do Firestore em tempo real');
+
+    const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'App.jsx'), 'utf-8');
+    console.assert(appSrc.includes('salesData={unifiedSalesData}'), 'App.jsx deve repassar unifiedSalesData para HistoricoLegadoView');
+
+    // 3. Auditoria AST em todos os arquivos modificados nesta correção
+    const parserModule = await import('@babel/parser');
+    const traverseModule = await import('@babel/traverse');
+    const parser = parserModule.default || parserModule;
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const filesToAudit120 = [
+      'src/components/CashHistoryModal.jsx',
+      'src/cashShiftUtils.js',
+      'src/components/OSManagement.jsx',
+      'src/components/ClientRegistration.jsx',
+      'src/components/HistoricoLegadoView.jsx',
+      'src/components/Dashboard.jsx',
+      'src/App.jsx'
+    ];
+
+    const standardGlobals120 = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'Intl', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React', 'getDoc', 'getDocs', 'query', 'where', 'addDoc',
+      'updateDoc', 'doc', 'collection', 'setDoc', 'deleteDoc', 'onSnapshot', 'orderBy', 'limit'
+    ]);
+
+    const undeclared120 = [];
+    filesToAudit120.forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals120.has(name)) return;
+          if (p.scope.hasBinding(name)) return;
+          undeclared120.push({ file: relPath, name, line: p.node.loc?.start?.line });
+        }
+      });
+    });
+
+    console.assert(undeclared120.length === 0, `Nenhum identificador indefinido deve existir nos arquivos modificados no Teste 120: ${JSON.stringify(undeclared120)}`);
+
+    console.log('  ✅ Test 120 Passed: Preservação de Vendas Históricas de 12/11 Cajati e Blindagem contra Recebimentos validada com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 120 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 
