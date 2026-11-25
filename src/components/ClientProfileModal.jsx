@@ -415,15 +415,11 @@ const ClientProfileModal = ({
     const fluxoCaixa = data?.['FLUXO_CAIXA'] || [];
     const salesPool = data?.['Registro_Vendas'] || clientHistory || [];
 
-    // 🛡️ Normaliza e restaura parcelas pagas no caixa ou com comprovante
-    const normalizedRaw = rawMatches.map(r =>
-      ensureInstallmentPaidStatus(r, { fluxoCaixa, salesData: salesPool, receberList: rawMatches })
-    );
-
-    const combined = [...normalizedRaw];
+    // 🛡️ Fidelidade ao Banco de Dados: preserva com exatidão o status do banco
+    const combined = [...rawMatches];
     (localRegisteredPayments || []).forEach(loc => {
       if (!combined.some(c => c.id === loc.id)) {
-        combined.push(ensureInstallmentPaidStatus(loc, { fluxoCaixa, salesData: salesPool, receberList: combined }));
+        combined.push(loc);
       }
     });
 
@@ -450,6 +446,18 @@ const ClientProfileModal = ({
         });
 
         if (!alreadyIn) {
+          const isParcPaid = Boolean(
+            p.status === 'Recebido' || 
+            p.status === 'Pago' || 
+            p.status === 'Liquidado' ||
+            p.pago === true || 
+            p.pago === 'sim' || 
+            p.dataPagamento || 
+            p.dataRecebimento
+          );
+
+          const initialStatus = isParcPaid ? 'Recebido' : (p.status || 'Pendente');
+
           const candidate = {
             id: `boleto_profile_${compra.id || cOS}_${numP}_${dueIso || idx}`,
             CLIENTE_ID: currentClient.id || '',
@@ -463,21 +471,21 @@ const ClientProfileModal = ({
             DATA_VENCIMENTO: dueIso,
             'DATA VENCIMENTO': dueIso,
             VENCIMENTO: dueIso,
-            STATUS: p.status || 'Pendente',
+            STATUS: initialStatus,
+            status: initialStatus,
             MEIO_PAGAMENTO: 'Boleto',
             VENDA_OS: cOS,
-            OS: cOS
+            OS: cOS,
+            ...(isParcPaid ? {
+              DATA_RECEBIMENTO: p.dataPagamento || p.dataRecebimento || new Date().toLocaleDateString('pt-BR'),
+              DATA_PAGAMENTO: p.dataPagamento || p.dataRecebimento || new Date().toLocaleDateString('pt-BR')
+            } : {})
           };
-
-          const reconciled = ensureInstallmentPaidStatus(candidate, {
-            fluxoCaixa,
-            salesData: salesPool,
-            receberList: combined
-          });
 
           // Se a parcela gerada continua 'Pendente', checa se já existe outra paga para a mesma OS e parcela
           const hasPaidDuplicate = combined.some(r => {
-            if (!isInstallmentActuallyPaid(r, { fluxoCaixa, salesData: salesPool, receberList: combined })) return false;
+            const rSt = String(r.STATUS || r.status || '').toLowerCase().trim();
+            if (!['recebido', 'pago', 'liquidado'].includes(rSt)) return false;
             const rOS = String(r.VENDA_OS || r.OS || '').replace(/^#/, '').trim().toLowerCase();
             const rDoc = String(r.DOCUMENTO || '').toLowerCase();
             const matchesOS = Boolean(cOS && rOS && rOS === cOS.toLowerCase());
@@ -486,7 +494,7 @@ const ClientProfileModal = ({
           });
 
           if (!hasPaidDuplicate) {
-            combined.push(reconciled);
+            combined.push(candidate);
           }
         }
       });

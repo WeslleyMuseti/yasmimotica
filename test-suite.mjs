@@ -10823,7 +10823,135 @@ async function runTests() {
     console.log('  ✅ Test 117 Passed: Filtragem Personalizada de Movimento de Caixa & Totalizadores por Método validados com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 117 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ─────────────────────────────────────────────────────────────
+  // TEST 118: FIDELIDADE RIGOROSA AO STATUS DO BANCO DE DADOS EM PARCELAS (CONTAS_RECEBER)
+  // Garante que parcelas com STATUS 'Pendente' permaneçam estritamente 'Pendente',
+  // e que apenas parcelas comprovadamente recebidas no banco sejam marcadas como 'Recebido'.
+  // ─────────────────────────────────────────────────────────────
+  {
+    console.log('Running Test 118: Fidelidade Rigorosa ao Status do Banco de Dados em Parcelas...');
+
+    const { isInstallmentActuallyPaid, ensureInstallmentPaidStatus } = await import('./src/reparcelamentoUtils.js');
+
+    // 1. Parcela pendente normal no banco de dados DEVE permanecer Pendente (NUNCA forçada a Recebido)
+    const pendingInstallment = {
+      id: 'rec_101',
+      CLIENTE: 'Carlos Souza',
+      DOCUMENTO: 'BOLETO 1/3 - OS 5005',
+      DESCRICAO: 'OS #5005 - Parcela 1/3',
+      VALOR: '150,00',
+      STATUS: 'Pendente',
+      status: 'Pendente',
+      VENDA_OS: '5005'
+    };
+
+    const mockSalesMulti = [
+      {
+        'OS DA VENDA': '5005',
+        'VALOR TOTAL': '450,00',
+        'VALOR ENTRADA': '0,00',
+        'RESTANTE': '0,00',
+        PAGO: 'sim' // Venda concluída no PDV não significa que os 3 boletos estão pagos!
+      }
+    ];
+
+    const mockReceberWithEntrada = [
+      pendingInstallment,
+      {
+        id: 'rec_100',
+        CLIENTE: 'Carlos Souza',
+        DOCUMENTO: 'ENTRADA - OS 5005',
+        DESCRICAO: 'OS #5005 - Venda',
+        VALOR: '300,00',
+        STATUS: 'Recebido',
+        status: 'Recebido',
+        VENDA_OS: '5005'
+      }
+    ];
+
+    console.assert(
+      isInstallmentActuallyPaid(pendingInstallment, { salesData: mockSalesMulti, receberList: mockReceberWithEntrada }) === false,
+      'Parcela multi-boleto pendente NÃO deve ser considerada paga mesmo com venda concluída ou entrada recebida'
+    );
+
+    const untouched = ensureInstallmentPaidStatus(pendingInstallment, { salesData: mockSalesMulti, receberList: mockReceberWithEntrada });
+    console.assert(untouched.STATUS === 'Pendente', `Status deve permanecer Pendente, obtido: ${untouched.STATUS}`);
+    console.assert(untouched.status === 'Pendente', `status deve permanecer Pendente, obtido: ${untouched.status}`);
+
+    // 2. Parcela com status 'Recebido' explícito no banco DEVE ser reconhecida como paga
+    const paidInstallment = {
+      id: 'rec_102',
+      CLIENTE: 'Carlos Souza',
+      DOCUMENTO: 'BOLETO 2/3 - OS 5005',
+      VALOR: '150,00',
+      STATUS: 'Recebido',
+      status: 'Recebido',
+      DATA_RECEBIMENTO: '20/11/2026'
+    };
+    console.assert(isInstallmentActuallyPaid(paidInstallment) === true, 'Parcela com STATUS Recebido deve ser considerada paga');
+
+    // 3. Parcela com comprovante DEVE ser reconhecida como paga
+    const receiptInstallment = {
+      id: 'rec_103',
+      DOCUMENTO: 'BOLETO 3/3 - OS 5005',
+      VALOR: '150,00',
+      STATUS: 'Pendente',
+      COMPROVANTE: 'data:image/png;base64,...'
+    };
+    console.assert(isInstallmentActuallyPaid(receiptInstallment) === true, 'Parcela com comprovante anexado deve ser considerada paga');
+
+    // 4. Auditoria AST em todos os arquivos modificados
+    const parserModule = await import('@babel/parser');
+    const traverseModule = await import('@babel/traverse');
+    const parser = parserModule.default || parserModule;
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const filesToAudit118 = [
+      'src/reparcelamentoUtils.js',
+      'src/components/ErpOptica.jsx',
+      'src/components/ClientProfileModal.jsx',
+      'src/App.jsx'
+    ];
+
+    const standardGlobals118 = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'Intl', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React'
+    ]);
+
+    const undeclared118 = [];
+    filesToAudit118.forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals118.has(name)) return;
+          if (p.scope.hasBinding(name)) return;
+          undeclared118.push({ file: relPath, name, line: p.node.loc?.start?.line });
+        }
+      });
+    });
+
+    console.assert(undeclared118.length === 0, `Nenhum identificador indefinido deve existir nos arquivos modificados no Teste 118: ${JSON.stringify(undeclared118)}`);
+
+    console.log('  ✅ Test 118 Passed: Fidelidade Rigorosa ao Status do Banco de Dados em Parcelas validada com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 118 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

@@ -365,11 +365,8 @@ function App() {
     // Agrupa por cliente para identificar duplicidades e normalizar parcelas sem purga destrutiva
     const byClient = {};
     receberList.forEach(rawR => {
-      // 🛡️ Restaura o status 'Recebido' para parcelas comprovadamente pagas (no caixa, comprovante ou quitação)
-      const r = ensureInstallmentPaidStatus(rawR, { fluxoCaixa, salesData, receberList });
-      if (r.STATUS !== rawR.STATUS || r.status !== rawR.status) {
-        hasChange = true;
-      }
+      // 🛡️ Fidelidade ao Banco de Dados: preserva com exatidão o status original do banco (CONTAS_RECEBER)
+      const r = { ...rawR };
 
       const client = String(
         r['CLIENTE'] || r['NOME CLIENTE'] || r['NOME'] || r['Cliente'] ||
