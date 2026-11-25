@@ -17,7 +17,12 @@ import EditOSModal from './EditOSModal';
 import ReceiptModal from './ReceiptModal';
 import { isSameClient } from '../firebaseSync';
 import { syncOSPaymentDate, syncInstallmentPaymentDate } from '../dateSyncUtils';
-import { resolveOSUnit, buildGeneralPaymentReceiptPayload } from '../reparcelamentoUtils';
+import { 
+  resolveOSUnit, 
+  buildGeneralPaymentReceiptPayload,
+  isInstallmentActuallyPaid,
+  ensureInstallmentPaidStatus
+} from '../reparcelamentoUtils';
 
 const formatCPF_CNPJ = (val) => {
   if (!val) return 'Não informado';
@@ -407,10 +412,18 @@ const ClientProfileModal = ({
       return false;
     });
 
-    const combined = [...rawMatches];
+    const fluxoCaixa = data?.['FLUXO_CAIXA'] || [];
+    const salesPool = data?.['Registro_Vendas'] || clientHistory || [];
+
+    // 🛡️ Normaliza e restaura parcelas pagas no caixa ou com comprovante
+    const normalizedRaw = rawMatches.map(r =>
+      ensureInstallmentPaidStatus(r, { fluxoCaixa, salesData: salesPool, receberList: rawMatches })
+    );
+
+    const combined = [...normalizedRaw];
     (localRegisteredPayments || []).forEach(loc => {
       if (!combined.some(c => c.id === loc.id)) {
-        combined.push(loc);
+        combined.push(ensureInstallmentPaidStatus(loc, { fluxoCaixa, salesData: salesPool, receberList: combined }));
       }
     });
 
@@ -437,7 +450,7 @@ const ClientProfileModal = ({
         });
 
         if (!alreadyIn) {
-          combined.push({
+          const candidate = {
             id: `boleto_profile_${compra.id || cOS}_${numP}_${dueIso || idx}`,
             CLIENTE_ID: currentClient.id || '',
             CLIENTE_CPF: currentClient['CPF / CNPJ'] || currentClient['CPF'] || '',
@@ -454,13 +467,33 @@ const ClientProfileModal = ({
             MEIO_PAGAMENTO: 'Boleto',
             VENDA_OS: cOS,
             OS: cOS
+          };
+
+          const reconciled = ensureInstallmentPaidStatus(candidate, {
+            fluxoCaixa,
+            salesData: salesPool,
+            receberList: combined
           });
+
+          // Se a parcela gerada continua 'Pendente', checa se já existe outra paga para a mesma OS e parcela
+          const hasPaidDuplicate = combined.some(r => {
+            if (!isInstallmentActuallyPaid(r, { fluxoCaixa, salesData: salesPool, receberList: combined })) return false;
+            const rOS = String(r.VENDA_OS || r.OS || '').replace(/^#/, '').trim().toLowerCase();
+            const rDoc = String(r.DOCUMENTO || '').toLowerCase();
+            const matchesOS = Boolean(cOS && rOS && rOS === cOS.toLowerCase());
+            const matchesNum = rDoc.includes(`${numP}/${totP}`) || rDoc.includes(`parcela ${numP}/${totP}`) || rDoc.includes(`parcela ${numP} `);
+            return matchesOS && matchesNum;
+          });
+
+          if (!hasPaidDuplicate) {
+            combined.push(reconciled);
+          }
         }
       });
     });
 
     return combined;
-  }, [receberData, currentClient, clientSalesOSList, localRegisteredPayments, clientHistory]);
+  }, [receberData, currentClient, clientSalesOSList, localRegisteredPayments, clientHistory, data]);
 
   // Recibos e movimentações em dinheiro/PIX/cartão do cliente e responsável registrados no Fluxo de Caixa
   const clientCashReceipts = useMemo(() => {

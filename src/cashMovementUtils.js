@@ -123,6 +123,17 @@ export const buildSynthesizedMovementRows = (closingData = {}) => {
       cliente: 'Consumidor Final (Boleto)'
     });
   }
+  const dateSuffix = closingData.dataAbertura || closingData.dataHoraAbertura ? ` - ${closingData.dataAbertura || closingData.dataHoraAbertura}` : '';
+  if (fundoInicial > 0) {
+    synth.push({
+      tipo: 'ABERTURA',
+      docNo: 'AB-01',
+      valor: fundoInicial,
+      motivo: `Fundo de Troco / Abertura de Caixa${dateSuffix}`,
+      dataHora: closingData.dataAbertura || closingData.dataHoraAbertura,
+      DATA: closingData.dataAbertura || closingData.dataHoraAbertura
+    });
+  }
   if (totalRecebimentosDinheiro > 0) {
     synth.push({
       tipo: 'RECEBIMENTO',
@@ -138,7 +149,9 @@ export const buildSynthesizedMovementRows = (closingData = {}) => {
       tipo: 'SUPRIMENTO',
       docNo: 'SP-01',
       valor: totalSuprimentos,
-      motivo: 'Suprimento / Reforço de Troco'
+      motivo: `Suprimento / Reforço de Troco${dateSuffix}`,
+      dataHora: closingData.dataAbertura || closingData.dataHoraAbertura,
+      DATA: closingData.dataAbertura || closingData.dataHoraAbertura
     });
   }
   if (totalSangrias > 0) {
@@ -146,7 +159,9 @@ export const buildSynthesizedMovementRows = (closingData = {}) => {
       tipo: 'SANGRIA',
       docNo: 'SG-01',
       valor: totalSangrias,
-      motivo: 'Sangria de Caixa / Recolhimento'
+      motivo: `Sangria de Caixa / Recolhimento${dateSuffix}`,
+      dataHora: closingData.dataAbertura || closingData.dataHoraAbertura,
+      DATA: closingData.dataAbertura || closingData.dataHoraAbertura
     });
   }
   if (totalSaidas > 0) {
@@ -154,7 +169,9 @@ export const buildSynthesizedMovementRows = (closingData = {}) => {
       tipo: 'SAÍDA',
       docNo: 'SD-01',
       valor: totalSaidas,
-      motivo: 'Pagamentos e Despesas do Caixa'
+      motivo: `Pagamentos e Despesas do Caixa${dateSuffix}`,
+      dataHora: closingData.dataAbertura || closingData.dataHoraAbertura,
+      DATA: closingData.dataAbertura || closingData.dataHoraAbertura
     });
   }
 
@@ -195,6 +212,7 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
 
     // Se não houver abertura lançada mas fundoInicial > 0 no fechamento
     const hasAbertura = effectiveMovements.some(m => String(m?.tipo || m?.TIPO || '').toUpperCase().trim() === 'ABERTURA');
+    const closingDateStr = closingData.dataAbertura || closingData.dataHoraAbertura || closingData.dataFechamento || '';
     if (!hasAbertura && parseMovementNum(closingData.fundoInicial) > 0) {
       effectiveMovements.unshift({
         tipo: 'ABERTURA',
@@ -202,7 +220,9 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
         valor: parseMovementNum(closingData.fundoInicial),
         formaPagamento: 'DINHEIRO',
         motivo: 'Fundo de Troco / Abertura de Caixa',
-        cliente: 'Fundo de Troco Inicial'
+        cliente: 'Fundo de Troco Inicial',
+        dataHora: closingData.dataAbertura || closingData.dataHoraAbertura,
+        DATA: closingData.dataAbertura || closingData.dataHoraAbertura
       });
     }
 
@@ -213,7 +233,9 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
         tipo: 'SANGRIA',
         docNo: `SG-${String(effectiveMovements.length + 1).padStart(2, '0')}`,
         valor: parseMovementNum(closingData.totalSangrias),
-        motivo: 'Sangria de Caixa / Recolhimento'
+        motivo: 'Sangria de Caixa / Recolhimento',
+        dataHora: closingDateStr,
+        DATA: closingDateStr
       });
     }
 
@@ -224,7 +246,9 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
         tipo: 'SUPRIMENTO',
         docNo: `SP-${String(effectiveMovements.length + 1).padStart(2, '0')}`,
         valor: parseMovementNum(closingData.totalSuprimentos),
-        motivo: 'Suprimento / Reforço de Troco'
+        motivo: 'Suprimento / Reforço de Troco',
+        dataHora: closingDateStr,
+        DATA: closingDateStr
       });
     }
 
@@ -238,7 +262,9 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
         tipo: 'SAÍDA',
         docNo: `SD-${String(effectiveMovements.length + 1).padStart(2, '0')}`,
         valor: parseMovementNum(closingData.totalSaidas),
-        motivo: 'Saída / Despesa: Pagamento de Caixa'
+        motivo: 'Saída / Despesa: Pagamento de Caixa',
+        dataHora: closingDateStr,
+        DATA: closingDateStr
       });
     }
 
@@ -251,7 +277,9 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
         valor: parseMovementNum(closingData.totalRecebimentosDinheiro),
         formaPagamento: 'Dinheiro',
         motivo: 'Recebimento de Parcelas / Carnês',
-        cliente: 'Recebimento de Parcelas'
+        cliente: 'Recebimento de Parcelas',
+        dataHora: closingDateStr,
+        DATA: closingDateStr
       });
     }
   }
@@ -378,6 +406,20 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
       cliente = cliente ? `${responsavel} (${cliente})` : responsavel;
     }
     const motivo = m.motivo || m.MOTIVO || m.descricao || m.detalhes || '';
+
+    // 🕒 Extração da data e horário para exibição ao lado de sangrias, suprimentos e aberturas
+    const mDate = parseItemDate(m);
+    const rawDateStr = m.dataHora || m.DATA_HORA || m.dataHoraAbertura || m.data || m.DATA || closingData.dataAbertura || closingData.dataHoraAbertura || '';
+    let formattedDate = '';
+    if (mDate) {
+      const dStr = mDate.toLocaleDateString('pt-BR');
+      const tStr = (m.hora || m.HORA || (String(rawDateStr).includes(':') ? mDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '')).trim();
+      formattedDate = tStr && tStr !== '00:00' ? `${dStr} às ${tStr}` : dStr;
+    } else if (rawDateStr) {
+      formattedDate = String(rawDateStr).trim();
+    }
+    const dateSuffix = formattedDate ? ` - ${formattedDate}` : '';
+
     let historico = '';
 
     if (isVenda) {
@@ -389,13 +431,13 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
       }
       historico = `Recebimento Parcela ${displayRec ? `- ${displayRec}` : ''}${forma ? ` (${forma})` : ''}`.trim();
     } else if (tipo === 'SANGRIA') {
-      historico = motivo ? (String(motivo).startsWith('Sangria') ? motivo : `Sangria: ${motivo}`) : 'Sangria de Caixa / Recolhimento';
+      historico = `${motivo ? (String(motivo).startsWith('Sangria') ? motivo : `Sangria: ${motivo}`) : 'Sangria de Caixa / Recolhimento'}${dateSuffix}`;
     } else if (tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'DESPESA' || tipo === 'PAGAMENTO') {
-      historico = motivo ? (String(motivo).startsWith('Saída') ? motivo : `Saída / Despesa: ${motivo}`) : 'Saída / Despesa de Caixa';
+      historico = `${motivo ? (String(motivo).startsWith('Saída') ? motivo : `Saída / Despesa: ${motivo}`) : 'Saída / Despesa de Caixa'}${dateSuffix}`;
     } else if (isSuprimento) {
-      historico = motivo ? (String(motivo).startsWith('Suprimento') ? motivo : `Suprimento: ${motivo}`) : 'Suprimento / Reforço de Troco';
+      historico = `${motivo ? (String(motivo).startsWith('Suprimento') ? motivo : `Suprimento: ${motivo}`) : 'Suprimento / Reforço de Troco'}${dateSuffix}`;
     } else if (isAbertura) {
-      historico = motivo || 'Fundo de Troco / Abertura de Caixa';
+      historico = `${motivo || 'Fundo de Troco / Abertura de Caixa'}${dateSuffix}`;
     } else {
       historico = `${motivo || cliente || 'Movimentação Diversa'}${forma ? ` (${forma})` : ''}`;
     }

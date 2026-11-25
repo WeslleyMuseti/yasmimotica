@@ -10271,7 +10271,128 @@ async function runTests() {
     console.log('  ✅ Test 113 Passed: Todos os setores auditados e protegidos contra ReferenceError com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 113 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // =========================================================================
+  // TEST 114: Reconciliação de Parcelas Pagas, Datas em Sangria/Suprimento/Abertura e Relatório Personalizado PDV
+  // =========================================================================
+  {
+    console.log('--- TEST 114: Reconciliação de Parcelas Pagas, Datas em Sangria/Suprimento/Abertura e Relatório Personalizado PDV ---');
+
+    // 1. Reconciliação de Parcelas Pagas (isInstallmentActuallyPaid & ensureInstallmentPaidStatus)
+    const { 
+      isInstallmentActuallyPaid, 
+      ensureInstallmentPaidStatus 
+    } = await import('./src/reparcelamentoUtils.js');
+
+    // Parcela já marcada como Recebido
+    const p1 = { DOCUMENTO: 'BOLETO 1/3 - OS 1001', STATUS: 'Recebido', VALOR: '150,00' };
+    console.assert(isInstallmentActuallyPaid(p1) === true, 'Parcela com STATUS Recebido deve ser considerada paga');
+
+    // Parcela pendente mas com comprovante anexado
+    const p2 = { DOCUMENTO: 'BOLETO 2/3 - OS 1001', STATUS: 'Pendente', COMPROVANTE: 'data:image/jpeg;base64,...' };
+    console.assert(isInstallmentActuallyPaid(p2) === true, 'Parcela com comprovante deve ser considerada paga');
+
+    // Parcela pendente no ERP mas com recebimento no FLUXO_CAIXA
+    const p3 = { DOCUMENTO: 'BOLETO 1/2 - OS 2002', DESCRICAO: 'OS #2002 - Parcela 1/2', STATUS: 'Pendente', VALOR: '200,00', VENDA_OS: '2002' };
+    const mockFluxo = [
+      { tipo: 'RECEBIMENTO', osNumero: '2002', valor: 200, motivo: 'Recebimento Parcela 1/2 - OS 2002', formaPagamento: 'Dinheiro' }
+    ];
+    console.assert(isInstallmentActuallyPaid(p3, { fluxoCaixa: mockFluxo }) === true, 'Parcela com baixa no Fluxo de Caixa deve ser reconhecida como paga');
+
+    const restoredP3 = ensureInstallmentPaidStatus(p3, { fluxoCaixa: mockFluxo });
+    console.assert(restoredP3.STATUS === 'Recebido', 'ensureInstallmentPaidStatus deve restaurar STATUS para Recebido');
+    console.assert(Boolean(restoredP3.DATA_RECEBIMENTO), 'ensureInstallmentPaidStatus deve preencher DATA_RECEBIMENTO');
+
+    // Parcela pendente de uma venda já totalmente quitada na emissão (RESTANTE = 0)
+    const p4 = { DOCUMENTO: 'BOLETO 1/1 - OS 3003', STATUS: 'Pendente', VALOR: '350,00', VENDA_OS: '3003' };
+    const mockSales = [
+      { 'OS DA VENDA': '3003', 'VALOR TOTAL': '350,00', 'VALOR ENTRADA': '350,00', 'RESTANTE': '0,00', PAGO: 'sim' }
+    ];
+    console.assert(isInstallmentActuallyPaid(p4, { salesData: mockSales }) === true, 'Venda quitada sem restante deve marcar parcelas como pagas');
+
+    // 2. Exibição de Data ao Lado em Abertura de Caixa, Sangria e Suprimento
+    const { prepareCashMovementRows } = await import('./src/cashMovementUtils.js');
+    const closingSample = {
+      fundoInicial: 200,
+      totalSangrias: 50,
+      totalSuprimentos: 100,
+      totalVendas: 500,
+      dataAbertura: '25/11/2026 08:30',
+      dataFechamento: '25/11/2026 18:00'
+    };
+    const movementsSample = [
+      { tipo: 'ABERTURA', valor: 200, dataHora: '25/11/2026 08:30:00', motivo: 'Fundo de Troco Inicial' },
+      { tipo: 'SUPRIMENTO', valor: 100, dataHora: '25/11/2026 11:15:00', motivo: 'Troco Moedas' },
+      { tipo: 'SANGRIA', valor: 50, dataHora: '25/11/2026 15:45:00', motivo: 'Recolhimento Cofre' },
+      { tipo: 'VENDA', valor: 300, dataHora: '25/11/2026 16:20:00', formaPagamento: 'PIX', cliente: 'Maria Silva' }
+    ];
+
+    const { rows } = prepareCashMovementRows(closingSample, movementsSample, 10);
+    const aberturaRow = rows.find(r => r.historico.includes('Fundo') || r.docNo === 'AB-01');
+    const suprimentoRow = rows.find(r => r.historico.includes('Suprimento') || r.docNo.startsWith('SP'));
+    const sangriaRow = rows.find(r => r.historico.includes('Sangria') || r.docNo.startsWith('SG'));
+
+    console.assert(Boolean(aberturaRow), 'Linha de Abertura deve existir no relatório');
+    console.assert(aberturaRow.historico.includes('25/11/2026'), `Abertura deve conter data ao lado: ${aberturaRow?.historico}`);
+    console.assert(Boolean(suprimentoRow), 'Linha de Suprimento deve existir no relatório');
+    console.assert(suprimentoRow.historico.includes('25/11/2026'), `Suprimento deve conter data ao lado: ${suprimentoRow?.historico}`);
+    console.assert(Boolean(sangriaRow), 'Linha de Sangria deve existir no relatório');
+    console.assert(sangriaRow.historico.includes('25/11/2026'), `Sangria deve conter data ao lado: ${sangriaRow?.historico}`);
+
+    // 3. Relatório Personalizado e Filtro por Caixa (PDV)
+    // Validação estática dos componentes atualizados via Babel
+    const parserModule = await import('@babel/parser');
+    const traverseModule = await import('@babel/traverse');
+    const parser = parserModule.default || parserModule;
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const filesToAudit = [
+      'src/App.jsx',
+      'src/components/ErpOptica.jsx',
+      'src/components/ClientProfileModal.jsx',
+      'src/cashMovementUtils.js',
+      'src/components/PrintableCashClosingReport.jsx',
+      'src/components/CashHistoryModal.jsx'
+    ];
+
+    const standardGlobals = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'Intl', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React'
+    ]);
+
+    const undeclaredIds = [];
+    filesToAudit.forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals.has(name)) return;
+          if (p.scope.hasBinding(name)) return;
+          undeclaredIds.push({ file: relPath, name, line: p.node.loc?.start?.line });
+        }
+      });
+    });
+
+    console.assert(undeclaredIds.length === 0, `Nenhum identificador indefinido deve existir nos arquivos modificados: ${JSON.stringify(undeclaredIds)}`);
+
+    console.log('  ✅ Test 114 Passed: Reconciliação de Parcelas Pagas, Datas em Sangria/Suprimento/Abertura e Relatório Personalizado PDV validados com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 114 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

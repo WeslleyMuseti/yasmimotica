@@ -1188,5 +1188,153 @@ export const isBoletoOrCarne = (val) => {
   return /boleto|carn[eê]/i.test(String(val));
 };
 
+/**
+ * 🛡️ Verifica e restaura se uma parcela já foi paga no sistema:
+ * 1. Já está marcada como Recebido/Pago no Contas a Receber
+ * 2. Possui comprovante ou anexo de pagamento
+ * 3. Possui data de pagamento ou baixa preenchida
+ * 4. Possui lançamento correspondente de RECEBIMENTO no Fluxo de Caixa
+ * 5. A venda de origem não possui restante a pagar (quitada na emissão / sem saldo pendente)
+ * 6. Existe duplicata/quitação de saldo correspondente já recebida
+ */
+export const isInstallmentActuallyPaid = (
+  inv,
+  { fluxoCaixa = [], salesData = [], receberList = [] } = {}
+) => {
+  if (!inv || typeof inv !== 'object') return false;
+
+  const st = String(inv.STATUS || inv.status || '').toLowerCase().trim();
+  if (['recebido', 'pago', 'liquidado'].includes(st)) {
+    return true;
+  }
+
+  // 1. Possui comprovante anexado
+  if (inv.COMPROVANTE || inv.comprovante || inv.RECIBO || inv.recibo || inv.RECIBO_PAGAMENTO || inv.DATA_COMPROVANTE) {
+    return true;
+  }
+
+  // 2. Possui data de pagamento ou baixa preenchida
+  if (inv.DATA_PAGAMENTO || inv.DATA_RECEBIMENTO || inv.data_pagamento || inv.data_recebimento || inv.dataPagamento || inv.dataRecebimento || inv.DATA_BAIXA) {
+    return true;
+  }
+
+  const clean = (val) => String(val || '').toLowerCase().trim();
+  const cleanDigits = (val) => String(val || '').replace(/\D/g, '');
+
+  const invOS = clean(inv.VENDA_OS || inv.OS || inv.os || extractOSFromRow(inv) || '');
+  const invDoc = clean(inv.DOCUMENTO || inv.documento || '');
+  const invDesc = clean(inv.DESCRICAO || inv.descricao || '');
+  const invClient = clean(inv.CLIENTE || inv.NOME || inv.PAGADOR || inv.PAGADOR_NOME || inv.cliente || inv.nome || '');
+  const invCpf = cleanDigits(inv.CLIENTE_CPF || inv.CPF || inv.PAGADOR_CPF || inv.cpf || '');
+  const invVal = parseCurrencyValue(inv.VALOR || inv.valor || 0);
+  const invVenc = normalizeInstallmentDateIso(inv.DATA_VENCIMENTO || inv['DATA VENCIMENTO'] || inv.VENCIMENTO || '');
+
+  // Extrair número da parcela (ex: 1 de 1/3)
+  const numMatch = (invDoc + ' ' + invDesc).match(/(\d+)\s*(?:\/|de)\s*(\d+)/i) || (invDoc + ' ' + invDesc).match(/parcela\s*(\d+)/i);
+  const numP = numMatch ? parseInt(numMatch[1], 10) : null;
+
+  // 3. Checar no FLUXO_CAIXA por quitações / recebimentos correspondentes
+  if (Array.isArray(fluxoCaixa) && fluxoCaixa.length > 0) {
+    const hasCashReceipt = fluxoCaixa.some(m => {
+      if (!m || typeof m !== 'object') return false;
+      const mTipo = clean(m.tipo || m.TIPO || '');
+      if (mTipo !== 'recebimento') return false;
+
+      const mOS = clean(m.osNumero || m.OS || m.VENDA_OS || m['OS DA VENDA'] || '');
+      const mClient = clean(m.cliente || m.CLIENTE || m.nome || '');
+      const mCpf = cleanDigits(m.CPF || m.cpf || m.CLIENTE_CPF || '');
+      const mVal = parseCurrencyValue(m.valor || m.VALOR || 0);
+      const mMotivo = clean(m.motivo || m.detalhes || '');
+
+      const matchesOS = invOS && mOS && (invOS === mOS || invOS.includes(mOS) || mOS.includes(invOS));
+      const matchesClient = (invCpf && mCpf && invCpf === mCpf) || (invClient && mClient && (invClient === mClient || invClient.includes(mClient) || mClient.includes(invClient)));
+      const matchesValue = Math.abs(mVal - invVal) < 0.05;
+
+      const mNumMatch = mMotivo.match(/(\d+)\s*(?:\/|de)\s*(\d+)/i) || mMotivo.match(/parcela\s*(\d+)/i);
+      const mNumP = mNumMatch ? parseInt(mNumMatch[1], 10) : null;
+      const matchesNum = numP && mNumP && numP === mNumP;
+
+      if (matchesOS && (matchesNum || matchesValue || (numP && mMotivo.includes(`parcela ${numP}`)))) return true;
+      if (matchesClient && matchesValue && (matchesNum || (numP && mMotivo.includes(`parcela ${numP}`)) || (invVenc && mMotivo.includes(invVenc)))) return true;
+
+      return false;
+    });
+
+    if (hasCashReceipt) return true;
+  }
+
+  // 4. Checar se a venda de origem está quitada / sem restante
+  if (Array.isArray(salesData) && salesData.length > 0 && invOS) {
+    const matchedSale = salesData.find(s => {
+      if (!s) return false;
+      const sOS = clean(s['OS DA VENDA'] || s.OS || s.VENDA_OS || s.numeroOS || '');
+      return sOS && (sOS === invOS || sOS.includes(invOS) || invOS.includes(sOS));
+    });
+
+    if (matchedSale) {
+      const rest = parseCurrencyValue(matchedSale.RESTANTE || matchedSale['VALOR RESTANTE'] || matchedSale.restante);
+      const tot = parseCurrencyValue(matchedSale['VALOR TOTAL'] || matchedSale['VALOR DA VENDA'] || matchedSale.valorTotal || matchedSale.VALOR_TOTAL);
+      const sPago = clean(matchedSale.PAGO || matchedSale.pago || matchedSale.STATUS || '');
+      
+      if (tot > 0 && rest <= 0) return true;
+      if (sPago === 'sim' || sPago === 'pago' || sPago === 'recebido') return true;
+    }
+  }
+
+  // 5. Checar em CONTAS_RECEBER se existe uma fatura/quitação já paga para esta OS/parcela
+  if (Array.isArray(receberList) && receberList.length > 0) {
+    const hasPaidInvoice = receberList.some(r => {
+      if (!r || r === inv || (r.id && inv.id && r.id === inv.id)) return false;
+      const rSt = clean(r.STATUS || r.status || '');
+      if (!['recebido', 'pago', 'liquidado'].includes(rSt)) return false;
+
+      const rOS = clean(r.VENDA_OS || r.OS || r.os || extractOSFromRow(r) || '');
+      const rDoc = clean(r.DOCUMENTO || r.documento || '');
+      const rDesc = clean(r.DESCRICAO || r.descricao || '');
+      const rVal = parseCurrencyValue(r.VALOR || r.valor || 0);
+      const rVenc = normalizeInstallmentDateIso(r.DATA_VENCIMENTO || r['DATA VENCIMENTO'] || r.VENCIMENTO || '');
+
+      const matchesOS = invOS && rOS && (invOS === rOS || invOS.includes(rOS) || rOS.includes(invOS));
+      
+      if (matchesOS && rVal >= invVal && (rDoc.includes('saldo') || rDoc.includes('total') || rDesc.includes('venda'))) {
+        return true;
+      }
+
+      const rNumMatch = (rDoc + ' ' + rDesc).match(/(\d+)\s*(?:\/|de)\s*(\d+)/i) || (rDoc + ' ' + rDesc).match(/parcela\s*(\d+)/i);
+      const rNumP = rNumMatch ? parseInt(rNumMatch[1], 10) : null;
+      if (matchesOS && numP && rNumP && numP === rNumP) return true;
+      if (matchesOS && invVenc && rVenc && invVenc === rVenc) return true;
+
+      return false;
+    });
+
+    if (hasPaidInvoice) return true;
+  }
+
+  return false;
+};
+
+/**
+ * Normaliza e restaura o status 'Recebido' para parcelas comprovadamente pagas
+ */
+export const ensureInstallmentPaidStatus = (inv, helpers = {}) => {
+  if (!inv || typeof inv !== 'object') return inv;
+  if (isInstallmentActuallyPaid(inv, helpers)) {
+    const todayBr = new Date().toLocaleDateString('pt-BR');
+    const todayIso = new Date().toISOString().split('T')[0];
+    return {
+      ...inv,
+      STATUS: 'Recebido',
+      status: 'Recebido',
+      DATA_RECEBIMENTO: inv.DATA_RECEBIMENTO || inv.DATA_PAGAMENTO || todayBr,
+      DATA_PAGAMENTO: inv.DATA_PAGAMENTO || inv.DATA_RECEBIMENTO || todayBr,
+      data_recebimento: inv.data_recebimento || inv.data_pagamento || todayIso,
+      data_pagamento: inv.data_pagamento || inv.data_recebimento || todayIso
+    };
+  }
+  return inv;
+};
+
+
 
 

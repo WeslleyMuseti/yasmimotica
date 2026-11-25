@@ -275,9 +275,18 @@ export const PrintableCashClosingReport = ({
       ? `OS #${String(docRaw).replace(/^#|^os[-_ ]?/i, '').trim()}`
       : (m.id && !String(m.id).startsWith('fc_') && !String(m.id).startsWith('mov_') ? String(m.id).slice(0, 12) : '---');
 
-    const clienteRaw = cleanReportBoletoText(
+    let clienteRaw = cleanReportBoletoText(
       m.cliente || m.CLIENTE || m.NOME || m.favorecido || m.motivo || m.MOTIVO || m.descricao || m.detalhes || '---'
     );
+    if (tipo === 'ABERTURA') {
+      clienteRaw = `Fundo de Troco / Abertura de Caixa${dateTimeDisplay ? ` - ${dateTimeDisplay}` : ''}`;
+    } else if (tipo === 'SANGRIA') {
+      clienteRaw = `Sangria: ${m.motivo || 'Recolhimento'}${dateTimeDisplay ? ` - ${dateTimeDisplay}` : ''}`;
+    } else if (tipo === 'SUPRIMENTO') {
+      clienteRaw = `Suprimento: ${m.motivo || 'Reforço de Troco'}${dateTimeDisplay ? ` - ${dateTimeDisplay}` : ''}`;
+    } else if (isSaida) {
+      clienteRaw = `Saída / Despesa: ${m.motivo || 'Pagamento'}${dateTimeDisplay ? ` - ${dateTimeDisplay}` : ''}`;
+    }
     const subDetalhe = cleanReportBoletoText(
       (m.cliente && m.motivo && m.motivo !== m.cliente) ? m.motivo : (m.detalhes || m.despesaCategoria || '')
     );

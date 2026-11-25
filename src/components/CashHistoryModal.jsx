@@ -626,7 +626,7 @@ export const CashHistoryContent = ({
 
           if (valorTotalOS > 0 || valorEntrada > 0) {
             const resolvedUnit = resolveOSUnit({ numeroOS: osRaw, ...s });
-            const loja = resolvedUnit || s['CIDADE'] || s['Loja'] || s['UNIDADE'] || s['loja'] || s['Cidade'] || 'Cajati';
+            const loja = resolvedUnit || s['LOJA'] || s['CIDADE'] || s['UNIDADE'] || s['Loja'] || s['loja'] || s['Cidade'] || s['cidade'] || s['unidade'] || s['assignedStore'] || 'Cajati';
             const vendedor = s['VENDEDOR'] || s['OPERADOR'] || s['Vendedor'] || 'Vendedor';
             const formaRaw = s['FORMAS_PAGAMENTO'] || s['FORMA_PAGTO'] || s['FORMA DE PAGAMENTO'] || s['MEIO_PAGAMENTO'] || s['FORMA'] || s['PAGAMENTO'] || s['Forma de Pagamento'] || 'Dinheiro';
             const forma = cleanBoletoDisplay(formaRaw);
@@ -688,6 +688,10 @@ export const CashHistoryContent = ({
               cliente,
               tipo: 'VENDA',
               unidade: loja,
+              CIDADE: loja,
+              LOJA: loja,
+              UNIDADE: loja,
+              loja: loja,
               operador: vendedor,
               valor: valorCaixaImediato,
               valorTotalOS: valorTotalOS,
@@ -931,7 +935,7 @@ export const CashHistoryContent = ({
     return allMovements.filter(item => {
       // 1. Filtro por Loja
       if (selectedUnit && selectedUnit !== 'Todas' && selectedUnit !== 'Todas as Lojas') {
-        const itemUnit = String(item.unidade || item.CIDADE || item.LOJA || item.Cidade || '').trim().toLowerCase();
+        const itemUnit = String(item.unidade || item.CIDADE || item.LOJA || item.Cidade || item.loja || item.UNIDADE || item.cidade || '').trim().toLowerCase();
         const selUnit = String(selectedUnit).trim().toLowerCase();
         if (!itemUnit || (!itemUnit.includes(selUnit) && !selUnit.includes(itemUnit))) {
           return false;
@@ -951,11 +955,38 @@ export const CashHistoryContent = ({
         const itemDate = parseItemDate(item);
         if (!itemDate) {
           // Se não conseguir parsear a data mas tiver string de hoje
-          const rawStr = String(item.dataHora || item.DATA || item.data || '');
+          const rawStr = String(item.dataHora || item.DATA || item.data || item['DATA DA VENDA'] || item['DATA  DA VENDA'] || '');
           if (selectedPeriod === 'HOJE' && !rawStr.includes(todayStr)) return false;
           if (selectedPeriod === 'ONTEM' && !rawStr.includes(yesterdayStr)) return false;
           if (selectedPeriod === 'PERSONALIZADO') {
+            let startCal = 0;
+            let endCal = 99999999;
             if (customStartDate) {
+              const [sy, sm, sd] = customStartDate.split('-').map(Number);
+              startCal = sy * 10000 + sm * 100 + sd;
+            }
+            if (customEndDate) {
+              const [ey, em, ed] = customEndDate.split('-').map(Number);
+              endCal = ey * 10000 + em * 100 + ed;
+            }
+            if (startCal > endCal) {
+              const temp = startCal;
+              startCal = endCal;
+              endCal = temp;
+            }
+
+            const brMatch = rawStr.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+            const isoMatch = rawStr.match(/(\d{4})-(\d{2})-(\d{2})/);
+            let rawCal = null;
+            if (brMatch) {
+              rawCal = parseInt(brMatch[3], 10) * 10000 + parseInt(brMatch[2], 10) * 100 + parseInt(brMatch[1], 10);
+            } else if (isoMatch) {
+              rawCal = parseInt(isoMatch[1], 10) * 10000 + parseInt(isoMatch[2], 10) * 100 + parseInt(isoMatch[3], 10);
+            }
+
+            if (rawCal !== null) {
+              if (rawCal < startCal || rawCal > endCal) return false;
+            } else if (customStartDate) {
               const [sy, sm, sd] = customStartDate.split('-');
               const brDate = `${sd}/${sm}/${sy}`;
               if (!rawStr.includes(customStartDate) && !rawStr.includes(brDate)) return false;
@@ -972,27 +1003,24 @@ export const CashHistoryContent = ({
           } else if (selectedPeriod === 'MES') {
             if (itemDate.getMonth() !== now.getMonth() || itemDate.getFullYear() !== now.getFullYear()) return false;
           } else if (selectedPeriod === 'PERSONALIZADO') {
-            if (customStartDate && customEndDate) {
+            const toCal = (d) => d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+            const itemCal = toCal(itemDate);
+            let startCal = 0;
+            let endCal = 99999999;
+            if (customStartDate) {
               const [sy, sm, sd] = customStartDate.split('-').map(Number);
-              const [ey, em, ed] = customEndDate.split('-').map(Number);
-              let startD = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
-              let endD = new Date(ey, em - 1, ed, 23, 59, 59, 999);
-              if (startD > endD) {
-                const temp = startD;
-                startD = endD;
-                endD = temp;
-              }
-              if (itemDate < startD || itemDate > endD) return false;
-            } else if (customStartDate) {
-              const [sy, sm, sd] = customStartDate.split('-').map(Number);
-              const startD = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
-              const endD = new Date(sy, sm - 1, sd, 23, 59, 59, 999);
-              if (itemDate < startD || itemDate > endD) return false;
-            } else if (customEndDate) {
-              const [ey, em, ed] = customEndDate.split('-').map(Number);
-              const endD = new Date(ey, em - 1, ed, 23, 59, 59, 999);
-              if (itemDate > endD) return false;
+              startCal = sy * 10000 + sm * 100 + sd;
             }
+            if (customEndDate) {
+              const [ey, em, ed] = customEndDate.split('-').map(Number);
+              endCal = ey * 10000 + em * 100 + ed;
+            }
+            if (startCal > endCal) {
+              const temp = startCal;
+              startCal = endCal;
+              endCal = temp;
+            }
+            if (itemCal < startCal || itemCal > endCal) return false;
           }
         }
       }
@@ -1058,7 +1086,8 @@ export const CashHistoryContent = ({
           totalRecebimentosDinheiro += v;
         }
       } else if (tipo === 'VENDA') {
-        totalVendasGeral += v;
+        const fullOSVal = parseCurrency(item.valorTotalOS || item['VALOR TOTAL'] || item['VALOR DA VENDA'] || v);
+        totalVendasGeral += fullOSVal > 0 ? fullOSVal : v;
         if (v > 0) {
           if (forma.includes('PIX')) {
             totalPix += v;

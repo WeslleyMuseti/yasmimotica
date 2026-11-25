@@ -48,6 +48,12 @@ import {
   isStephanieMuseti,
   normalizeLentesAllDigital
 } from './firebaseSync';
+import { 
+  isInstallmentActuallyPaid, 
+  ensureInstallmentPaidStatus,
+  extractOSFromRow,
+  normalizeInstallmentDateIso
+} from './reparcelamentoUtils';
 
 const parseSafeCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -351,13 +357,20 @@ function App() {
   useEffect(() => {
     const receberList = data?.['CONTAS_RECEBER'];
     if (!receberList || !Array.isArray(receberList) || receberList.length === 0) return;
+    const fluxoCaixa = data?.['FLUXO_CAIXA'] || [];
+    const salesData = data?.['Registro_Vendas'] || data?.['BD MARKETING'] || [];
 
     let hasChange = false;
-    const toDeleteIds = [];
 
     // Agrupa por cliente para identificar duplicidades e normalizar parcelas sem purga destrutiva
     const byClient = {};
-    receberList.forEach(r => {
+    receberList.forEach(rawR => {
+      // 🛡️ Restaura o status 'Recebido' para parcelas comprovadamente pagas (no caixa, comprovante ou quitação)
+      const r = ensureInstallmentPaidStatus(rawR, { fluxoCaixa, salesData, receberList });
+      if (r.STATUS !== rawR.STATUS || r.status !== rawR.status) {
+        hasChange = true;
+      }
+
       const client = String(
         r['CLIENTE'] || r['NOME CLIENTE'] || r['NOME'] || r['Cliente'] ||
         r['PAGADOR'] || r['PAGADOR_NOME'] || r['TITULAR_PARCELA'] || r['PACIENTE'] ||
@@ -411,9 +424,39 @@ function App() {
         rows.forEach(r => {
           const isInst = installmentRows.includes(r);
           const rVal = parseSafeCurrency(r.VALOR || r.valor || 0);
-          const isDuplicateLumpSum = !isInst && 
+          const isPaid = isInstallmentActuallyPaid(r, { fluxoCaixa, salesData, receberList });
+
+          // 🛡️ Não remove lançamentos de saldo se eles já estiverem quitados/pagos!
+          const isDuplicateLumpSum = !isInst && !isPaid && 
             Math.abs(rVal - installmentsSum) < 2.0 && 
             (String(r.DOCUMENTO || '').toUpperCase().includes('SALDO') || String(r.DESCRICAO || '').toUpperCase().includes('VENDA OS') || String(r.MEIO_PAGAMENTO || '').toUpperCase().includes('BOLETO'));
+
+          // 🛡️ Omitir linhas sintéticas 'Pendente' se já houver parcela 'Recebido' para esta mesma OS e número
+          const isPendingAuto = String(r.id || '').startsWith('boleto_auto_') && !isPaid;
+          if (isPendingAuto) {
+            const rOS = String(r.VENDA_OS || r.OS || extractOSFromRow(r) || '').replace(/^#/, '').trim().toLowerCase();
+            const rDoc = String(r.DOCUMENTO || r.documento || '').toLowerCase();
+            const rDesc = String(r.DESCRICAO || r.descricao || '').toLowerCase();
+            const rMatch = (rDoc + ' ' + rDesc).match(/(\d+)\s*(?:\/|de)\s*(\d+)/i) || (rDoc + ' ' + rDesc).match(/parcela\s*(\d+)/i);
+            const rNum = rMatch ? parseInt(rMatch[1], 10) : null;
+
+            const hasPaidDuplicate = rows.some(other => {
+              if (other === r) return false;
+              if (!isInstallmentActuallyPaid(other, { fluxoCaixa, salesData, receberList })) return false;
+              const oOS = String(other.VENDA_OS || other.OS || extractOSFromRow(other) || '').replace(/^#/, '').trim().toLowerCase();
+              const oDoc = String(other.DOCUMENTO || other.documento || '').toLowerCase();
+              const oDesc = String(other.DESCRICAO || other.descricao || '').toLowerCase();
+              const oMatch = (oDoc + ' ' + oDesc).match(/(\d+)\s*(?:\/|de)\s*(\d+)/i) || (oDoc + ' ' + oDesc).match(/parcela\s*(\d+)/i);
+              const oNum = oMatch ? parseInt(oMatch[1], 10) : null;
+              if (rOS && oOS && rOS === oOS && rNum && oNum && rNum === oNum) return true;
+              return false;
+            });
+
+            if (hasPaidDuplicate) {
+              hasChange = true;
+              return;
+            }
+          }
 
           if (isDuplicateLumpSum) {
             // Se houver saldo consolidado concomitante às parcelas discriminadas, preserva em memória ou vincula
@@ -456,7 +499,7 @@ function App() {
         };
       });
     }
-  }, [data?.['CONTAS_RECEBER'], isConfigured]);
+  }, [data?.['CONTAS_RECEBER'], data?.['FLUXO_CAIXA'], data?.['Registro_Vendas'], isConfigured]);
 
   const [selectedRow, setSelectedRow] = useState(null);
   const [editingRowData, setEditingRowData] = useState(null);
