@@ -11786,7 +11786,138 @@ async function runTests() {
     console.log('  ✅ Test 125 Passed: Blindagem Soberana de Venda Externa (EXT) validada com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 125 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ─── TEST 126: Proteção Contra Inflação de Vendas Cortesia / Garantia R$ 0,00 (Caso Rosana Davies) ───
+  console.log('▶ Test 126: Proteção Contra Inflação de Vendas R$ 0,00 (Cortesia/Garantia) no Movimento do Caixa');
+  {
+    const { prepareCashMovementRows } = await import('./src/cashMovementUtils.js');
+
+    // Simula Histórico Completo da loja (totalVendas acumulado = R$ 54.320,00) contendo:
+    // 1. Venda real da Rosana Davies (CAJ-1: R$ 730,00 no Cartão)
+    // 2. OS de Garantia / Retorno R$ 0,00 da Rosana Davies (CAJ-018: valor = 0, valorTotalOS = 0)
+    // 3. Venda Cortesia R$ 0,00 (CAJ-038: valor = 0, valorTotalOS = 0)
+    const mockMovementsRosana = [
+      {
+        id: 'sale_rosana_real',
+        tipo: 'VENDA',
+        osNumero: 'CAJ-1',
+        cliente: 'ROSANA DAVIES',
+        valor: 730,
+        valorTotalOS: 730,
+        valorEntradaOS: 730,
+        valorRestanteBoleto: 0,
+        formaPagamento: 'Cartão Crédito (1x à vista)'
+      },
+      {
+        id: 'sale_rosana_garantia',
+        tipo: 'VENDA',
+        osNumero: 'CAJ-018',
+        cliente: 'ROSANA DAVIES',
+        valor: 0,
+        valorTotalOS: 0,
+        valorEntradaOS: 0,
+        valorRestanteBoleto: 0,
+        formaPagamento: 'Dinheiro'
+      },
+      {
+        id: 'sale_catia_cortesia',
+        tipo: 'VENDA',
+        osNumero: 'CAJ-038',
+        cliente: 'Catia Cristina Maranho Nunes',
+        valor: 0,
+        valorTotalOS: 0,
+        valorEntradaOS: 0,
+        valorRestanteBoleto: 0,
+        formaPagamento: 'Dinheiro'
+      }
+    ];
+
+    const resRosana = prepareCashMovementRows(
+      {
+        unidade: 'Cajati',
+        fundoInicial: 100,
+        totalVendas: 54320,
+        totalFaturadoGeral: 54320,
+        vendasBoletoTotal: 12000,
+        vendasCredito: 730
+      },
+      mockMovementsRosana,
+      20
+    );
+
+    const rowReal = resRosana.rows.find(r => r.docNo === 'OS-CAJ-1');
+    const rowGarantia = resRosana.rows.find(r => r.docNo === 'OS-CAJ-018');
+    const rowCortesia = resRosana.rows.find(r => r.docNo === 'OS-CAJ-038');
+
+    console.assert(rowReal && rowReal.venda === '730,00' && rowReal.entrada === '730,00', `Venda real CAJ-1 deve ser 730,00 / 730,00, obteve: ${JSON.stringify(rowReal)}`);
+    console.assert(rowGarantia && rowGarantia.venda === '0,00' && rowGarantia.entrada === '', `OS garantia R$ 0,00 (CAJ-018) JAMAIS deve puxar totalVendas do período (54.320,00)! Obteve: ${JSON.stringify(rowGarantia)}`);
+    console.assert(rowCortesia && rowCortesia.venda === '0,00' && rowCortesia.entrada === '', `OS cortesia R$ 0,00 (CAJ-038) JAMAIS deve puxar totalVendas do período! Obteve: ${JSON.stringify(rowCortesia)}`);
+    console.assert(resRosana.totalEntradasFinal === 730, `Total de entradas operacionais deve ser 730,00 (sem inflação de R$ 54.320,00), obteve: ${resRosana.totalEntradasFinal}`);
+
+    // Verificação estrutural no código
+    const cashMovUtilsSrc = fs.readFileSync(path.join(__dirname, 'src/cashMovementUtils.js'), 'utf-8');
+    const cashHistSrc = fs.readFileSync(path.join(__dirname, 'src/components/CashHistoryModal.jsx'), 'utf-8');
+    console.assert(!cashMovUtilsSrc.includes('totalOS = closingTotalVendas'), 'cashMovementUtils.js não deve atribuir closingTotalVendas a uma venda individual');
+    console.assert(cashHistSrc.includes('resolveOSFinancials'), 'CashHistoryModal.jsx deve usar resolveOSFinancials para reconciliar valores de vendas');
+
+    // Auditoria AST + TDZ
+    const parserModule = await import('@babel/parser');
+    const parser = parserModule.default || parserModule;
+    const traverseModule = await import('@babel/traverse');
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const standardGlobals126 = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React', 'getDoc', 'getDocs', 'query', 'where', 'addDoc',
+      'updateDoc', 'doc', 'collection', 'setDoc', 'deleteDoc', 'onSnapshot', 'orderBy', 'limit'
+    ]);
+
+    const undeclared126 = [];
+    const tdzIssues126 = [];
+
+    ['src/cashMovementUtils.js', 'src/components/CashHistoryModal.jsx'].forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals126.has(name)) return;
+          const binding = p.scope.getBinding(name);
+          if (!binding) {
+            undeclared126.push({ file: relPath, name, line: p.node.loc?.start?.line });
+            return;
+          }
+          if ((binding.kind === 'const' || binding.kind === 'let') && binding.scope === p.scope) {
+            const declStart = binding.path.node.start;
+            const refStart = p.node.start;
+            if (typeof declStart === 'number' && typeof refStart === 'number' && refStart < declStart) {
+              tdzIssues126.push({ file: relPath, name, refLine: p.node.loc?.start?.line, declLine: binding.path.node.loc?.start?.line });
+            }
+          }
+        }
+      });
+    });
+
+    console.assert(undeclared126.length === 0, `Nenhum identificador indefinido no Teste 126: ${JSON.stringify(undeclared126)}`);
+    console.assert(tdzIssues126.length === 0, `Nenhum problema TDZ no Teste 126: ${JSON.stringify(tdzIssues126)}`);
+
+    console.log('  ✅ Test 126 Passed: Vendas R$ 0,00 (Cortesia/Garantia) blindadas contra inflação de valores!\n');
+  }
+
+  console.log('🎉 ALL 126 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

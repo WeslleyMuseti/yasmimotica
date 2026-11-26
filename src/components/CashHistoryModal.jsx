@@ -11,7 +11,7 @@ import PrintableCashClosingReport from './PrintableCashClosingReport';
 import PrintableCashMovementSheet from './PrintableCashMovementSheet';
 import { buildCombinedShiftMovements, parseItemDate, extractItemDateIso } from '../cashShiftUtils';
 import { buildCashHistoryXml, downloadXmlFile } from '../xmlUtils';
-import { resolveOSUnit, normalizeInstallmentDateIso, formatInstallmentDateBr } from '../reparcelamentoUtils';
+import { resolveOSUnit, resolveOSFinancials, normalizeInstallmentDateIso, formatInstallmentDateBr } from '../reparcelamentoUtils';
 import * as XLSX from 'xlsx';
 
 const formatCurrency = (val) => {
@@ -478,9 +478,16 @@ export const CashHistoryContent = ({
 
               if (matchedSale) {
                 const realOs = matchedSale['OS DA VENDA'] || matchedSale['Nº DA OS'] || matchedSale['OS'] || m.osNumero || '';
-                const totalOS = parseCurrency(matchedSale['VALOR TOTAL'] ?? matchedSale['VALOR_TOTAL'] ?? matchedSale['VALOR DA VENDA'] ?? matchedSale['VALOR'] ?? m.valor);
-                const entradaOS = parseCurrency(matchedSale['VALOR ENTRADA'] ?? matchedSale['ENTRADA'] ?? m.valor);
-                const restanteOS = parseCurrency(matchedSale['RESTANTE'] ?? matchedSale['VALOR RESTANTE'] ?? 0);
+                const resolvedMatchedFin = resolveOSFinancials(matchedSale);
+                const totalOS = resolvedMatchedFin.total > 0
+                  ? resolvedMatchedFin.total
+                  : parseCurrency(matchedSale['VALOR TOTAL'] ?? matchedSale['VALOR_TOTAL'] ?? matchedSale['VALOR DA VENDA'] ?? matchedSale['VALOR'] ?? m.valor);
+                const entradaOS = resolvedMatchedFin.total > 0
+                  ? resolvedMatchedFin.entrada
+                  : parseCurrency(matchedSale['VALOR ENTRADA'] ?? matchedSale['ENTRADA'] ?? m.valor);
+                const restanteOS = resolvedMatchedFin.total > 0
+                  ? resolvedMatchedFin.restante
+                  : parseCurrency(matchedSale['RESTANTE'] ?? matchedSale['VALOR RESTANTE'] ?? 0);
                 const cliName = matchedSale['CLIENTE'] || matchedSale['NOME DO CLIENTE'] || m.cliente || '';
                 const formaEnt = matchedSale['FORMA_ENTRADA'] || matchedSale['formaPagamentoEntrada'] || m.formaEntradaOS || '';
                 const formaRest = matchedSale['FORMA_RESTANTE'] || matchedSale['formaPagamentoRestante'] || m.formaRestanteOS || '';
@@ -496,10 +503,21 @@ export const CashHistoryContent = ({
                   formaEntradaOS: formaEnt,
                   formaRestanteOS: formaRest
                 };
+              } else if (
+                Array.isArray(salesData) &&
+                salesData.length > 0 &&
+                parseCurrency(m.valor) === 0 &&
+                parseCurrency(m.valorTotalOS) === 0 &&
+                m.saleId &&
+                !String(m.saleId).startsWith('os_')
+              ) {
+                // 🛡️ Movimento órfão com valor R$ 0,00 cuja venda foi excluída de Registro_Vendas
+                return null;
               }
             }
             return enriched;
           })
+          .filter(Boolean)
       : [];
     
     // Identificar vendas já presentes no fluxo de caixa para evitar duplicar
@@ -573,9 +591,15 @@ export const CashHistoryContent = ({
                             (cleanSId && existingSalesIds.has(cleanSId));
 
         if (!isDuplicate) {
-          const valorTotalOS = parseCurrency(s['VALOR TOTAL'] || s['VALOR DA VENDA'] || s['VALOR'] || s['VALOR_TOTAL'] || s['Valor'] || 0);
-          const valorEntrada = parseCurrency(s['VALOR ENTRADA'] ?? s['ENTRADA'] ?? s['Sinal'] ?? 0);
-          const valorRestante = parseCurrency(s['RESTANTE'] ?? s['VALOR RESTANTE'] ?? s['Restante'] ?? 0);
+          const resolvedSaleFin = resolveOSFinancials(s);
+          const rawTotalOS = parseCurrency(s['VALOR TOTAL'] || s['VALOR DA VENDA'] || s['VALOR'] || s['VALOR_TOTAL'] || s['Valor'] || 0);
+          const valorTotalOS = resolvedSaleFin.total > 0 ? resolvedSaleFin.total : rawTotalOS;
+          const valorEntrada = resolvedSaleFin.total > 0
+            ? resolvedSaleFin.entrada
+            : parseCurrency(s['VALOR ENTRADA'] ?? s['ENTRADA'] ?? s['Sinal'] ?? 0);
+          const valorRestante = resolvedSaleFin.total > 0
+            ? resolvedSaleFin.restante
+            : parseCurrency(s['RESTANTE'] ?? s['VALOR RESTANTE'] ?? s['Restante'] ?? 0);
           const subtotalOS = parseCurrency(s['subtotal'] || s['SUBTOTAL'] || 0);
           const hasItems = Array.isArray(s.itens) && s.itens.length > 0;
 

@@ -357,21 +357,14 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
 
     const effectiveRestBoleto = restBoleto > 0 ? restBoleto : extractedRestante;
 
-    // 3. Se temos entrada e restante, o valor total é entrada + restante
+    // 3. Se temos entrada e restante desta venda específica, o valor total é entrada + restante
     if (totalOS === 0 && effectiveRestBoleto > 0 && rawValor > 0) {
       totalOS = rawValor + effectiveRestBoleto;
     }
 
-    // 4. Se a venda tem boleto no fechamento consolidado e não havia valor total explícito no movimento
-    if (totalOS === 0 && isVenda) {
-      const closingBoleto = parseMovementNum(closingData.vendasBoletoTotal ?? closingData.vendasBoleto ?? 0);
-      const closingTotalVendas = parseMovementNum(closingData.totalVendas ?? closingData.totalFaturadoGeral ?? 0);
-      if (closingTotalVendas > rawValor) {
-        totalOS = closingTotalVendas;
-      } else if (closingBoleto > 0) {
-        totalOS = rawValor + closingBoleto;
-      }
-    }
+    // 🛡️ NUNCA herdar closingData.totalVendas / closingData.vendasBoletoTotal em uma linha individual de VENDA!
+    // Vendas com valor R$ 0,00 (cortesia, garantia ou retorno de receita, ex: Rosana Davies CAJ-018) devem permanecer R$ 0,00
+    // e jamais absorver o faturamento acumulado do turno/histórico inteiro.
 
     const entradaSinal = parseMovementNum(
       m.valorEntrada ?? m.valorEntradaOS ?? m['VALOR ENTRADA'] ?? m.ENTRADA ?? m['ENTRADA'] ??
@@ -470,11 +463,11 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     let saida = '';
 
     if (isVenda) {
-      // 🌟 COLUNA VENDAS: Exibe SEMPRE o VALOR TOTAL DA VENDA (contrato/faturado integral)
+      // 🌟 COLUNA VENDAS: Exibe SEMPRE o VALOR TOTAL DA VENDA (contrato/faturado integral; se cortesia/garantia R$ 0,00, mantém 0)
       const saleTotal = totalOS > 0
         ? totalOS
         : (effectiveRestBoleto > 0 ? (entradaSinal + effectiveRestBoleto) : (displayValor > 0 ? displayValor : rawValor));
-      const vNum = saleTotal > 0 ? saleTotal : displayValor;
+      const vNum = saleTotal > 0 ? saleTotal : 0;
       venda = vNum;
       totalVendasCalculadas += vNum;
 
@@ -518,7 +511,7 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     return {
       docNo,
       historico,
-      venda: venda ? formatMovementMoney(venda) : '',
+      venda: isVenda ? formatMovementMoney(venda, true) : (venda ? formatMovementMoney(venda) : ''),
       entrada: entrada ? formatMovementMoney(entrada) : '',
       saida: saida ? formatMovementMoney(saida) : ''
     };
