@@ -13,6 +13,7 @@ import {
   normalizeStoreCity,
   getCityPrefix,
   calculateNextBaseOS,
+  enforceCityOSPrefix,
   resolveDistinctResponsible
 } from '../reparcelamentoUtils';
 
@@ -664,12 +665,30 @@ const OSGeneratorModal = ({
       const finalInitEntrada = resolvedInitFin.entradaFmt;
       const finalInitRestante = resolvedInitFin.restanteFmt;
       // 🛡️ Ordem de Prioridade Soberana e Normalizada para a Loja/Unidade da OS (Cajati, Registro, Jacupiranga, Venda Externa):
+      // Impede que Venda Externa seja sobrescrita por um fallback padrão 'Cajati' vindo do PDV ou cadastro.
+      const initRawItens = clientData.itens || clientData.cart || saleData?.itens || saleData?.cart || [];
+      const hasExternalCartItem = Array.isArray(initRawItens) && initRawItens.some(it => isProductFromVendaExterna(it?.rawProduct || it));
+      const saleExplicitCity = normalizeStoreCity(
+        saleData?.['selectedCity'] || saleData?.['UNIDADE'] || saleData?.['LOJA'] || saleData?.['CIDADE'] || saleData?.cidade || saleData?.unidade,
+        ''
+      );
+      const clientExplicitStore = normalizeStoreCity(
+        clientData?.['selectedCity'] || clientData?.['UNIDADE'] || clientData?.['LOJA'] || clientData?.['unidadeOS'],
+        ''
+      );
+      const clientCityStore = normalizeStoreCity(
+        clientData?.['Cidade'] || clientData?.['CIDADE'],
+        ''
+      );
       const targetCity =
-        normalizeStoreCity(propSelectedCity || initialCity, '') ||
-        normalizeStoreCity(saleData?.['UNIDADE'] || saleData?.['LOJA'] || saleData?.['selectedCity'] || saleData?.['CIDADE'] || saleData?.cidade, '') ||
-        normalizeStoreCity(clientData?.['selectedCity'] || clientData?.['UNIDADE'] || clientData?.['LOJA'], '') ||
         userCity ||
-        normalizeStoreCity(clientData?.['Cidade'] || clientData?.['CIDADE'], 'Cajati');
+        (hasExternalCartItem ? 'Venda Externa' : '') ||
+        saleExplicitCity ||
+        ((clientExplicitStore === 'Venda Externa' || clientCityStore === 'Venda Externa') ? 'Venda Externa' : '') ||
+        normalizeStoreCity(propSelectedCity || initialCity, '') ||
+        clientExplicitStore ||
+        clientCityStore ||
+        'Cajati';
 
       const initialPayments = parseInitialPayments(clientData, saleData);
       setPayments(initialPayments);
@@ -1513,11 +1532,21 @@ const OSGeneratorModal = ({
       ? (effectiveRespCpf || safeClient['CPF / CNPJ'] || safeClient['CPF'] || '')
       : (safeClient['CPF / CNPJ'] || safeClient['CPF'] || '');
 
+    const effectiveSaveCity = normalizeStoreCity(
+      selectedCity || osList[0]?.selectedCity || osList[0]?.unidade || 'Cajati',
+      'Cajati'
+    );
+
     if (osList.length <= 1) {
       const activeOS = osList[0] || {};
       const titularNome = safeClient['Nome Completo'] || safeClient['CLIENTE'] || safeClient['Nome'] || '';
       const finalNomePessoa = activeOS.nomePessoa || formData.nomePessoa || titularNome;
       const resolvedSingleFin = resolveOSFinancials({ ...formData, ...activeOS }, safeClient);
+      const safeSingleNumeroOS = enforceCityOSPrefix(
+        activeOS.numeroOS || formData.numeroOS || baseOSNumber,
+        effectiveSaveCity,
+        salesData
+      );
 
       const singleData = {
         ...formData,
@@ -1585,7 +1614,7 @@ const OSGeneratorModal = ({
         'DATA_VENDA': finalDataVendaBr,
         'Data da Venda': finalDataVendaBr,
         'DATA': finalDataVendaBr,
-        numeroOS: activeOS.numeroOS || formData.numeroOS || baseOSNumber,
+        numeroOS: safeSingleNumeroOS,
         formasPagamento: finalFormas,
         formaPagamentoEntrada: finalFormaEntrada,
         FORMA_ENTRADA: finalFormaEntrada,
@@ -1594,8 +1623,11 @@ const OSGeneratorModal = ({
         parcelasRestante: formData.parcelasRestante || '1',
         parcelas: finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || []),
         PARCELAS_JSON: JSON.stringify(finalParcelas.length > 0 ? finalParcelas : (formData.parcelas || [])),
-        selectedCity: selectedCity || 'Cajati',
-        unidade: selectedCity || 'Cajati',
+        selectedCity: effectiveSaveCity,
+        unidade: effectiveSaveCity,
+        CIDADE: effectiveSaveCity,
+        LOJA: effectiveSaveCity,
+        UNIDADE: effectiveSaveCity,
         laboratorio: activeOS.laboratorio || formData.laboratorio || '',
         voucher: activeOS.voucher || formData.voucher || safeClient['VOUCHER'] || safeClient['voucher'] || saleData?.['VOUCHER'] || saleData?.voucher || '',
         descontoVoucher: activeOS.descontoVoucher || formData.descontoVoucher || safeClient['DESCONTO_VOUCHER'] || safeClient['descontoVoucher'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || '',
@@ -1606,11 +1638,16 @@ const OSGeneratorModal = ({
     } else {
       const titularNome = safeClient['Nome Completo'] || safeClient['CLIENTE'] || safeClient['Nome'] || '';
       const resolvedMultiFin = resolveOSFinancials(formData, safeClient);
+      const safeMultiBaseOS = enforceCityOSPrefix(
+        baseOSNumber || osList[0]?.numeroOS,
+        effectiveSaveCity,
+        salesData
+      ).replace(/-\d+$/, '');
 
       const multiPayload = {
         isMultiOS: true,
         totalOS: osList.length,
-        baseOS: baseOSNumber,
+        baseOS: safeMultiBaseOS,
         dataVenda: finalDataVendaBr,
         dataVendaIso: finalDataVendaIso,
         dataHora: saleDataHora || undefined,
@@ -1623,8 +1660,11 @@ const OSGeneratorModal = ({
         'DATA_VENDA': finalDataVendaBr,
         'Data da Venda': finalDataVendaBr,
         'DATA': finalDataVendaBr,
-        selectedCity: selectedCity || 'Cajati',
-        unidade: selectedCity || 'Cajati',
+        selectedCity: effectiveSaveCity,
+        unidade: effectiveSaveCity,
+        CIDADE: effectiveSaveCity,
+        LOJA: effectiveSaveCity,
+        UNIDADE: effectiveSaveCity,
         formasPagamento: finalFormas,
         formaPagamentoEntrada: finalFormaEntrada,
         FORMA_ENTRADA: finalFormaEntrada,
@@ -1737,9 +1777,17 @@ const OSGeneratorModal = ({
             'DATA': itemDataVendaBr,
             osIndex: idx + 1,
             totalOS: osList.length,
-            numeroOS: item.numeroOS || `${baseOSNumber}-${idx + 1}`,
-            selectedCity: selectedCity || 'Cajati',
-            unidade: selectedCity || 'Cajati',
+            numeroOS: enforceCityOSPrefix(
+              item.numeroOS || `${safeMultiBaseOS}-${idx + 1}`,
+              effectiveSaveCity,
+              salesData,
+              { osIndex: idx + 1, totalOS: osList.length }
+            ),
+            selectedCity: effectiveSaveCity,
+            unidade: effectiveSaveCity,
+            CIDADE: effectiveSaveCity,
+            LOJA: effectiveSaveCity,
+            UNIDADE: effectiveSaveCity,
             isSecondaryOS: idx > 0,
             valorTotal: idx === 0 ? resolvedMultiFin.totalFmt : '0,00',
             valorEntrada: idx === 0 ? resolvedMultiFin.entradaFmt : '0,00',
@@ -1747,7 +1795,7 @@ const OSGeneratorModal = ({
             'VALOR TOTAL': idx === 0 ? resolvedMultiFin.totalFmt : '0,00',
             'VALOR ENTRADA': idx === 0 ? resolvedMultiFin.entradaFmt : '0,00',
             'RESTANTE': idx === 0 ? resolvedMultiFin.restanteFmt : '0,00',
-            formasPagamento: idx === 0 ? finalFormas : `Faturamento Unificado (Ver OS #${baseOSNumber}${osList.length > 1 ? '-1' : ''})`,
+            formasPagamento: idx === 0 ? finalFormas : `Faturamento Unificado (Ver OS #${safeMultiBaseOS}${osList.length > 1 ? '-1' : ''})`,
             formaPagamentoEntrada: idx === 0 ? finalFormaEntrada : '',
             FORMA_ENTRADA: idx === 0 ? finalFormaEntrada : '',
             formaPagamentoRestante: idx === 0 ? finalFormaRestante : '',

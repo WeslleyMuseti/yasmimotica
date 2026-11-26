@@ -11658,7 +11658,135 @@ async function runTests() {
     console.log('  ✅ Test 124 Passed: Responsável na OS e Numeração Automática por Cidade aprovados com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 124 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ─── TEST 125: Blindagem Soberana Anti-CAJ para Venda Externa (EXT) ───
+  console.log('▶ Test 125: Blindagem Soberana de Venda Externa (EXT) — Proibição Absoluta de Prefixo CAJ em Venda Externa');
+  {
+    const {
+      enforceCityOSPrefix,
+      resolveOSUnit,
+      calculateNextBaseOS,
+      normalizeStoreCity
+    } = await import('./src/reparcelamentoUtils.js');
+
+    const mockSalesExt = [
+      { id: 's1', 'OS DA VENDA': 'EXT-001', CIDADE: 'Venda Externa' },
+      { id: 's2', 'OS DA VENDA': 'EXT-01', CIDADE: 'Venda Externa' },
+      { id: 's3', 'OS DA VENDA': 'CAJ-056', CIDADE: 'Cajati' }
+    ];
+
+    // 1. Se unidade é Venda Externa e chegar um prefixo CAJ-057 (ou vazio/inválido), DEVE converter para EXT-002
+    const fixedFromCaj = enforceCityOSPrefix('CAJ-057', 'Venda Externa', mockSalesExt);
+    console.assert(fixedFromCaj === 'EXT-002', `Esperado EXT-002 quando Venda Externa recebe CAJ-057, obtido: ${fixedFromCaj}`);
+
+    const fixedFromEmpty = enforceCityOSPrefix('', 'Venda Externa', mockSalesExt);
+    console.assert(fixedFromEmpty === 'EXT-002', `Esperado EXT-002 quando Venda Externa recebe vazio, obtido: ${fixedFromEmpty}`);
+
+    const fixedMulti1 = enforceCityOSPrefix('CAJ-057-1', 'Venda Externa', mockSalesExt, { osIndex: 1, totalOS: 2 });
+    const fixedMulti2 = enforceCityOSPrefix('CAJ-057-2', 'Venda Externa', mockSalesExt, { osIndex: 2, totalOS: 2 });
+    console.assert(fixedMulti1 === 'EXT-002-1' && fixedMulti2 === 'EXT-002-2', `Esperado EXT-002-1 e EXT-002-2 em Multi-OS Venda Externa, obtido: ${fixedMulti1}, ${fixedMulti2}`);
+
+    // 2. Preservação de EXT válido e padronização
+    console.assert(enforceCityOSPrefix('EXT-2', 'Venda Externa', mockSalesExt) === 'EXT-002', 'EXT-2 deve padronizar para EXT-002');
+    console.assert(enforceCityOSPrefix('EXT-01', 'Venda Externa', mockSalesExt, { preserveExistingValidFormat: true }) === 'EXT-01', 'EXT-01 existente deve ser preservado quando preserveExistingValidFormat=true');
+    console.assert(enforceCityOSPrefix('EXT-002', 'Cajati', mockSalesExt) === 'CAJ-057', 'Se unidade for Cajati e número vier EXT, corrige para CAJ-057');
+    console.assert(calculateNextBaseOS('Venda Externa', mockSalesExt) === 'EXT-002', 'calculateNextBaseOS para Venda Externa deve retornar EXT-002');
+
+    // 3. resolveOSUnit nunca deve deixar CAJ- sobrescrever unidade explícita Venda Externa
+    const resolvedExplicitExt = resolveOSUnit(
+      { numeroOS: 'CAJ-057', selectedCity: 'Venda Externa', unidade: 'Venda Externa' },
+      { Cidade: 'CAJATI' }
+    );
+    console.assert(resolvedExplicitExt === 'Venda Externa', `resolveOSUnit com selectedCity="Venda Externa" deve retornar Venda Externa, obtido: ${resolvedExplicitExt}`);
+
+    const resolvedPrefixExt = resolveOSUnit(
+      { numeroOS: 'EXT-002', CIDADE: 'Venda Externa' },
+      { Cidade: 'CAJATI' }
+    );
+    console.assert(resolvedPrefixExt === 'Venda Externa', `resolveOSUnit com EXT-002 e cliente residente em Cajati deve retornar Venda Externa, obtido: ${resolvedPrefixExt}`);
+    console.assert(normalizeStoreCity('Venda Externa') === 'Venda Externa', 'normalizeStoreCity deve reconhecer Venda Externa');
+
+    // 4. Verificação estrutural nos componentes (POSRegister, OSGeneratorModal, EditOSModal, ClientRegistration, PrintableOS)
+    const posSrc = fs.readFileSync(path.join(__dirname, 'src/components/POSRegister.jsx'), 'utf-8');
+    const osGenSrc = fs.readFileSync(path.join(__dirname, 'src/components/OSGeneratorModal.jsx'), 'utf-8');
+    const editOsSrc = fs.readFileSync(path.join(__dirname, 'src/components/EditOSModal.jsx'), 'utf-8');
+    const clientRegSrc = fs.readFileSync(path.join(__dirname, 'src/components/ClientRegistration.jsx'), 'utf-8');
+    const printOsSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableOS.jsx'), 'utf-8');
+
+    console.assert(posSrc.includes('enforceCityOSPrefix'), 'POSRegister.jsx deve utilizar enforceCityOSPrefix');
+    console.assert(posSrc.includes('completedSale?.selectedCity ||'), 'POSRegister.jsx deve priorizar a loja da venda concluída antes de selectedPOSCity no modal de OS');
+    console.assert(osGenSrc.includes('enforceCityOSPrefix'), 'OSGeneratorModal.jsx deve utilizar enforceCityOSPrefix');
+    console.assert(editOsSrc.includes('enforceCityOSPrefix'), 'EditOSModal.jsx deve utilizar enforceCityOSPrefix');
+    console.assert(clientRegSrc.includes('enforceCityOSPrefix'), 'ClientRegistration.jsx deve utilizar enforceCityOSPrefix');
+    console.assert(printOsSrc.includes('enforceCityOSPrefix'), 'PrintableOS.jsx deve utilizar enforceCityOSPrefix');
+
+    // 5. Auditoria AST + TDZ em todos os arquivos alterados
+    const parserModule = await import('@babel/parser');
+    const parser = parserModule.default || parserModule;
+    const traverseModule = await import('@babel/traverse');
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const filesToAudit125 = [
+      'src/reparcelamentoUtils.js',
+      'src/components/POSRegister.jsx',
+      'src/components/OSGeneratorModal.jsx',
+      'src/components/EditOSModal.jsx',
+      'src/components/ClientRegistration.jsx',
+      'src/components/PrintableOS.jsx'
+    ];
+
+    const standardGlobals125 = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React', 'getDoc', 'getDocs', 'query', 'where', 'addDoc',
+      'updateDoc', 'doc', 'collection', 'setDoc', 'deleteDoc', 'onSnapshot', 'orderBy', 'limit'
+    ]);
+
+    const undeclared125 = [];
+    const tdzIssues125 = [];
+
+    filesToAudit125.forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals125.has(name)) return;
+          const binding = p.scope.getBinding(name);
+          if (!binding) {
+            undeclared125.push({ file: relPath, name, line: p.node.loc?.start?.line });
+            return;
+          }
+          if ((binding.kind === 'const' || binding.kind === 'let') && binding.scope === p.scope) {
+            const declStart = binding.path.node.start;
+            const refStart = p.node.start;
+            if (typeof declStart === 'number' && typeof refStart === 'number' && refStart < declStart) {
+              tdzIssues125.push({ file: relPath, name, refLine: p.node.loc?.start?.line, declLine: binding.path.node.loc?.start?.line });
+            }
+          }
+        }
+      });
+    });
+
+    console.assert(undeclared125.length === 0, `Nenhum identificador indefinido no Teste 125: ${JSON.stringify(undeclared125)}`);
+    console.assert(tdzIssues125.length === 0, `Nenhum problema TDZ no Teste 125: ${JSON.stringify(tdzIssues125)}`);
+
+    console.log('  ✅ Test 125 Passed: Blindagem Soberana de Venda Externa (EXT) validada com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 125 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

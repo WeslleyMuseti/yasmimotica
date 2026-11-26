@@ -33,6 +33,7 @@ import {
   normalizeStoreCity, 
   getCityPrefix, 
   calculateNextBaseOS, 
+  enforceCityOSPrefix,
   resolveDistinctResponsible 
 } from '../reparcelamentoUtils';
 
@@ -577,7 +578,8 @@ const EditOSModal = ({
     );
 
     const resolvedSubmitUnit = normalizeStoreCity(formData.unidade || resolveOSUnit(osData, clientData), 'Cajati');
-    const finalNumeroOS = (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['numeroOS'] || calculateNextBaseOS(resolvedSubmitUnit, salesData);
+    const rawCandidateOS = (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['numeroOS'] || '';
+    const finalNumeroOS = enforceCityOSPrefix(rawCandidateOS, resolvedSubmitUnit, salesData, { preserveExistingValidFormat: true });
     const oldOSNumber = String(osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['OS da COMPRA'] || osData.numeroOS || '').trim();
     const updatedLinkedOS = Array.isArray(osData.allLinkedOS)
       ? osData.allLinkedOS.map(num => String(num).trim().toLowerCase() === oldOSNumber.toLowerCase() ? finalNumeroOS : num)

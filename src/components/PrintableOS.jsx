@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { resolveOSUnit, resolveOSFinancials, resolveDistinctResponsible } from '../reparcelamentoUtils';
+import { resolveOSUnit, resolveOSFinancials, resolveDistinctResponsible, enforceCityOSPrefix } from '../reparcelamentoUtils';
 
 export { resolveOSUnit };
 
@@ -72,13 +72,14 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
   const rua = safeClient['Rua'] || safeClient['ENDERECO'] || safeClient['Endereço'] || safeClient['LOGRADOURO'] || safeClient['rua'] || '';
   const num = safeClient['Número'] || safeClient['NUMERO'] || safeClient['Numero'] || safeClient['numero'] || '';
   const bairro = safeClient['Bairro'] || safeClient['BAIRRO'] || safeClient['bairro'] || '';
-  const cidade = safeClient['Cidade'] || safeClient['CIDADE'] || safeClient['cidade'] || osUnit;
+  const rawClientCid = String(safeClient['Cidade'] || safeClient['CIDADE'] || safeClient['cidade'] || '').trim();
+  const cidade = /extern/i.test(rawClientCid) ? '' : (rawClientCid || (/extern/i.test(osUnit) ? '' : osUnit));
   const estado = safeClient['Estado'] || safeClient['ESTADO'] || safeClient['UF'] || safeClient['estado'] || 'SP';
   
   const addressParts = [
     rua && num ? `${rua}, nº ${num}` : (rua || (num ? `Nº ${num}` : '')),
     bairro ? `Bairro ${bairro}` : '',
-    `${cidade}/${estado}`,
+    cidade ? `${cidade}/${estado}` : estado,
     clientCep ? `CEP ${clientCep}` : ''
   ].filter(Boolean);
   const clientAddress = addressParts.length > 0 ? addressParts.join(' - ') : 'Não informado';
@@ -175,7 +176,10 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
   const displayTotal = resolvedFin.totalFmt;
   const displayEntrada = resolvedFin.entradaFmt;
   const displayRestante = resolvedFin.restanteFmt;
-  const displayOSNumber = String(osData.numeroOS || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || safeClient['OS DA VENDA'] || safeClient['OS'] || '---').replace(/^#+/, '');
+  const rawDisplayOSNumber = String(osData.numeroOS || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || safeClient['OS DA VENDA'] || safeClient['OS'] || '---').replace(/^#+/, '').trim();
+  const displayOSNumber = (rawDisplayOSNumber && rawDisplayOSNumber !== '---')
+    ? enforceCityOSPrefix(rawDisplayOSNumber, osUnit, [], { preserveExistingValidFormat: true })
+    : '---';
 
   // ─── PADRÃO DE ITENS DO PEDIDO (PRODUTOS & SERVIÇOS) ─────────────
   const orderItems = useMemo(() => {

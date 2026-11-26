@@ -1278,7 +1278,6 @@ export const buildGeneralPaymentReceiptPayload = ({
  * impedindo que a cidade residencial do cliente ou fallbacks indevidos forcem Cajati.
  */
 export const resolveOSUnit = (osData = {}, clientData = {}) => {
-  // 1. Prefixo explícito no número da OS (REG-, JAC-, EXT-, CAJ- ou sem traço como CAJ25, REG10)
   const osNum = String(
     osData?.numeroOS || 
     osData?.osNumero || 
@@ -1291,13 +1290,37 @@ export const resolveOSUnit = (osData = {}, clientData = {}) => {
     osData?.VENDA_OS || 
     osData?.venda_os || 
     ''
-  ).toUpperCase().trim();
+  ).toUpperCase().trim().replace(/^#+/, '').replace(/^OS[-_\s]+/i, '');
+
+  // 1. Unidade explicitamente definida como Venda Externa, Registro ou Jacupiranga na OS/Venda tem soberania sobre prefixos legados CAJ-
+  const explicitUnitRaw = String(
+    osData?.selectedCity ||
+    osData?.unidade ||
+    osData?.UNIDADE ||
+    osData?.LOJA ||
+    osData?.loja ||
+    ''
+  ).trim();
+  if (/extern/i.test(explicitUnitRaw) || /extern/i.test(String(osData?.CIDADE || osData?.Cidade || osData?.cidade || ''))) {
+    return 'Venda Externa';
+  }
+  if (explicitUnitRaw) {
+    if (/registro/i.test(explicitUnitRaw)) return 'Registro';
+    if (/jacupiranga/i.test(explicitUnitRaw)) return 'Jacupiranga';
+  }
+
+  // 2. Prefixo explícito no número da OS (EXT-, REG-, JAC-, CAJ-)
+  if (osNum.startsWith('EXT-') || osNum.startsWith('EXT')) return 'Venda Externa';
   if (osNum.startsWith('REG-') || osNum.startsWith('REG')) return 'Registro';
   if (osNum.startsWith('JAC-') || osNum.startsWith('JAC')) return 'Jacupiranga';
-  if (osNum.startsWith('EXT-') || osNum.startsWith('EXT')) return 'Venda Externa';
-  if (osNum.startsWith('CAJ-') || osNum.startsWith('CAJ')) return 'Cajati';
+  if (osNum.startsWith('CAJ-') || osNum.startsWith('CAJ')) {
+    // Se o cliente/venda está marcado explicitamente como Venda Externa e sem loja física explícita, protege Venda Externa
+    const clientExplicitUnit = String(clientData?.['selectedCity'] || clientData?.['UNIDADE'] || clientData?.['LOJA'] || '').trim();
+    if (!explicitUnitRaw && /extern/i.test(clientExplicitUnit)) return 'Venda Externa';
+    return 'Cajati';
+  }
 
-  // 2. Unidade explicitamente gravada na OS / Venda
+  // 3. Unidade explicitamente gravada na OS / Venda
   const directUnit = osData?.unidade || osData?.selectedCity || osData?.CIDADE || osData?.LOJA || osData?.Cidade;
   if (directUnit && String(directUnit).trim()) {
     const uClean = String(directUnit).trim();
@@ -1308,7 +1331,7 @@ export const resolveOSUnit = (osData = {}, clientData = {}) => {
     return uClean;
   }
 
-  // 3. Unidade da venda vinculada
+  // 4. Unidade da venda vinculada
   const clientSaleUnit = clientData?.['UNIDADE'] || clientData?.['LOJA'] || clientData?.['selectedCity'];
   if (clientSaleUnit && String(clientSaleUnit).trim()) {
     const uClean = String(clientSaleUnit).trim();
@@ -1319,7 +1342,7 @@ export const resolveOSUnit = (osData = {}, clientData = {}) => {
     return uClean;
   }
 
-  // 4. Fallback na cidade do cadastro ou padrão Cajati
+  // 5. Fallback na cidade do cadastro ou padrão Cajati
   const fallbackCity = clientData?.['Cidade'] || clientData?.['CIDADE'] || 'Cajati';
   if (/registro/i.test(fallbackCity)) return 'Registro';
   if (/jacupiranga/i.test(fallbackCity)) return 'Jacupiranga';
@@ -1614,6 +1637,36 @@ export const calculateNextBaseOS = (city, sData = []) => {
   });
 
   return `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
+};
+
+/**
+ * 🛡️ Garante soberania absoluta do prefixo da cidade/unidade no Número da OS (CAJ, REG, JAC, EXT).
+ * Impede que Venda Externa jamais saia como CAJ (ou qualquer divergência entre unidade e prefixo).
+ * Se o número informado estiver vazio, sem dígitos ou com prefixo de outra unidade, gera/corrige automaticamente
+ * para o próximo sequencial oficial da unidade selecionada (ex: EXT-002).
+ */
+export const enforceCityOSPrefix = (rawOS, city, sData = [], options = {}) => {
+  const normalizedCity = normalizeStoreCity(city, 'Cajati');
+  const expectedPrefix = getCityPrefix(normalizedCity);
+  const { osIndex = null, totalOS = 1, preserveExistingValidFormat = false } = options || {};
+
+  const cleanRaw = String(rawOS || '').trim().replace(/^#+/, '').replace(/^OS[-_\s]+/i, '').trim().toUpperCase();
+  if (preserveExistingValidFormat && new RegExp(`^${expectedPrefix}-\\d+(?:-\\d+)?$`, 'i').test(cleanRaw)) {
+    return cleanRaw;
+  }
+
+  const expectedMatch = cleanRaw.match(new RegExp(`^${expectedPrefix}[-#_\\s]*(\\d+)(?:-(\\d+))?$`, 'i'));
+  if (expectedMatch && expectedMatch[1]) {
+    const seqNum = String(parseInt(expectedMatch[1], 10)).padStart(3, '0');
+    const subIdx = totalOS > 1 && osIndex ? osIndex : (expectedMatch[2] ? parseInt(expectedMatch[2], 10) : null);
+    return subIdx ? `${expectedPrefix}-${seqNum}-${subIdx}` : `${expectedPrefix}-${seqNum}`;
+  }
+
+  const nextBase = calculateNextBaseOS(normalizedCity, sData);
+  if (totalOS > 1 && osIndex) {
+    return `${nextBase}-${osIndex}`;
+  }
+  return nextBase;
 };
 
 /**

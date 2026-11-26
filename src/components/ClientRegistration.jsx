@@ -14,7 +14,7 @@ import DocumentAttachmentInput from './DocumentAttachmentInput';
 import * as XLSX from 'xlsx';
 import { isSameClient } from '../firebaseSync';
 import { executeOSCascadeDeletion } from '../osDeletionUtils';
-import { resolveOSUnit, normalizeStoreCity, resolveDistinctResponsible } from '../reparcelamentoUtils';
+import { resolveOSUnit, normalizeStoreCity, enforceCityOSPrefix, resolveDistinctResponsible } from '../reparcelamentoUtils';
 
 const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -909,27 +909,49 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     const ordersList = isMulti ? osData.orders : [osData];
     const primaryOrder = ordersList[0] || osData;
     const clientSnapshot = osClientData ? { ...osClientData } : {};
-    const saleCity = primaryOrder.selectedCity || primaryOrder.unidade || osData.selectedCity || osData.unidade || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || clientSnapshot['Cidade'] || clientSnapshot['CIDADE'] || 'Cajati';
+    const saleCity = normalizeStoreCity(
+      primaryOrder.selectedCity || primaryOrder.unidade || osData.selectedCity || osData.unidade || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || clientSnapshot['UNIDADE'] || clientSnapshot['LOJA'] || clientSnapshot['Cidade'] || clientSnapshot['CIDADE'],
+      'Cajati'
+    );
+    const enforcedPrimaryOS = enforceCityOSPrefix(
+      primaryOrder.numeroOS || osData.numeroOS,
+      saleCity,
+      salesData,
+      isMulti ? { osIndex: 1, totalOS: ordersList.length } : {}
+    );
+    const enforcedBaseOS = enforcedPrimaryOS.replace(/-\d+$/, '');
 
     setOsDataForPrint(isMulti ? {
       ...primaryOrder,
+      numeroOS: enforcedPrimaryOS,
       clientData: clientSnapshot,
       selectedCity: saleCity,
       unidade: saleCity,
-      multiOrders: ordersList.map(o => ({
-        ...o,
-        clientData: clientSnapshot,
-        selectedCity: o.selectedCity || o.unidade || saleCity,
-        unidade: o.unidade || o.selectedCity || saleCity
-      })),
-      orders: ordersList.map(o => ({
-        ...o,
-        clientData: clientSnapshot,
-        selectedCity: o.selectedCity || o.unidade || saleCity,
-        unidade: o.unidade || o.selectedCity || saleCity
-      }))
+      multiOrders: ordersList.map((o, idx) => {
+        const unitItem = normalizeStoreCity(o.selectedCity || o.unidade || saleCity, saleCity);
+        const numItem = enforceCityOSPrefix(o.numeroOS || `${enforcedBaseOS}-${idx + 1}`, unitItem, salesData, { osIndex: idx + 1, totalOS: ordersList.length });
+        return {
+          ...o,
+          numeroOS: numItem,
+          clientData: clientSnapshot,
+          selectedCity: unitItem,
+          unidade: unitItem
+        };
+      }),
+      orders: ordersList.map((o, idx) => {
+        const unitItem = normalizeStoreCity(o.selectedCity || o.unidade || saleCity, saleCity);
+        const numItem = enforceCityOSPrefix(o.numeroOS || `${enforcedBaseOS}-${idx + 1}`, unitItem, salesData, { osIndex: idx + 1, totalOS: ordersList.length });
+        return {
+          ...o,
+          numeroOS: numItem,
+          clientData: clientSnapshot,
+          selectedCity: unitItem,
+          unidade: unitItem
+        };
+      })
     } : {
       ...osData,
+      numeroOS: enforcedPrimaryOS,
       clientData: clientSnapshot,
       selectedCity: saleCity,
       unidade: saleCity
@@ -957,7 +979,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
       const dataVendaStr = primaryOrder.dataVenda || osData.dataVenda || todayStr;
       const resolvedFormaEntrada = primaryOrder.formaPagamentoEntrada || primaryOrder.FORMA_ENTRADA || osData.formaPagamentoEntrada || osData.FORMA_ENTRADA || '';
       const resolvedFormaRestante = primaryOrder.formaPagamentoRestante || primaryOrder.FORMA_RESTANTE || osData.formaPagamentoRestante || osData.FORMA_RESTANTE || '';
-      const primaryNumOS = primaryOrder.numeroOS || osData.numeroOS;
+      const primaryNumOS = enforcedPrimaryOS;
 
       const resolvedClientResp = resolveDistinctResponsible(primaryOrder || osData || {}, osClientData);
       const effectiveRespName = resolvedClientResp.respName;
@@ -969,7 +991,13 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
 
       ordersList.forEach((orderItem, idx) => {
         const isSecondary = idx > 0 || Boolean(orderItem.isSecondaryOS);
-        const itemOsNum = orderItem.numeroOS || (idx === 0 ? primaryNumOS : `${primaryNumOS}-${idx + 1}`);
+        const itemUnit = normalizeStoreCity(orderItem.selectedCity || orderItem.unidade || saleCity, saleCity);
+        const itemOsNum = enforceCityOSPrefix(
+          orderItem.numeroOS || (idx === 0 ? primaryNumOS : `${enforcedBaseOS}-${idx + 1}`),
+          itemUnit,
+          salesData,
+          isMulti ? { osIndex: idx + 1, totalOS: ordersList.length } : {}
+        );
         const itemTotal = isSecondary ? '0,00' : (orderItem.valorTotal || primaryTotalStr || '0,00');
         const itemEntrada = isSecondary ? '0,00' : (orderItem.valorEntrada || primaryEntradaStr || '0,00');
         const itemRestante = isSecondary ? '0,00' : (orderItem.restante || (osRestante > 0 ? osRestante.toFixed(2).replace('.', ',') : '0,00'));
