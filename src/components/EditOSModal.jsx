@@ -27,7 +27,14 @@ import {
   Users
 } from 'lucide-react';
 import { buildNormalizedDateTime } from '../dateSyncUtils';
-import { resolveOSFinancials } from '../reparcelamentoUtils';
+import { 
+  resolveOSFinancials, 
+  resolveOSUnit,
+  normalizeStoreCity, 
+  getCityPrefix, 
+  calculateNextBaseOS, 
+  resolveDistinctResponsible 
+} from '../reparcelamentoUtils';
 
 const cleanVal = (v) => {
   if (v === null || v === undefined || v === '') return 0;
@@ -201,10 +208,12 @@ const EditOSModal = ({
   osData,
   clientData,
   currentUser,
+  salesData = [],
   onSave
 }) => {
   const [formData, setFormData] = useState({
     numeroOS: '',
+    unidade: 'Cajati',
     status: 'Aguardando Confirmação',
     pacienteNome: '',
     armacao: '',
@@ -283,7 +292,12 @@ const EditOSModal = ({
 
   useEffect(() => {
     if (osData) {
-      const numOS = String(osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['OS da COMPRA'] || osData.numeroOS || osData.osNumber || osData['Nº DA OS'] || osData['Num OS'] || '').trim();
+      const rawNumOS = String(osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['OS da COMPRA'] || osData.numeroOS || osData.osNumber || osData['Nº DA OS'] || osData['Num OS'] || '').trim();
+      const resolvedUnit = normalizeStoreCity(
+        resolveOSUnit(osData, clientData),
+        'Cajati'
+      );
+      const numOS = rawNumOS || calculateNextBaseOS(resolvedUnit, salesData);
       const resolvedFin = resolveOSFinancials(osData);
       const totalNum = resolvedFin.total;
       const entradaNum = resolvedFin.entrada;
@@ -293,30 +307,15 @@ const EditOSModal = ({
       const rawFormaRestante = osData['FORMA_RESTANTE'] || osData['formaPagamentoRestante'] || '';
       const rawPaciente = osData['PACIENTE'] || osData['NOME_BENEFICIARIO'] || osData['CLIENTE_BENEFICIARIO'] || osData['nomePessoa'] || osData['beneficiario'] || '';
 
-      const respN = String(
-        osData['BOLETO_PAGADOR_NOME'] ||
-        osData['boletoPagadorNome'] ||
-        osData['Responsável Nome'] ||
-        osData['Responsável Legal'] ||
-        osData['RESPONSAVEL_LEGAL'] ||
-        osData['RESPONSAVEL_NOME'] ||
-        osData['Responsável'] ||
-        osData['RESPONSAVEL'] ||
-        osData['responsavelNome'] ||
-        ''
-      ).trim();
-      const respC = String(
-        osData['BOLETO_PAGADOR_CPF'] ||
-        osData['boletoPagadorCpf'] ||
-        osData['Responsável CPF'] ||
-        osData['RESPONSAVEL_CPF'] ||
-        osData['responsavelCpf'] ||
-        ''
-      ).trim();
-      const initialTitular = osData['BOLETO_TITULAR_TIPO'] || osData['boletoTitularTipo'] || osData['TITULAR_BOLETO'] || (respN ? 'responsavel' : 'cliente');
+      // 🛡️ Resolver Responsável Legal real (NUNCA confundir BOLETO_PAGADOR_NOME do próprio titular com o Responsável Legal!)
+      const resolvedEditResp = resolveDistinctResponsible(osData, clientData);
+      const respN = resolvedEditResp.respName;
+      const respC = resolvedEditResp.respCpf;
+      const initialTitular = osData['BOLETO_TITULAR_TIPO'] || osData['boletoTitularTipo'] || osData['TITULAR_BOLETO'] || 'cliente';
 
       setFormData({
         numeroOS: numOS,
+        unidade: resolvedUnit,
         status: osData['STATUS_OS'] || osData['SITUAÇÃO'] || 'No Laboratório',
         pacienteNome: rawPaciente,
         armacao: osData['ARMAÇÃO'] || osData['Armação'] || osData['PRODUTO'] || '',
@@ -577,33 +576,23 @@ const EditOSModal = ({
       (osData?.FINANCEIRO_UNIFICADO && (cleanVal(osData?.['VALOR TOTAL']) === 0 || osData?.['VALOR TOTAL'] === '0,00'))
     );
 
-    const finalNumeroOS = (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['numeroOS'] || '';
+    const resolvedSubmitUnit = normalizeStoreCity(formData.unidade || resolveOSUnit(osData, clientData), 'Cajati');
+    const finalNumeroOS = (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['numeroOS'] || calculateNextBaseOS(resolvedSubmitUnit, salesData);
     const oldOSNumber = String(osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['OS da COMPRA'] || osData.numeroOS || '').trim();
     const updatedLinkedOS = Array.isArray(osData.allLinkedOS)
       ? osData.allLinkedOS.map(num => String(num).trim().toLowerCase() === oldOSNumber.toLowerCase() ? finalNumeroOS : num)
       : [finalNumeroOS];
 
-    const effectiveRespName = String(
-      formData.customRespName ||
-      formData.boletoPagadorNome ||
-      osData?.['RESPONSAVEL_NOME'] ||
-      osData?.['RESPONSAVEL_LEGAL'] ||
-      osData?.['Responsável Nome'] ||
-      osData?.['Responsável Legal'] ||
-      osData?.['Responsável'] ||
-      osData?.['RESPONSAVEL'] ||
-      osData?.responsavelNome ||
-      ''
-    ).trim();
-
-    const effectiveRespCpf = String(
-      formData.customRespCpf ||
-      formData.boletoPagadorCpf ||
-      osData?.['RESPONSAVEL_CPF'] ||
-      osData?.['Responsável CPF'] ||
-      osData?.responsavelCpf ||
-      ''
-    ).trim();
+    const resolvedSubmitResp = resolveDistinctResponsible(
+      {
+        ...(osData || {}),
+        customRespName: formData.customRespName,
+        customRespCpf: formData.customRespCpf
+      },
+      clientData
+    );
+    const effectiveRespName = resolvedSubmitResp.respName;
+    const effectiveRespCpf = resolvedSubmitResp.respCpf;
 
     const isRespTitular = (formData.boletoTitularType === 'responsavel' || formData.boletoTitularTipo === 'responsavel') && Boolean(effectiveRespName);
     const titularPagadorName = isRespTitular
@@ -698,11 +687,21 @@ const EditOSModal = ({
         'RESPONSAVEL_NOME': effectiveRespName,
         'RESPONSAVEL_CPF': effectiveRespCpf,
         'RESPONSAVEL_LEGAL': effectiveRespName,
+        'RESPONSAVEL': effectiveRespName,
         'Responsável Nome': effectiveRespName,
         'Responsável CPF': effectiveRespCpf,
         'Responsável Legal': effectiveRespName,
+        'Responsável': effectiveRespName,
         'responsavelNome': effectiveRespName,
+        'responsavel': effectiveRespName,
         'responsavelCpf': effectiveRespCpf,
+        'CIDADE': resolvedSubmitUnit,
+        'LOJA': resolvedSubmitUnit,
+        'UNIDADE': resolvedSubmitUnit,
+        'cidade': resolvedSubmitUnit,
+        'loja': resolvedSubmitUnit,
+        'unidade': resolvedSubmitUnit,
+        'selectedCity': resolvedSubmitUnit,
         'PONTE_ARO': formData.ponteAro || osData['PONTE_ARO'] || osData['ponteAro'] || '',
         'DIAGONAL_MAIOR': formData.diagonalMaior || osData['DIAGONAL_MAIOR'] || osData['diagonalMaior'] || '',
         'ALTURA_VERTICAL': formData.alturaVertical || osData['ALTURA_VERTICAL'] || osData['alturaVertical'] || '',
@@ -924,11 +923,21 @@ const EditOSModal = ({
       'RESPONSAVEL_NOME': effectiveRespName,
       'RESPONSAVEL_CPF': effectiveRespCpf,
       'RESPONSAVEL_LEGAL': effectiveRespName,
+      'RESPONSAVEL': effectiveRespName,
       'Responsável Nome': effectiveRespName,
       'Responsável CPF': effectiveRespCpf,
       'Responsável Legal': effectiveRespName,
+      'Responsável': effectiveRespName,
       'responsavelNome': effectiveRespName,
+      'responsavel': effectiveRespName,
       'responsavelCpf': effectiveRespCpf,
+      'CIDADE': resolvedSubmitUnit,
+      'LOJA': resolvedSubmitUnit,
+      'UNIDADE': resolvedSubmitUnit,
+      'cidade': resolvedSubmitUnit,
+      'loja': resolvedSubmitUnit,
+      'unidade': resolvedSubmitUnit,
+      'selectedCity': resolvedSubmitUnit,
       'PONTE_ARO': formData.ponteAro || osData['PONTE_ARO'] || osData['ponteAro'] || '',
       'DIAGONAL_MAIOR': formData.diagonalMaior || osData['DIAGONAL_MAIOR'] || osData['diagonalMaior'] || '',
       'ALTURA_VERTICAL': formData.alturaVertical || osData['ALTURA_VERTICAL'] || osData['alturaVertical'] || '',
@@ -1183,16 +1192,47 @@ const EditOSModal = ({
             {activeTab === 'geral' && (
               <div className="space-y-6">
                 
-                {/* Banner de Semáforo Azul e Número da OS */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
+                {/* Banner de Cidade, Número Automático da OS e Semáforo */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wider text-sky-400 mb-1.5 flex items-center gap-1">
+                      <Building2 size={12} />
+                      <span>Unidade / Cidade</span>
+                    </label>
+                    <select
+                      value={formData.unidade || 'Cajati'}
+                      onChange={e => {
+                        const newUnit = normalizeStoreCity(e.target.value, 'Cajati');
+                        const nextOS = calculateNextBaseOS(newUnit, salesData);
+                        setFormData(prev => ({
+                          ...prev,
+                          unidade: newUnit,
+                          numeroOS: nextOS
+                        }));
+                      }}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-sky-300 font-bold focus:outline-none focus:border-sky-500 shadow-inner"
+                    >
+                      <option value="Cajati">Cajati (CAJ)</option>
+                      <option value="Registro">Registro (REG)</option>
+                      <option value="Jacupiranga">Jacupiranga (JAC)</option>
+                      <option value="Venda Externa">Venda Externa (EXT)</option>
+                    </select>
+                  </div>
+
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
                       <span>Número da OS</span>
-                      {formData.numeroOS && (
-                        <span className="text-[9px] font-mono text-pink-400 font-bold">
-                          #{formData.numeroOS}
-                        </span>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextOS = calculateNextBaseOS(formData.unidade || 'Cajati', salesData);
+                          handleChange('numeroOS', nextOS);
+                        }}
+                        className="text-[9px] font-mono text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.2 rounded font-bold hover:bg-emerald-500/25 transition-all"
+                        title="Gerar próximo número automático de OS para a cidade selecionada"
+                      >
+                        ⚡ Auto
+                      </button>
                     </label>
                     <input
                       type="text"
@@ -1200,7 +1240,7 @@ const EditOSModal = ({
                       onChange={e => handleChange('numeroOS', e.target.value.toUpperCase())}
                       onBlur={e => handleChange('numeroOS', e.target.value.trim())}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-pink-300 font-mono font-bold uppercase focus:outline-none focus:border-pink-500 shadow-inner"
-                      placeholder="Ex: CAJ-001"
+                      placeholder={`Ex: ${getCityPrefix(formData.unidade)}-001`}
                     />
                   </div>
 
@@ -1242,6 +1282,37 @@ const EditOSModal = ({
                   <p className="text-[10px] text-slate-500 mt-1.5 flex items-center gap-1">
                     <span>💡 Este nome sai impresso no campo <strong>Paciente</strong> da OS e identifica quem usará os óculos no histórico do cliente.</span>
                   </p>
+                </div>
+
+                {/* 🛡️ Responsável Legal na OS (Pais / Tutores / Avalistas) */}
+                <div className="bg-slate-950/70 p-4 rounded-2xl border border-amber-500/25 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                      <Users size={13} className="text-amber-400" />
+                      <span>Responsável Legal na OS (Pai / Mãe / Tutor)</span>
+                    </label>
+                    {formData.customRespName && (
+                      <span className="text-[9px] font-black uppercase tracking-wider text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                        ✓ Sairá Impresso na OS
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      value={formData.customRespName || ''}
+                      onChange={e => handleChange('customRespName', e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-amber-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 shadow-inner"
+                      placeholder="Nome completo do Responsável Legal (se houver)"
+                    />
+                    <input
+                      type="text"
+                      value={formData.customRespCpf || ''}
+                      onChange={e => handleChange('customRespCpf', e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-amber-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 shadow-inner"
+                      placeholder="CPF do Responsável Legal"
+                    />
+                  </div>
                 </div>
 
                 {/* Redes Sociais do Cliente & Responsável (Igual na Aba de Clientes) */}

@@ -1543,36 +1543,224 @@ export const ensureInstallmentPaidStatus = (inv, helpers = {}) => {
 };
 
 /**
+ * Normaliza o nome oficial da cidade/unidade da loja (Cajati, Registro, Jacupiranga, Venda Externa).
+ * Caso receba uma cidade residencial fora das filiais (ex: Sete Barras, Eldorado) ou string vazia, retorna o fallback.
+ */
+export const normalizeStoreCity = (city, fallback = 'Cajati') => {
+  if (!city) return fallback;
+  const c = String(city)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+  if (!c) return fallback;
+  if (c.includes('registro') || c === 'reg' || c.startsWith('reg-')) return 'Registro';
+  if (c.includes('jacupiranga') || c === 'jac' || c.startsWith('jac-')) return 'Jacupiranga';
+  if (c.includes('extern') || c === 'ext' || c.startsWith('ext-')) return 'Venda Externa';
+  if (c.includes('cajati') || c === 'caj' || c.startsWith('caj-')) return 'Cajati';
+  return fallback;
+};
+
+/**
  * Obtém o prefixo de OS correspondente à cidade/unidade (CAJ, REG, JAC, EXT)
  */
 export const getCityPrefix = (city) => {
-  if (!city) return 'CAJ';
-  const c = String(city).trim().toLowerCase();
-  if (c.includes('cajati')) return 'CAJ';
-  if (c.includes('registro')) return 'REG';
-  if (c.includes('jacupiranga')) return 'JAC';
-  if (c.includes('externa') || c.includes('ext')) return 'EXT';
+  const normalized = normalizeStoreCity(city, 'Cajati');
+  if (normalized === 'Registro') return 'REG';
+  if (normalized === 'Jacupiranga') return 'JAC';
+  if (normalized === 'Venda Externa') return 'EXT';
   return 'CAJ';
 };
 
 /**
- * Calcula o próximo número base sequencial de OS (Ex: CAJ-001, REG-001, JAC-007)
+ * Calcula o próximo número base sequencial de OS (Ex: CAJ-001, REG-001, JAC-007, EXT-001)
  */
 export const calculateNextBaseOS = (city, sData = []) => {
   const prefix = getCityPrefix(city);
+  const prefixRegex = new RegExp(`^(?:#|OS[-_\\s]*)?${prefix}[-#_\\s]*(\\d+)`, 'i');
   let maxNum = 0;
-  (sData || []).forEach(sale => {
-    if (!sale || typeof sale !== 'object') return;
-    const os = sale['OS DA VENDA'] || sale['OS'] || sale['VENDA_OS'] || sale.numeroOS || sale.osNumero || sale['Nº DA OS'] || '';
-    if (os && String(os).toUpperCase().startsWith(prefix.toUpperCase())) {
-      const cleanNumPart = String(os).replace(new RegExp(`^${prefix}[-#\\s]?`, 'i'), '');
-      const numPart = parseInt(cleanNumPart, 10);
+
+  const inspectCandidate = (rawOs) => {
+    if (!rawOs) return;
+    const str = String(rawOs).trim();
+    if (!str) return;
+    const match = str.match(prefixRegex);
+    if (match && match[1]) {
+      const numPart = parseInt(match[1], 10);
       if (!isNaN(numPart) && numPart > maxNum) {
         maxNum = numPart;
       }
     }
+  };
+
+  (sData || []).forEach(sale => {
+    if (!sale || typeof sale !== 'object') return;
+    inspectCandidate(
+      sale['OS DA VENDA'] ||
+      sale['OS'] ||
+      sale['VENDA_OS'] ||
+      sale.numeroOS ||
+      sale.osNumero ||
+      sale.osNumber ||
+      sale['Nº DA OS'] ||
+      sale['Num OS'] ||
+      sale['OS da COMPRA'] ||
+      sale['OS da VENDA'] ||
+      ''
+    );
+    if (Array.isArray(sale.allLinkedOS)) {
+      sale.allLinkedOS.forEach(inspectCandidate);
+    }
   });
+
   return `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
+};
+
+/**
+ * 🛡️ Resolvedor Canônico e Blindado do Responsável Legal para OS e Impressão.
+ * Ignora falsos positivos onde o próprio nome do cliente titular foi gravado em campos de pagador/responsável,
+ * garantindo que o verdadeiro Responsável Legal saia impresso na OS sempre que cadastrado ou informado.
+ */
+export const resolveDistinctResponsible = (osData = {}, clientData = {}) => {
+  const safeOS = osData || {};
+  const safeRaw = safeOS.raw || {};
+  const safeClient = {
+    ...(safeOS.clientData || {}),
+    ...(safeOS.matchedClient || {}),
+    ...(clientData || {})
+  };
+
+  const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const normDigits = (s) => String(s || '').replace(/\D/g, '');
+
+  const clientName = String(
+    safeClient['Nome Completo'] ||
+    safeClient['NOME'] ||
+    safeClient['CLIENTE'] ||
+    safeClient['Nome'] ||
+    safeOS['TITULAR_NOME'] ||
+    safeOS['CLIENTE'] ||
+    safeOS['nomeCliente'] ||
+    safeOS.clientName ||
+    safeRaw['CLIENTE'] ||
+    safeRaw['NOME'] ||
+    ''
+  ).trim();
+  const clientNameNorm = norm(clientName);
+
+  const clientCpf = String(
+    safeClient['CPF / CNPJ'] ||
+    safeClient['CPF'] ||
+    safeOS['CLIENTE_CPF'] ||
+    safeOS['CPF'] ||
+    safeOS.clientCPF ||
+    safeRaw['CLIENTE_CPF'] ||
+    safeRaw['CPF'] ||
+    ''
+  ).trim();
+  const clientCpfDigits = normDigits(clientCpf);
+
+  const titularTipo = String(
+    safeOS.boletoTitularTipo ||
+    safeOS.BOLETO_TITULAR_TIPO ||
+    safeRaw.BOLETO_TITULAR_TIPO ||
+    safeRaw.boletoTitularTipo ||
+    safeClient.BOLETO_TITULAR_TIPO ||
+    safeClient.boletoTitularTipo ||
+    ''
+  ).trim().toLowerCase();
+
+  const nameCandidates = [
+    safeOS.customRespName,
+    safeClient['Responsável Nome'],
+    safeClient['Responsável Legal'],
+    safeClient['Responsável'],
+    safeClient['RESPONSAVEL_NOME'],
+    safeClient['RESPONSAVEL_LEGAL'],
+    safeClient['RESPONSAVEL'],
+    safeClient['NOME RESPONSAVEL'],
+    safeClient['Nome Responsável'],
+    safeClient.responsavelNome,
+    safeClient.responsavel,
+    safeOS.responsavelNome,
+    safeOS.RESPONSAVEL_NOME,
+    safeOS['Responsável Nome'],
+    safeOS['Responsável Legal'],
+    safeOS.RESPONSAVEL_LEGAL,
+    safeOS['Responsável'],
+    safeOS.RESPONSAVEL,
+    safeOS.responsavel,
+    safeRaw['Responsável Nome'],
+    safeRaw['Responsável Legal'],
+    safeRaw['Responsável'],
+    safeRaw.RESPONSAVEL_NOME,
+    safeRaw.RESPONSAVEL_LEGAL,
+    safeRaw.RESPONSAVEL,
+    safeRaw.responsavelNome,
+    safeRaw.responsavel,
+    ...(titularTipo === 'responsavel' ? [
+      safeOS.boletoPagadorNome,
+      safeOS.BOLETO_PAGADOR_NOME,
+      safeRaw.BOLETO_PAGADOR_NOME,
+      safeRaw.boletoPagadorNome
+    ] : [])
+  ];
+
+  let respName = '';
+  for (const cand of nameCandidates) {
+    const cleanCand = String(cand || '').trim();
+    if (!cleanCand) continue;
+    if (clientNameNorm && norm(cleanCand) === clientNameNorm) continue;
+    respName = cleanCand;
+    break;
+  }
+
+  const cpfCandidates = [
+    safeOS.customRespCpf,
+    safeClient['Responsável CPF'],
+    safeClient['RESPONSAVEL_CPF'],
+    safeClient['CPF Responsável'],
+    safeClient.responsavelCpf,
+    safeOS.responsavelCpf,
+    safeOS.RESPONSAVEL_CPF,
+    safeOS['Responsável CPF'],
+    safeRaw['Responsável CPF'],
+    safeRaw.RESPONSAVEL_CPF,
+    safeRaw.responsavelCpf,
+    ...(titularTipo === 'responsavel' ? [
+      safeOS.boletoPagadorCpf,
+      safeOS.BOLETO_PAGADOR_CPF,
+      safeRaw.BOLETO_PAGADOR_CPF,
+      safeRaw.boletoPagadorCpf
+    ] : [])
+  ];
+
+  let respCpf = '';
+  // Prioriza CPF distinto do CPF do titular (quando titular tem CPF próprio)
+  for (const cand of cpfCandidates) {
+    const cleanCpf = String(cand || '').trim();
+    if (!cleanCpf) continue;
+    const digits = normDigits(cleanCpf);
+    if (clientCpfDigits && digits && digits === clientCpfDigits) continue;
+    respCpf = cleanCpf;
+    break;
+  }
+  // Caso dependente compartilhe o CPF do responsável no cadastro, aceita o CPF do responsável
+  if (!respCpf && respName) {
+    for (const cand of cpfCandidates) {
+      const cleanCpf = String(cand || '').trim();
+      if (cleanCpf) {
+        respCpf = cleanCpf;
+        break;
+      }
+    }
+  }
+
+  return {
+    respName,
+    respCpf,
+    hasDistinctResp: Boolean(respName && (!clientNameNorm || norm(respName) !== clientNameNorm))
+  };
 };
 
 

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { resolveOSUnit, resolveOSFinancials } from '../reparcelamentoUtils';
+import { resolveOSUnit, resolveOSFinancials, resolveDistinctResponsible } from '../reparcelamentoUtils';
 
 export { resolveOSUnit };
 
@@ -107,39 +107,34 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
   const clientFacebook = safeClient['Facebook'] || safeClient['FACEBOOK'] || safeClient['facebook'] || '';
   const clientTikTok = safeClient['TikTok'] || safeClient['TIKTOK'] || safeClient['tiktok'] || '';
 
-  // ─── DADOS COMPLETOS DO RESPONSÁVEL LEGAL ─────────────────────
-  const respName = String(
-    osData.responsavelNome ||
-    osData.RESPONSAVEL_NOME ||
-    osData['Responsável Nome'] ||
-    osData['Responsável Legal'] ||
-    osData['RESPONSAVEL_LEGAL'] ||
-    safeClient['Responsável Nome'] || 
-    safeClient['Responsável Legal'] || 
-    safeClient['RESPONSAVEL_LEGAL'] || 
-    safeClient['RESPONSAVEL_NOME'] || 
-    safeClient['Responsável'] || 
-    safeClient['RESPONSAVEL'] || 
-    safeClient['NOME RESPONSAVEL'] || 
-    safeClient['Nome Responsável'] || 
-    safeClient['responsavelNome'] || 
-    safeClient['responsavel'] || 
-    osData.responsavel || 
+  // Beneficiário / Paciente (declarado ANTES de hasDistinctResp para eliminar qualquer Temporal Dead Zone)
+  const beneficiaryName = String(
+    osData.nomePessoa || 
+    osData.pacienteNome ||
+    osData.PACIENTE || 
+    osData.NOME_BENEFICIARIO || 
+    osData.CLIENTE_BENEFICIARIO || 
+    osData.beneficiario || 
+    safeClient.pacienteNome ||
+    safeClient.PACIENTE ||
+    safeClient.NOME_BENEFICIARIO ||
+    safeClient.nomePessoa ||
     ''
   ).trim();
 
-  const respCpf = osData.responsavelCpf || osData.RESPONSAVEL_CPF || osData['Responsável CPF'] || safeClient['Responsável CPF'] || safeClient['RESPONSAVEL_CPF'] || safeClient['CPF Responsável'] || safeClient['responsavelCpf'] || '';
-  const respRg = safeClient['Responsável RG'] || safeClient['RESPONSAVEL_RG'] || safeClient['RG Responsável'] || safeClient['responsavelRg'] || '';
-  const respNascRaw = safeClient['Responsável Data de Nascimento'] || safeClient['RESPONSAVEL_DATA_NASCIMENTO'] || safeClient['Nascimento Responsável'] || safeClient['responsavelNascimento'] || '';
+  // ─── DADOS COMPLETOS DO RESPONSÁVEL LEGAL ─────────────────────
+  const resolvedResp = resolveDistinctResponsible(osData, safeClient);
+  const respName = resolvedResp.respName;
+  const respCpf = resolvedResp.respCpf;
+  const respRg = safeClient['Responsável RG'] || safeClient['RESPONSAVEL_RG'] || safeClient['RG Responsável'] || safeClient['responsavelRg'] || osData['Responsável RG'] || osData['RESPONSAVEL_RG'] || '';
+  const respNascRaw = safeClient['Responsável Data de Nascimento'] || safeClient['RESPONSAVEL_DATA_NASCIMENTO'] || safeClient['Nascimento Responsável'] || safeClient['responsavelNascimento'] || osData['Responsável Data de Nascimento'] || '';
   const respNasc = respNascRaw ? formatDatePrint(respNascRaw) : '';
-  const respZap = safeClient['Responsável WhatsApp'] || safeClient['RESPONSAVEL_WHATSAPP'] || safeClient['RESPONSAVEL_TELEFONE'] || safeClient['WhatsApp Responsável'] || safeClient['Telefone Responsável'] || safeClient['responsavelWhatsApp'] || '';
+  const respZap = safeClient['Responsável WhatsApp'] || safeClient['RESPONSAVEL_WHATSAPP'] || safeClient['RESPONSAVEL_TELEFONE'] || safeClient['WhatsApp Responsável'] || safeClient['Telefone Responsável'] || safeClient['responsavelWhatsApp'] || osData['Responsável WhatsApp'] || '';
 
-  // 🛡️ Impede duplicação visual e contratual quando o responsável é a própria pessoa / beneficiário
+  // 🛡️ Exibe Responsável Legal sempre que houver um responsável distinto do cliente titular
   const hasDistinctResp = Boolean(
     respName && 
-    clientName && 
-    respName.trim().toLowerCase() !== clientName.trim().toLowerCase() &&
-    (!beneficiaryName || respName.trim().toLowerCase() !== beneficiaryName.trim().toLowerCase())
+    (!clientName || respName.trim().toLowerCase() !== clientName.trim().toLowerCase())
   );
 
   const respRua = safeClient['Responsável Rua'] || safeClient['RESPONSAVEL_RUA'] || '';
@@ -171,21 +166,6 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
   const respInstagram = safeClient['Responsável Instagram'] || safeClient['RESPONSAVEL_INSTAGRAM'] || '';
   const respFacebook = safeClient['Responsável Facebook'] || safeClient['RESPONSAVEL_FACEBOOK'] || '';
   const respTikTok = safeClient['Responsável TikTok'] || safeClient['RESPONSAVEL_TIKTOK'] || '';
-
-  // Beneficiário / Paciente (quando for OS extra ou nominalmente diferente do titular)
-  const beneficiaryName = String(
-    osData.nomePessoa || 
-    osData.pacienteNome ||
-    osData.PACIENTE || 
-    osData.NOME_BENEFICIARIO || 
-    osData.CLIENTE_BENEFICIARIO || 
-    osData.beneficiario || 
-    safeClient.pacienteNome ||
-    safeClient.PACIENTE ||
-    safeClient.NOME_BENEFICIARIO ||
-    safeClient.nomePessoa ||
-    ''
-  ).trim();
 
   // Valores canônicos com suporte total à regra de consistência financeira universal
   const resolvedFin = useMemo(() => {
@@ -951,7 +931,7 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
           
           <div className="space-y-1.5 text-slate-800">
             <p>
-              As partes acima nominadas, doravante determinadas ÓTICA e SOLICITANTE tem entre si justas e acertadas o presente contrato, pelas cláusulas abaixo:
+              As partes acima nominadas, doravante determinadas ÓTICA e SOLICITANTE{hasDistinctResp ? ` (${clientName}, representado(a) por seu Responsável Legal ${respName}${respCpf ? ` - CPF: ${respCpf}` : ''})` : ''} tem entre si justas e acertadas o presente contrato, pelas cláusulas abaixo:
             </p>
             <p>
               A SOLICITANTE adquire neste ato da OTICA a armação e lente, ou a lente de contato, pelo preço certo e ajustado nas condições acima descritas, cujo valor reconhece a SOLICITANTE como liquido, certo e devido. A compra é feita em carater irrevogável e irretratável obrigando as partes, herdeiros e sucessores.

@@ -11501,7 +11501,164 @@ async function runTests() {
     console.log('  ✅ Test 123 Passed: Precisão Contábil do Movimento de Caixa e Segregação de Boleto aprovada com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 123 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // Test 124: Exibição Garantida do Responsável na OS (Zero TDZ / Anti-Poluição) e Numeração Automática de OS por Cidade
+  {
+    console.log('🧪 Test 124: Exibição Garantida do Responsável na OS e Numeração Automática de OS por Cidade...');
+
+    const {
+      normalizeStoreCity,
+      getCityPrefix,
+      calculateNextBaseOS,
+      resolveDistinctResponsible
+    } = await import('./src/reparcelamentoUtils.js');
+
+    // 1. Validação de normalizeStoreCity e getCityPrefix (case-insensitive, trim, acentos e Venda Externa)
+    console.assert(normalizeStoreCity('jacupiranga') === 'Jacupiranga', 'jacupiranga minúsculo deve normalizar para Jacupiranga');
+    console.assert(normalizeStoreCity('  REGISTRO ') === 'Registro', 'REGISTRO deve normalizar para Registro');
+    console.assert(normalizeStoreCity('cajati') === 'Cajati', 'cajati deve normalizar para Cajati');
+    console.assert(normalizeStoreCity('venda externa') === 'Venda Externa', 'venda externa deve normalizar para Venda Externa');
+    console.assert(normalizeStoreCity('sete barras', 'Cajati') === 'Cajati', 'Cidade residencial sem loja própria deve usar fallback limpo');
+
+    console.assert(getCityPrefix('jacupiranga') === 'JAC', 'jacupiranga minúsculo deve gerar prefixo JAC');
+    console.assert(getCityPrefix('registro') === 'REG', 'registro minúsculo deve gerar prefixo REG');
+    console.assert(getCityPrefix('cajati') === 'CAJ', 'cajati minúsculo deve gerar prefixo CAJ');
+    console.assert(getCityPrefix('Venda Externa') === 'EXT', 'Venda Externa deve gerar prefixo EXT');
+
+    // 2. Validação de calculateNextBaseOS para todas as cidades e formatos reais
+    const realFormatsSales = [
+      { 'OS DA VENDA': 'CAJ-055' },
+      { 'OS DA VENDA': 'CAJ-56' },
+      { 'OS DA VENDA': 'JAC-009' },
+      { 'OS DA VENDA': 'REG-011' },
+      { 'OS DA VENDA': 'REG-003-2', allLinkedOS: ['REG-003-1', 'REG-003-2'] },
+      { 'OS DA VENDA': 'EXT-01' }
+    ];
+    console.assert(calculateNextBaseOS('Cajati', realFormatsSales) === 'CAJ-057', 'Após CAJ-56 deve gerar CAJ-057');
+    console.assert(calculateNextBaseOS('jacupiranga', realFormatsSales) === 'JAC-010', 'Após JAC-009 deve gerar JAC-010');
+    console.assert(calculateNextBaseOS('Registro', realFormatsSales) === 'REG-012', 'Após REG-011 deve gerar REG-012');
+    console.assert(calculateNextBaseOS('Venda Externa', realFormatsSales) === 'EXT-002', 'Após EXT-01 deve gerar EXT-002');
+
+    // 3. Validação de resolveDistinctResponsible (Enzo Gabriel / Stephanie Museti / Adulto sem responsável)
+    const pollutedEnzoSale = {
+      CLIENTE: 'ENZO GABRIEL DE SOUZA ALMEIDA',
+      CPF: '466.732.918-18',
+      BOLETO_TITULAR_TIPO: 'cliente',
+      BOLETO_PAGADOR_NOME: 'ENZO GABRIEL DE SOUZA ALMEIDA',
+      RESPONSAVEL_NOME: 'ENZO GABRIEL DE SOUZA ALMEIDA',
+      RESPONSAVEL: 'ANA FLAVIA VIEIRA DE SOUZA ALMEIDA'
+    };
+    const enzoClient = {
+      'Nome Completo': 'ENZO GABRIEL DE SOUZA ALMEIDA',
+      'Responsável Nome': 'ANA FLAVIA VIEIRA DE SOUZA ALMEIDA',
+      'Responsável CPF': '466.732.918-18'
+    };
+    const resEnzo = resolveDistinctResponsible(pollutedEnzoSale, enzoClient);
+    console.assert(resEnzo.hasDistinctResp === true, 'Enzo deve ter responsável distinto');
+    console.assert(resEnzo.respName === 'ANA FLAVIA VIEIRA DE SOUZA ALMEIDA', `Responsável do Enzo deve ser Ana Flavia: ${resEnzo.respName}`);
+
+    const stephanieSale = {
+      CLIENTE: 'STEPHANIE MUSETI SANTOS',
+      BOLETO_TITULAR_TIPO: 'cliente',
+      BOLETO_PAGADOR_NOME: 'STEPHANIE MUSETI SANTOS'
+    };
+    const stephanieClient = {
+      'Nome Completo': 'STEPHANIE MUSETI SANTOS',
+      'Cidade': 'sete barras',
+      'Responsável Nome': 'weslley museti da silva',
+      'Responsável CPF': '44263429885'
+    };
+    const resSteph = resolveDistinctResponsible(stephanieSale, stephanieClient);
+    console.assert(resSteph.hasDistinctResp === true, 'Stephanie deve ter responsável distinto');
+    console.assert(resSteph.respName === 'weslley museti da silva', `Responsável da Stephanie deve ser weslley: ${resSteph.respName}`);
+    console.assert(resSteph.respCpf === '44263429885', `CPF do responsável da Stephanie deve ser 44263429885: ${resSteph.respCpf}`);
+
+    const adultSelfPolluted = {
+      CLIENTE: 'ROSALI APARECIDA CAMARGO DE LIMA',
+      BOLETO_PAGADOR_NOME: 'ROSALI APARECIDA CAMARGO DE LIMA',
+      RESPONSAVEL_NOME: 'ROSALI APARECIDA CAMARGO DE LIMA'
+    };
+    const resAdult = resolveDistinctResponsible(adultSelfPolluted, { 'Nome Completo': 'ROSALI APARECIDA CAMARGO DE LIMA' });
+    console.assert(resAdult.hasDistinctResp === false, 'Adulto sem responsável distinto não deve duplicar o próprio nome');
+    console.assert(resAdult.respName === '', 'respName de adulto sem responsável deve ser vazio');
+
+    // 4. Verificação estrutural de PrintableOS (beneficiaryName declarado antes de hasDistinctResp)
+    const printableOSSrc = fs.readFileSync(path.join(__dirname, 'src/components/PrintableOS.jsx'), 'utf-8');
+    const idxBeneficiary = printableOSSrc.indexOf('const beneficiaryName =');
+    const idxHasDistinct = printableOSSrc.indexOf('const hasDistinctResp =');
+    console.assert(idxBeneficiary > 0 && idxHasDistinct > idxBeneficiary, 'beneficiaryName deve ser declarado ANTES de hasDistinctResp em PrintableOS.jsx (sem TDZ)');
+
+    // 5. Auditoria AST + Temporal Dead Zone (TDZ) em todos os arquivos modificados
+    const parserModule = await import('@babel/parser');
+    const parser = parserModule.default || parserModule;
+    const traverseModule = await import('@babel/traverse');
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const filesToAudit124 = [
+      'src/reparcelamentoUtils.js',
+      'src/components/PrintableOS.jsx',
+      'src/components/PrintableLabOS.jsx',
+      'src/components/OSGeneratorModal.jsx',
+      'src/components/POSRegister.jsx',
+      'src/components/ClientRegistration.jsx',
+      'src/components/EditOSModal.jsx',
+      'src/components/OSManagement.jsx',
+      'src/components/ClientProfileModal.jsx'
+    ];
+
+    const standardGlobals124 = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React', 'getDoc', 'getDocs', 'query', 'where', 'addDoc',
+      'updateDoc', 'doc', 'collection', 'setDoc', 'deleteDoc', 'onSnapshot', 'orderBy', 'limit'
+    ]);
+
+    const undeclared124 = [];
+    const tdzIssues124 = [];
+
+    filesToAudit124.forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals124.has(name)) return;
+          const binding = p.scope.getBinding(name);
+          if (!binding) {
+            undeclared124.push({ file: relPath, name, line: p.node.loc?.start?.line });
+            return;
+          }
+          // Checa TDZ em variáveis const/let declaradas no mesmo escopo de bloco/função
+          if ((binding.kind === 'const' || binding.kind === 'let') && binding.scope === p.scope) {
+            const declStart = binding.path.node.start;
+            const refStart = p.node.start;
+            if (typeof declStart === 'number' && typeof refStart === 'number' && refStart < declStart) {
+              tdzIssues124.push({ file: relPath, name, refLine: p.node.loc?.start?.line, declLine: binding.path.node.loc?.start?.line });
+            }
+          }
+        }
+      });
+    });
+
+    console.assert(undeclared124.length === 0, `Nenhum identificador indefinido nos arquivos do Teste 124: ${JSON.stringify(undeclared124)}`);
+    console.assert(tdzIssues124.length === 0, `Nenhuma referência antes da declaração (TDZ) nos arquivos do Teste 124: ${JSON.stringify(tdzIssues124)}`);
+
+    console.log('  ✅ Test 124 Passed: Responsável na OS e Numeração Automática por Cidade aprovados com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 124 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { resolveDistinctResponsible } from '../reparcelamentoUtils';
 
 const formatCurrencyPrint = (val) => {
   if (val === null || val === undefined || val === '') return '';
@@ -22,6 +23,9 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
   
   const clientName = safeClient['Nome Completo'] || safeClient['NOME'] || safeClient['CLIENTE'] || osData['nomeCliente'] || osData['CLIENTE'] || osData.clientName || '';
   const pacienteNome = osData.pacienteNome || osData.PACIENTE || osData.NOME_BENEFICIARIO || osData.nomePessoa || safeClient.pacienteNome || safeClient.PACIENTE || safeClient.NOME_BENEFICIARIO || safeClient.nomePessoa || '';
+  const resolvedLabResp = resolveDistinctResponsible(osData, safeClient);
+  const respName = resolvedLabResp.respName;
+  const hasDistinctResp = resolvedLabResp.hasDistinctResp;
   const displayOS = String(osData.numeroOS || osData['OS DA VENDA'] || osData['OS'] || '---').replace(/^#+/, '');
 
   const rawEntrega = osData.dataEntrega || osData.dtEntrega || osData['PREVISAO_ENTREGA'] || osData['DATA_ENTREGA'] || osData['DATA ENTREGA ÓCULOS'] || osData['Previsão Entrega'] || osData.raw?.['PREVISAO_ENTREGA'] || osData.raw?.['DATA_ENTREGA'] || '';
@@ -94,7 +98,13 @@ const SingleLabSheet = ({ osData, clientData, isMulti = false, index = 1, total 
 
         {/* INFO BASIC */}
         <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 gap-3 border border-slate-300 rounded p-3 bg-slate-50/50 text-xs">
-          <div><strong className="text-slate-600 block text-[10px] uppercase">Cliente:</strong> <span className="font-bold text-slate-900">{clientName || 'Não informado'}</span></div>
+          <div>
+            <strong className="text-slate-600 block text-[10px] uppercase">Cliente:</strong>
+            <span className="font-bold text-slate-900">{clientName || 'Não informado'}</span>
+            {hasDistinctResp && (
+              <span className="block text-[10px] font-bold text-amber-900 mt-0.5">Resp.: {respName}</span>
+            )}
+          </div>
           <div><strong className="text-slate-600 block text-[10px] uppercase">Ótica / Loja:</strong> <span className="font-bold text-slate-900">{otica || 'Central'}</span></div>
           <div><strong className="text-slate-600 block text-[10px] uppercase">Lente &amp; Tratamento:</strong> <span className="font-bold text-slate-900 uppercase">{lente || 'Não informada'}{tratamento ? ` (${tratamento})` : ''}{material ? ` [${material}]` : ''}</span></div>
           <div><strong className="text-slate-600 block text-[10px] uppercase">Laboratório:</strong> <span className="font-bold text-slate-900">{laboratorio || 'Não informado'}</span></div>

@@ -12,7 +12,7 @@ import PrintableLabOS from "./PrintableLabOS";
 import PrintableReceipt from "./PrintableReceipt";
 import { PrintableLabelModal } from "./PrintableLabel";
 import EditOSModal from "./EditOSModal";
-import { resolveOSFinancials } from "../reparcelamentoUtils";
+import { resolveOSFinancials, resolveDistinctResponsible } from "../reparcelamentoUtils";
 import { isSameClient, normalizeSearchText } from "../firebaseSync";
 import { findOSRelatedEntities, executeOSCascadeDeletion } from "../osDeletionUtils";
 import { SocialMediaButtons, InstagramIcon, FacebookIcon, TikTokIcon, WhatsAppIcon } from './SocialMediaButtons';
@@ -1238,8 +1238,8 @@ const OSManagement = ({
         boletoPagadorNome: sale["BOLETO_PAGADOR_NOME"] || sale["boletoPagadorNome"] || sale["PAGADOR_BOLETO"] || "",
         boletoPagadorCpf: sale["BOLETO_PAGADOR_CPF"] || sale["boletoPagadorCpf"] || "",
         titularBoleto: sale["TITULAR_BOLETO"] || sale["titularBoleto"] || "",
-        responsavelNome: sale["RESPONSAVEL_NOME"] || sale["RESPONSAVEL"] || sale["Responsável Nome"] || sale["Responsável"] || matchedClient?.["Responsável Nome"] || matchedClient?.["Responsável"] || "",
-        responsavelCpf: sale["RESPONSAVEL_CPF"] || sale["Responsável CPF"] || matchedClient?.["Responsável CPF"] || "",
+        responsavelNome: resolveDistinctResponsible(sale, matchedClient).respName,
+        responsavelCpf: resolveDistinctResponsible(sale, matchedClient).respCpf,
         ponteAro: sale["PONTE_ARO"] || sale["ponteAro"] || matchedClient?.["PONTE_ARO"] || matchedClient?.["ponteAro"] || "",
         diagonalMaior: sale["DIAGONAL_MAIOR"] || sale["diagonalMaior"] || matchedClient?.["DIAGONAL_MAIOR"] || matchedClient?.["diagonalMaior"] || "",
         alturaVertical: sale["ALTURA_VERTICAL"] || sale["alturaVertical"] || matchedClient?.["ALTURA_VERTICAL"] || matchedClient?.["alturaVertical"] || "",
@@ -2013,8 +2013,9 @@ const OSManagement = ({
       || {};
 
     const orderParcelas = extractOrderInstallments(order);
-    const respName = order.responsavelNome || targetClient["Responsável Nome"] || targetClient["Responsável"] || targetClient["RESPONSAVEL_NOME"] || targetClient["RESPONSAVEL"] || order.raw?.["RESPONSAVEL_NOME"] || order.raw?.["RESPONSAVEL"] || order.raw?.["responsavelNome"] || "";
-    const respCpf = order.responsavelCpf || targetClient["Responsável CPF"] || targetClient["RESPONSAVEL_CPF"] || order.raw?.["RESPONSAVEL_CPF"] || order.raw?.["responsavelCpf"] || "";
+    const resolvedPrintResp = resolveDistinctResponsible(order, targetClient);
+    const respName = resolvedPrintResp.respName;
+    const respCpf = resolvedPrintResp.respCpf;
 
     const cData = {
       ...order.raw,
@@ -2342,8 +2343,9 @@ const OSManagement = ({
 
       const pacName = o.pacienteNome || o.raw?.["PACIENTE"] || o.raw?.["NOME_BENEFICIARIO"] || o.raw?.["nomePessoa"] || "";
       const orderParcelas = extractOrderInstallments(o);
-      const respName = o.responsavelNome || o.raw?.["RESPONSAVEL_NOME"] || o.raw?.["RESPONSAVEL_LEGAL"] || orderTargetClient?.["Responsável Legal"] || orderTargetClient?.["RESPONSAVEL_LEGAL"] || primaryRespName;
-      const respCpf = o.responsavelCpf || o.raw?.["RESPONSAVEL_CPF"] || orderTargetClient?.["Responsável CPF"] || orderTargetClient?.["RESPONSAVEL_CPF"] || primaryRespCpf;
+      const resolvedMultiResp = resolveDistinctResponsible(o, orderTargetClient);
+      const respName = resolvedMultiResp.respName || primaryRespName;
+      const respCpf = resolvedMultiResp.respCpf || primaryRespCpf;
 
       return {
         ...o.raw,
@@ -2677,8 +2679,9 @@ const OSManagement = ({
       || {};
 
     const orderParcelas = extractOrderInstallments(order);
-    const respName = order.responsavelNome || targetClient["Responsável Nome"] || targetClient["Responsável"] || targetClient["RESPONSAVEL_NOME"] || targetClient["RESPONSAVEL"] || order.raw?.["RESPONSAVEL_NOME"] || order.raw?.["RESPONSAVEL"] || order.raw?.["responsavelNome"] || "";
-    const respCpf = order.responsavelCpf || targetClient["Responsável CPF"] || targetClient["RESPONSAVEL_CPF"] || order.raw?.["RESPONSAVEL_CPF"] || order.raw?.["responsavelCpf"] || "";
+    const resolvedPrintResp = resolveDistinctResponsible(order, targetClient);
+    const respName = resolvedPrintResp.respName;
+    const respCpf = resolvedPrintResp.respCpf;
     const pacName = order.pacienteNome || order.raw?.["PACIENTE"] || order.raw?.["NOME_BENEFICIARIO"] || order.raw?.["nomePessoa"] || "";
 
     let orderItens = [];
@@ -6150,6 +6153,7 @@ const OSManagement = ({
             'WhatsApp': editingOrder.clientPhone
           }}
           currentUser={currentUser}
+          salesData={salesData}
           onSave={handleSaveEditedOS}
         />
       )}

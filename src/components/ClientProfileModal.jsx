@@ -21,7 +21,8 @@ import {
   resolveOSUnit, 
   buildGeneralPaymentReceiptPayload,
   isInstallmentActuallyPaid,
-  ensureInstallmentPaidStatus
+  ensureInstallmentPaidStatus,
+  resolveDistinctResponsible
 } from '../reparcelamentoUtils';
 
 const formatCPF_CNPJ = (val) => {
@@ -2167,8 +2168,9 @@ const ClientProfileModal = ({
                                         else if (compra.ITENS_JSON) compItens = typeof compra.ITENS_JSON === 'string' ? JSON.parse(compra.ITENS_JSON) : compra.ITENS_JSON;
                                       } catch (_) { compItens = []; }
 
-                                      const compRespN = compra['RESPONSAVEL_NOME'] || compra['RESPONSAVEL_LEGAL'] || compra['Responsável Nome'] || currentClient['Responsável Nome'] || currentClient['Responsável'] || currentClient['RESPONSAVEL_NOME'] || '';
-                                      const compRespC = compra['RESPONSAVEL_CPF'] || compra['Responsável CPF'] || currentClient['Responsável CPF'] || currentClient['RESPONSAVEL_CPF'] || '';
+                                      const resolvedCompResp = resolveDistinctResponsible(compra, currentClient);
+                                      const compRespN = resolvedCompResp.respName;
+                                      const compRespC = resolvedCompResp.respCpf;
 
                                       setOsDataForPrint({
                                         ...compra,
@@ -2761,6 +2763,7 @@ const ClientProfileModal = ({
         osData={editingOS}
         clientData={currentClient}
         currentUser={currentUser}
+        salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || clientHistory || []}
         onSave={handleSaveOS}
       />
       {/* Toast de Sucesso da OS */}

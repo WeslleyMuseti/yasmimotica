@@ -14,7 +14,7 @@ import DocumentAttachmentInput from './DocumentAttachmentInput';
 import * as XLSX from 'xlsx';
 import { isSameClient } from '../firebaseSync';
 import { executeOSCascadeDeletion } from '../osDeletionUtils';
-import { resolveOSUnit } from '../reparcelamentoUtils';
+import { resolveOSUnit, normalizeStoreCity, resolveDistinctResponsible } from '../reparcelamentoUtils';
 
 const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -145,6 +145,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
   const [activeTab, setActiveTab] = useState(() => initialTab === 'novo' ? 'todos' : initialTab);
   const [osClientData, setOsClientData] = useState(null);
   const [osSaleData, setOsSaleData] = useState(null);
+  const [forceNewOSInModal, setForceNewOSInModal] = useState(true);
   const [osDataForPrint, setOsDataForPrint] = useState(null);
   const [profileClientData, setProfileClientData] = useState(null);
   const [isAdding, setIsAdding] = useState(() => initialTab === 'novo');
@@ -819,7 +820,18 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
       }
     }
 
-    if (recentSale) {
+    const recentSaleOS = String(
+      recentSale?.['OS DA VENDA'] ||
+      recentSale?.['OS'] ||
+      recentSale?.['VENDA_OS'] ||
+      recentSale?.numeroOS ||
+      recentSale?.osNumero ||
+      ''
+    ).trim();
+
+    // 🛡️ Somente vincula recentSale se for uma venda órfã recém-lançada SEM número de OS!
+    // Caso todas as vendas anteriores já tenham OS, abre em modo de NOVA OS com numeração sequencial automática da cidade!
+    if (recentSale && !recentSaleOS) {
       const rawTotal = recentSale['VALOR TOTAL'] || recentSale['VALOR DA VENDA'] || recentSale.valorTotal || '';
       const rawEntrada = recentSale['VALOR ENTRADA'] !== undefined && recentSale['VALOR ENTRADA'] !== '' 
         ? recentSale['VALOR ENTRADA'] 
@@ -850,8 +862,12 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
 
       const enrichedClient = {
         ...client,
-        'Marca de Lente': client['Marca de Lente'] || recentSale['LENTE'] || recentSale['Marca de Lente'] || client['Lente'] || '',
-        'Modelo de Armação': client['Modelo de Armação'] || recentSale['ARMAÇÃO'] || recentSale['Modelo de Armação'] || client['Armação'] || '',
+        numeroOS: '',
+        'OS DA VENDA': '',
+        'OS': '',
+        'VENDA_OS': '',
+        'Marca de Lente': recentSale['LENTE'] || recentSale['Marca de Lente'] || client['Marca de Lente'] || client['Lente'] || '',
+        'Modelo de Armação': recentSale['ARMAÇÃO'] || recentSale['Modelo de Armação'] || client['Modelo de Armação'] || client['Armação'] || '',
         valorTotal: typeof rawTotal === 'number' ? rawTotal.toFixed(2).replace('.', ',') : String(rawTotal || ''),
         valorEntrada: typeof rawEntrada === 'number' ? rawEntrada.toFixed(2).replace('.', ',') : String(rawEntrada || ''),
         restante: calculatedRestante || '0,00',
@@ -863,10 +879,27 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         saleId: rawSaleId
       };
 
+      setForceNewOSInModal(true);
       setOsClientData(enrichedClient);
       setOsSaleData(recentSale);
     } else {
-      setOsClientData(client);
+      const cleanClientForNewOS = {
+        ...client,
+        numeroOS: '',
+        'OS DA VENDA': '',
+        'OS': '',
+        'VENDA_OS': '',
+        valorTotal: '',
+        valorEntrada: '',
+        restante: '',
+        formasPagamento: '',
+        formaPagamentoEntrada: '',
+        formaPagamentoRestante: '',
+        parcelas: [],
+        itens: []
+      };
+      setForceNewOSInModal(true);
+      setOsClientData(cleanClientForNewOS);
       setOsSaleData(null);
     }
   };
@@ -926,6 +959,14 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
       const resolvedFormaRestante = primaryOrder.formaPagamentoRestante || primaryOrder.FORMA_RESTANTE || osData.formaPagamentoRestante || osData.FORMA_RESTANTE || '';
       const primaryNumOS = primaryOrder.numeroOS || osData.numeroOS;
 
+      const resolvedClientResp = resolveDistinctResponsible(primaryOrder || osData || {}, osClientData);
+      const effectiveRespName = resolvedClientResp.respName;
+      const effectiveRespCpf = resolvedClientResp.respCpf;
+      const boletoTitularTipo = primaryOrder?.boletoTitularTipo || osData?.boletoTitularTipo || 'cliente';
+      const isRespTitular = boletoTitularTipo === 'responsavel' && Boolean(effectiveRespName);
+      const titularPagadorName = isRespTitular ? effectiveRespName : clientName;
+      const titularPagadorCpf = isRespTitular ? (effectiveRespCpf || clientCpf) : clientCpf;
+
       ordersList.forEach((orderItem, idx) => {
         const isSecondary = idx > 0 || Boolean(orderItem.isSecondaryOS);
         const itemOsNum = orderItem.numeroOS || (idx === 0 ? primaryNumOS : `${primaryNumOS}-${idx + 1}`);
@@ -945,7 +986,8 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         const nowTimestamp = Date.now();
         const resolvedLoja = resolveOSUnit({ numeroOS: itemOsNum, unidade: saleCity, cidade: saleCity }, osClientData) || saleCity;
 
-        onAddSale({
+        const salePayload = {
+          ...(idx === 0 && osSaleData && !osSaleData['OS DA VENDA'] ? osSaleData : {}),
           'CLIENTE_ID': clientId,
           'CLIENTE_CPF': clientCpf,
           'CPF': clientCpf,
@@ -964,6 +1006,11 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           'PRODUTO': ((orderItem.lente || '') + (orderItem.armacao ? ` + ${orderItem.armacao}` : '')).trim() || 'Óculos Completo',
           'LENTE': orderItem.lente || '',
           'ARMAÇÃO': orderItem.armacao || '',
+          'COR': orderItem.cor || '',
+          'MATERIAL': orderItem.material || '',
+          'TRATAMENTO': orderItem.tratamento || '',
+          'REFERENCIA_SKU': orderItem.referenciaSku || '',
+          'DETALHES': orderItem.detalhes || '',
           'VALOR TOTAL': itemTotal,
           'VALOR DA VENDA': itemTotal,
           'VALOR ENTRADA': itemEntrada,
@@ -978,6 +1025,8 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           'STATUS_OS': 'Aguardando Confirmação',
           'OS DA VENDA': itemOsNum,
           'OS': itemOsNum,
+          'VENDA_OS': itemOsNum,
+          'numeroOS': itemOsNum,
           'PREVISAO_ENTREGA': orderItem.dataEntrega || primaryOrder.dataEntrega || todayStr,
           'LABORATORIO': orderItem.laboratorio || primaryOrder.laboratorio || '',
           'NOME CLIENTE': clientName,
@@ -985,6 +1034,25 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           'NOME': clientName,
           'PACIENTE': orderItem.nomePessoa || orderItem.PACIENTE || clientName,
           'NOME_BENEFICIARIO': orderItem.nomePessoa || orderItem.PACIENTE || clientName,
+          'RESPONSAVEL_LEGAL': effectiveRespName,
+          'RESPONSAVEL_NOME': effectiveRespName,
+          'RESPONSAVEL': effectiveRespName,
+          'Responsável Nome': effectiveRespName,
+          'Responsável Legal': effectiveRespName,
+          'Responsável': effectiveRespName,
+          'responsavelNome': effectiveRespName,
+          'responsavel': effectiveRespName,
+          'RESPONSAVEL_CPF': effectiveRespCpf,
+          'Responsável CPF': effectiveRespCpf,
+          'responsavelCpf': effectiveRespCpf,
+          'BOLETO_TITULAR_TIPO': boletoTitularTipo,
+          'boletoTitularTipo': boletoTitularTipo,
+          'BOLETO_PAGADOR_NOME': titularPagadorName,
+          'boletoPagadorNome': titularPagadorName,
+          'BOLETO_PAGADOR_CPF': titularPagadorCpf,
+          'boletoPagadorCpf': titularPagadorCpf,
+          'TITULAR_BOLETO': isRespTitular ? 'Responsável' : 'Cliente',
+          'titularBoleto': isRespTitular ? 'Responsável' : 'Cliente',
           'TELEFONE': osClientData['WhatsApp'] || osClientData['TELEFONE'] || '',
           'CIDADE': resolvedLoja,
           'LOJA': resolvedLoja,
@@ -1008,14 +1076,36 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           'OE_EIXO': orderItem.oeEixo || '',
           'OE_DNP': orderItem.oeDnp || '',
           'OE_ALT': orderItem.oeAlt || '',
+          'OD_PERTO_ESF': orderItem.odPertoEsf || '',
+          'OD_PERTO_CIL': orderItem.odPertoCil || '',
+          'OD_PERTO_EIXO': orderItem.odPertoEixo || '',
+          'OD_PERTO_DNP': orderItem.odPertoDnp || '',
+          'OD_PERTO_ALT': orderItem.odPertoAlt || '',
+          'OE_PERTO_ESF': orderItem.oePertoEsf || '',
+          'OE_PERTO_CIL': orderItem.oePertoCil || '',
+          'OE_PERTO_EIXO': orderItem.oePertoEixo || '',
+          'OE_PERTO_DNP': orderItem.oePertoDnp || '',
+          'OE_PERTO_ALT': orderItem.oePertoAlt || '',
           'ADICAO': orderItem.adicao || '',
+          'PONTE_ARO': orderItem.ponteAro || '',
+          'DIAGONAL_MAIOR': orderItem.diagonalMaior || '',
+          'ALTURA_VERTICAL': orderItem.alturaVertical || '',
+          'PONTE': orderItem.ponte || '',
+          'ARO': orderItem.aro || '',
           'MEDICO': orderItem.medico || '',
           'VOUCHER': orderItem.voucher || primaryOrder.voucher || osData.voucher || clientSnapshot['VOUCHER'] || clientSnapshot['voucher'] || '',
           'voucher': orderItem.voucher || primaryOrder.voucher || osData.voucher || clientSnapshot['VOUCHER'] || clientSnapshot['voucher'] || '',
           'DESCONTO_VOUCHER': orderItem.descontoVoucher || primaryOrder.descontoVoucher || osData.descontoVoucher || clientSnapshot['DESCONTO_VOUCHER'] || '',
           'descontoVoucher': orderItem.descontoVoucher || primaryOrder.descontoVoucher || osData.descontoVoucher || clientSnapshot['DESCONTO_VOUCHER'] || '',
           'OBSERVACOES': itemObservacoes
-        });
+        };
+
+        if (idx === 0 && osSaleData && !osSaleData['OS DA VENDA'] && (onUpdateSale || onUpdateRow)) {
+          if (onUpdateSale) onUpdateSale(osSaleData, salePayload);
+          else onUpdateRow('Registro_Vendas', osSaleData, salePayload);
+        } else {
+          onAddSale(salePayload);
+        }
       });
 
       // 🛡️ Fix 6: Se houver sinal / valor de entrada na OS, registrar no FLUXO_CAIXA respeitando o método de pagamento da Entrada
@@ -2318,8 +2408,9 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         isOpen={!!osClientData} 
         clientData={osClientData || {}} 
         saleData={osSaleData}
-        selectedCity={osSaleData?.['CIDADE'] || osSaleData?.['UNIDADE'] || osSaleData?.['selectedCity'] || userCity || ''}
-        initialCity={osSaleData?.['CIDADE'] || osSaleData?.['UNIDADE'] || osSaleData?.['selectedCity'] || userCity || ''}
+        forceNewOS={forceNewOSInModal}
+        selectedCity={normalizeStoreCity(osSaleData?.['CIDADE'] || osSaleData?.['UNIDADE'] || osSaleData?.['selectedCity'] || userCity || osClientData?.['Cidade'] || osClientData?.['CIDADE'], '')}
+        initialCity={normalizeStoreCity(osSaleData?.['CIDADE'] || osSaleData?.['UNIDADE'] || osSaleData?.['selectedCity'] || userCity || osClientData?.['Cidade'] || osClientData?.['CIDADE'], '')}
         lentesData={filteredLentes}
         armacoesData={filteredArmacoes}
         salesData={salesData}

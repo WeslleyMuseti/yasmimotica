@@ -18,7 +18,13 @@ import PrintableCashClosingReport from './PrintableCashClosingReport';
 import PrintableCashMovementSheet from './PrintableCashMovementSheet';
 import { PrintableLabelModal } from './PrintableLabel';
 import { decrementStockAtomically, isSameClient } from '../firebaseSync';
-import { resolveOSUnit, resolveOSFinancials, calculateNextBaseOS } from '../reparcelamentoUtils';
+import { 
+  resolveOSUnit, 
+  resolveOSFinancials, 
+  calculateNextBaseOS,
+  normalizeStoreCity,
+  resolveDistinctResponsible
+} from '../reparcelamentoUtils';
 import { InstagramIcon, WhatsAppIcon } from './SocialMediaButtons';
 
 const cleanVal = (v) => {
@@ -251,17 +257,20 @@ const POSRegister = ({
     return u.includes('extern');
   };
   // Se for vendedor de loja fixa, fica travado na unidade. Se for Vendedor Externo (ou admin), pode selecionar a loja livremente no PDV!
-  const userFixedCity = (isVendor && !isExternalVendor) ? (currentUser?.city || currentUser?.assignedStore || null) : null;
+  const rawUserFixedCity = (isVendor && !isExternalVendor) ? (currentUser?.city || currentUser?.assignedStore || null) : null;
+  const userFixedCity = rawUserFixedCity ? normalizeStoreCity(rawUserFixedCity, 'Cajati') : null;
 
   const [selectedPOSCity, setSelectedPOSCity] = useState(() => {
-    return userFixedCity || (isExternalVendor ? 'Venda Externa' : (currentUser?.city || currentUser?.assignedStore || 'Cajati'));
+    return userFixedCity || (isExternalVendor ? 'Venda Externa' : normalizeStoreCity(currentUser?.city || currentUser?.assignedStore, 'Cajati'));
   });
 
   useEffect(() => {
     if (userFixedCity) {
       setSelectedPOSCity(userFixedCity);
+    } else if (isExternalVendor) {
+      setSelectedPOSCity('Venda Externa');
     }
-  }, [userFixedCity]);
+  }, [userFixedCity, isExternalVendor]);
 
   const [cashModalState, setCashModalState] = useState({ isOpen: false, type: 'ABERTURA' });
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
@@ -1465,7 +1474,7 @@ const POSRegister = ({
     const clientId = selectedClient.id || selectedClient._id || selectedClient.CLIENTE_ID || `client_${Date.now()}`;
     const clientCpf = String(selectedClient['CPF / CNPJ'] || selectedClient['CPF'] || '').trim();
     const clientName = selectedClient['Nome Completo'] || selectedClient['NOME'] || 'Cliente';
-    const city = userFixedCity || selectedPOSCity || selectedClient['Cidade'] || selectedClient['CIDADE'] || currentUser?.city || 'Cajati';
+    const city = normalizeStoreCity(userFixedCity || selectedPOSCity || currentUser?.city || selectedClient?.['Cidade'], 'Cajati');
 
     // 🛡️ Cálculo preciso da data e horário da venda informados pelo operador (respeita data e horário retroativos ou customizados)
     const getSaleDateInfo = () => {
@@ -1553,23 +1562,13 @@ const POSRegister = ({
 
     const saleId = `venda_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-    // Identificar pagador titular do boleto (Cliente Titular vs Responsável Legal)
-    const effectiveRespName = String(
-      customRespName ||
-      selectedClient?.['Responsável Nome'] || 
-      selectedClient?.['Responsável'] || 
-      selectedClient?.['RESPONSAVEL'] || 
-      selectedClient?.['responsavelNome'] || 
-      ''
-    ).trim();
-
-    const effectiveRespCpf = String(
-      customRespCpf ||
-      selectedClient?.['Responsável CPF'] || 
-      selectedClient?.['RESPONSAVEL_CPF'] || 
-      selectedClient?.['responsavelCpf'] || 
-      ''
-    ).trim();
+    // Identificar pagador titular do boleto (Cliente Titular vs Responsável Legal) sem nunca gravar o próprio cliente como responsável
+    const resolvedPosResp = resolveDistinctResponsible(
+      { customRespName, customRespCpf },
+      selectedClient || {}
+    );
+    const effectiveRespName = resolvedPosResp.respName;
+    const effectiveRespCpf = resolvedPosResp.respCpf;
 
     const hasBoletoInPayments = effectivePayments.some(p => p.metodo === 'carne' || p.metodo === 'boleto');
     const isRespTitular = hasBoletoInPayments && boletoTitularType === 'responsavel' && Boolean(effectiveRespName);
@@ -1589,9 +1588,8 @@ const POSRegister = ({
     const lenteTratamento = lenteItem?.tratamento || lenteItem?.rawProduct?.['TRATAMENTO'] || lenteItem?.rawProduct?.['Tratamento'] || '';
     const lenteMaterial = lenteItem?.material || lenteItem?.rawProduct?.['MATERIAL'] || lenteItem?.rawProduct?.['Material'] || '';
 
-    // 🛡️ Pre-geração automática e soberana do próximo número de OS para óculos completos (evita vendas órfãs sem OS)
-    const hasOpticalItems = cart.some(i => i.type === 'lentes' || i.type === 'armacoes' || Boolean(i.rawProduct && (i.rawProduct.MARCA || i.rawProduct.MODELO || i.rawProduct.LENTE)));
-    const preGeneratedOS = hasOpticalItems ? calculateNextBaseOS(city, salesData) : '';
+    // 🛡️ Geração automática e soberana do próximo número sequencial de OS de acordo com a cidade (CAJ, REG, JAC, EXT)
+    const preGeneratedOS = cart.length > 0 ? calculateNextBaseOS(city, salesData) : '';
 
     const newSale = {
       id: saleId,
@@ -2110,28 +2108,12 @@ const POSRegister = ({
       const fallbackLenteTratamento = fallbackLente?.tratamento || fallbackLente?.rawProduct?.['TRATAMENTO'] || fallbackLente?.rawProduct?.['Tratamento'] || '';
       const fallbackLenteMaterial = fallbackLente?.material || fallbackLente?.rawProduct?.['MATERIAL'] || fallbackLente?.rawProduct?.['Material'] || '';
 
-      const effectiveRespName = String(
-        savedClientForOS['Responsável Nome'] || 
-        savedClientForOS['Responsável Legal'] ||
-        savedClientForOS['Responsável'] || 
-        savedClientForOS['RESPONSAVEL_LEGAL'] ||
-        savedClientForOS['RESPONSAVEL_NOME'] ||
-        savedClientForOS['RESPONSAVEL'] || 
-        savedClientForOS['responsavelNome'] || 
-        completedSale?.RESPONSAVEL_NOME ||
-        completedSale?.RESPONSAVEL_LEGAL ||
-        completedSale?.['Responsável Nome'] ||
-        ''
-      ).trim();
-
-      const effectiveRespCpf = String(
-        savedClientForOS['Responsável CPF'] || 
-        savedClientForOS['RESPONSAVEL_CPF'] || 
-        savedClientForOS['responsavelCpf'] || 
-        completedSale?.RESPONSAVEL_CPF ||
-        completedSale?.['Responsável CPF'] ||
-        ''
-      ).trim();
+      const resolvedModalResp = resolveDistinctResponsible(
+        osGeneratedData || completedSale || {},
+        savedClientForOS || {}
+      );
+      const effectiveRespName = resolvedModalResp.respName;
+      const effectiveRespCpf = resolvedModalResp.respCpf;
 
       const fallbackTitularPagadorName = (boletoTitularType === 'responsavel' && effectiveRespName)
         ? effectiveRespName
@@ -2240,14 +2222,17 @@ const POSRegister = ({
         'nomePessoa': singleData.nomePessoa || clientName,
         'RESPONSAVEL_LEGAL_INADIMPLENTE': !!singleData.RESPONSAVEL_LEGAL_INADIMPLENTE,
         'RESPONSAVEL_LEGAL_DEBITO': singleData.RESPONSAVEL_LEGAL_DEBITO || 0,
-        'RESPONSAVEL_LEGAL': singleData.responsavelNome || singleData.RESPONSAVEL_LEGAL || completedSale?.RESPONSAVEL_LEGAL || completedSale?.RESPONSAVEL_NOME || '',
-        'RESPONSAVEL_NOME': singleData.responsavelNome || singleData.RESPONSAVEL_NOME || completedSale?.RESPONSAVEL_NOME || completedSale?.RESPONSAVEL_LEGAL || '',
-        'Responsável Nome': singleData.responsavelNome || singleData.RESPONSAVEL_NOME || completedSale?.RESPONSAVEL_NOME || '',
-        'Responsável Legal': singleData.responsavelNome || singleData.RESPONSAVEL_LEGAL || completedSale?.RESPONSAVEL_LEGAL || '',
-        'responsavelNome': singleData.responsavelNome || singleData.RESPONSAVEL_NOME || completedSale?.responsavelNome || '',
-        'RESPONSAVEL_CPF': singleData.responsavelCpf || singleData.RESPONSAVEL_CPF || completedSale?.RESPONSAVEL_CPF || '',
-        'Responsável CPF': singleData.responsavelCpf || singleData.RESPONSAVEL_CPF || completedSale?.RESPONSAVEL_CPF || '',
-        'responsavelCpf': singleData.responsavelCpf || singleData.RESPONSAVEL_CPF || completedSale?.responsavelCpf || '',
+        'RESPONSAVEL_LEGAL': effectiveRespName,
+        'RESPONSAVEL_NOME': effectiveRespName,
+        'RESPONSAVEL': effectiveRespName,
+        'Responsável Nome': effectiveRespName,
+        'Responsável Legal': effectiveRespName,
+        'Responsável': effectiveRespName,
+        'responsavelNome': effectiveRespName,
+        'responsavel': effectiveRespName,
+        'RESPONSAVEL_CPF': effectiveRespCpf,
+        'Responsável CPF': effectiveRespCpf,
+        'responsavelCpf': effectiveRespCpf,
         'PONTE_ARO': singleData.ponteAro || singleData.PONTE_ARO || completedSale?.PONTE_ARO || '',
         'DIAGONAL_MAIOR': singleData.diagonalMaior || singleData.DIAGONAL_MAIOR || completedSale?.DIAGONAL_MAIOR || '',
         'ALTURA_VERTICAL': singleData.alturaVertical || singleData.ALTURA_VERTICAL || completedSale?.ALTURA_VERTICAL || '',
@@ -2611,14 +2596,17 @@ const POSRegister = ({
       'nomePessoa': primaryOS.nomePessoa || clientName,
       'RESPONSAVEL_LEGAL_INADIMPLENTE': !!osGeneratedData.RESPONSAVEL_LEGAL_INADIMPLENTE,
       'RESPONSAVEL_LEGAL_DEBITO': osGeneratedData.RESPONSAVEL_LEGAL_DEBITO || 0,
-      'RESPONSAVEL_LEGAL': primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.RESPONSAVEL_LEGAL || completedSale?.RESPONSAVEL_NOME || '',
-      'RESPONSAVEL_NOME': primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.RESPONSAVEL_NOME || completedSale?.RESPONSAVEL_LEGAL || '',
-      'Responsável Nome': primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.RESPONSAVEL_NOME || '',
-      'Responsável Legal': primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.RESPONSAVEL_LEGAL || '',
-      'responsavelNome': primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.responsavelNome || '',
-      'RESPONSAVEL_CPF': primaryOS.responsavelCpf || osGeneratedData.responsavelCpf || completedSale?.RESPONSAVEL_CPF || '',
-      'Responsável CPF': primaryOS.responsavelCpf || osGeneratedData.responsavelCpf || completedSale?.RESPONSAVEL_CPF || '',
-      'responsavelCpf': primaryOS.responsavelCpf || osGeneratedData.responsavelCpf || completedSale?.responsavelCpf || '',
+      'RESPONSAVEL_LEGAL': effectiveRespName,
+      'RESPONSAVEL_NOME': effectiveRespName,
+      'RESPONSAVEL': effectiveRespName,
+      'Responsável Nome': effectiveRespName,
+      'Responsável Legal': effectiveRespName,
+      'Responsável': effectiveRespName,
+      'responsavelNome': effectiveRespName,
+      'responsavel': effectiveRespName,
+      'RESPONSAVEL_CPF': effectiveRespCpf,
+      'Responsável CPF': effectiveRespCpf,
+      'responsavelCpf': effectiveRespCpf,
       'PONTE_ARO': primaryOS.ponteAro || primaryOS.PONTE_ARO || completedSale?.PONTE_ARO || '',
       'DIAGONAL_MAIOR': primaryOS.diagonalMaior || primaryOS.DIAGONAL_MAIOR || completedSale?.DIAGONAL_MAIOR || '',
       'ALTURA_VERTICAL': primaryOS.alturaVertical || primaryOS.ALTURA_VERTICAL || completedSale?.ALTURA_VERTICAL || '',
@@ -2725,14 +2713,17 @@ const POSRegister = ({
       'boletoPagadorCpf': secOS.boletoPagadorCpf || completedSale?.boletoPagadorCpf || fallbackTitularPagadorCpf,
       'TITULAR_BOLETO': ((secOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' && effectiveRespName) ? 'Responsável' : 'Cliente',
       'titularBoleto': ((secOS.boletoTitularTipo || completedSale?.BOLETO_TITULAR_TIPO || boletoTitularType) === 'responsavel' && effectiveRespName) ? 'Responsável' : 'Cliente',
-      'RESPONSAVEL_LEGAL': secOS.responsavelNome || primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.RESPONSAVEL_LEGAL || '',
-      'RESPONSAVEL_NOME': secOS.responsavelNome || primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.RESPONSAVEL_NOME || '',
-      'Responsável Nome': secOS.responsavelNome || primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.RESPONSAVEL_NOME || '',
-      'Responsável Legal': secOS.responsavelNome || primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.RESPONSAVEL_LEGAL || '',
-      'responsavelNome': secOS.responsavelNome || primaryOS.responsavelNome || osGeneratedData.responsavelNome || completedSale?.responsavelNome || '',
-      'RESPONSAVEL_CPF': secOS.responsavelCpf || primaryOS.responsavelCpf || osGeneratedData.responsavelCpf || completedSale?.RESPONSAVEL_CPF || '',
-      'Responsável CPF': secOS.responsavelCpf || primaryOS.responsavelCpf || osGeneratedData.responsavelCpf || completedSale?.RESPONSAVEL_CPF || '',
-      'responsavelCpf': secOS.responsavelCpf || primaryOS.responsavelCpf || osGeneratedData.responsavelCpf || completedSale?.responsavelCpf || '',
+      'RESPONSAVEL_LEGAL': effectiveRespName,
+      'RESPONSAVEL_NOME': effectiveRespName,
+      'RESPONSAVEL': effectiveRespName,
+      'Responsável Nome': effectiveRespName,
+      'Responsável Legal': effectiveRespName,
+      'Responsável': effectiveRespName,
+      'responsavelNome': effectiveRespName,
+      'responsavel': effectiveRespName,
+      'RESPONSAVEL_CPF': effectiveRespCpf,
+      'Responsável CPF': effectiveRespCpf,
+      'responsavelCpf': effectiveRespCpf,
       'PONTE_ARO': secOS.ponteAro || secOS.PONTE_ARO || '',
       'DIAGONAL_MAIOR': secOS.diagonalMaior || secOS.DIAGONAL_MAIOR || '',
       'ALTURA_VERTICAL': secOS.alturaVertical || secOS.ALTURA_VERTICAL || '',
@@ -3229,7 +3220,7 @@ const POSRegister = ({
                 <div className="flex items-center gap-2">
                   <select
                     value={selectedPOSCity}
-                    onChange={e => setSelectedPOSCity(e.target.value)}
+                    onChange={e => setSelectedPOSCity(normalizeStoreCity(e.target.value, 'Cajati'))}
                     className="bg-transparent text-xs text-white font-black uppercase outline-none cursor-pointer pr-1"
                   >
                     {['Cajati', 'Registro', 'Jacupiranga', 'Venda Externa'].map(c => (
@@ -3243,6 +3234,9 @@ const POSRegister = ({
                   )}
                 </div>
               )}
+              <span className="text-[10px] font-mono font-black text-fuchsia-300 bg-fuchsia-500/15 border border-fuchsia-500/30 px-2 py-0.5 rounded-full">
+                OS: {calculateNextBaseOS(selectedPOSCity, salesData)}
+              </span>
             </div>
 
             {/* Status do Turno (Aberto / Fechado) */}

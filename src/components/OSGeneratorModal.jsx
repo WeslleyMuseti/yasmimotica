@@ -6,7 +6,15 @@ import {
   QrCode, Glasses, Layers, Copy, Info, MapPin, Tag, FlaskConical, ClipboardList,
   AlertOctagon, Sparkles, Ticket, Users
 } from 'lucide-react';
-import { resolveOSUnit, isBoletoOrCarne as isBoletoOrCarneUtil, resolveOSFinancials } from '../reparcelamentoUtils';
+import { 
+  resolveOSUnit, 
+  isBoletoOrCarne as isBoletoOrCarneUtil, 
+  resolveOSFinancials,
+  normalizeStoreCity,
+  getCityPrefix,
+  calculateNextBaseOS,
+  resolveDistinctResponsible
+} from '../reparcelamentoUtils';
 
 const parseCurrency = (val) => {
   if (val === null || val === undefined || val === '') return 0;
@@ -171,11 +179,13 @@ const OSGeneratorModal = ({
   clientsData = [],
   vouchersData: propVouchersData = [],
   selectedCity: propSelectedCity = '',
-  initialCity = ''
+  initialCity = '',
+  forceNewOS = false
 }) => {
   const safeClient = clientData || {};
-  const [selectedCity, setSelectedCity] = useState('');
+  const [selectedCity, setSelectedCity] = useState('Cajati');
   const [baseOSNumber, setBaseOSNumber] = useState('');
+  const [isManualOSOverride, setIsManualOSOverride] = useState(false);
   
   // Lista de Ordens de Serviço para suportar 1 ou MÚLTIPLAS OS na mesma venda
   const [osList, setOsList] = useState([]);
@@ -211,18 +221,22 @@ const OSGeneratorModal = ({
     const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.Unidade || item.unidade || '').trim().toLowerCase();
     return u.includes('extern');
   };
-  // 🛡️ Apenas fixa a cidade do vendedor se ela estiver explicitamente preenchida no cadastro do usuário (sem forçar Cajati indevidamente)
-  const userCity = (isVendor && !isExternalVendor) ? (currentUser?.city || currentUser?.assignedStore || null) : null;
-  const filteredLentes = userCity 
+  // 🛡️ Fixa a cidade do vendedor conforme cadastro (incluindo Venda Externa -> EXT)
+  const rawVendorStore = (currentUser?.city || currentUser?.assignedStore || '').trim();
+  const fixedIndoorCity = (isVendor && !isExternalVendor && rawVendorStore)
+    ? normalizeStoreCity(rawVendorStore, null)
+    : null;
+  const userCity = isExternalVendor ? 'Venda Externa' : fixedIndoorCity;
+  const filteredLentes = fixedIndoorCity 
     ? lentesData.filter(l => {
         const u = String(l.UNIDADE || l.CIDADE || l.LOJA || l.Unidade || '').trim().toUpperCase();
-        return u && u !== 'CENTRAL' && u.includes(userCity.toUpperCase());
+        return u && u !== 'CENTRAL' && u.includes(fixedIndoorCity.toUpperCase());
       })
     : lentesData;
-  const filteredArmacoes = userCity 
+  const filteredArmacoes = fixedIndoorCity 
     ? armacoesData.filter(a => {
         const u = String(a.UNIDADE || a.CIDADE || a.LOJA || a.Unidade || '').trim().toUpperCase();
-        return u && u !== 'CENTRAL' && u.includes(userCity.toUpperCase());
+        return u && u !== 'CENTRAL' && u.includes(fixedIndoorCity.toUpperCase());
       })
     : armacoesData;
 
@@ -610,35 +624,10 @@ const OSGeneratorModal = ({
     return false;
   }, [payments, formData.formaPagamentoRestante, formData.formasPagamento, formData.formaPagamentoEntrada, payMethod, clientData, saleData]);
 
-  // Calcula o prefixo da unidade selecionada
-  const getCityPrefix = (city) => {
-    if (city === 'Cajati') return 'CAJ';
-    if (city === 'Registro') return 'REG';
-    if (city === 'Jacupiranga') return 'JAC';
-    if (city === 'Venda Externa') return 'EXT';
-    return 'CAJ';
-  };
-
-  // Calcula o próximo número base de OS devidamente formatado (Ex: CAJ-001, REG-001)
-  const calculateNextBaseOS = (city, sData) => {
-    const prefix = getCityPrefix(city);
-    let maxNum = 0;
-    (sData || []).forEach(sale => {
-      const os = sale['OS DA VENDA'] || sale['OS'] || sale['VENDA_OS'];
-      if (os && String(os).toUpperCase().startsWith(prefix.toUpperCase())) {
-        const cleanNumPart = String(os).replace(new RegExp(`^${prefix}[-#\\s]?`, 'i'), '');
-        const numPart = parseInt(cleanNumPart, 10);
-        if (!isNaN(numPart) && numPart > maxNum) {
-          maxNum = numPart;
-        }
-      }
-    });
-    return `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
-  };
-
   // Inicialização quando clientData abre
   useEffect(() => {
     if (clientData && isOpen) {
+      setIsManualOSOverride(false);
       const vTotal = clientData['valorTotal'] || 
         (saleData?.['VALOR TOTAL'] ? String(saleData['VALOR TOTAL']) : '') || 
         (saleData?.['VALOR DA VENDA'] ? String(saleData['VALOR DA VENDA']) : '') || 
@@ -674,17 +663,14 @@ const OSGeneratorModal = ({
       const finalInitTotal = resolvedInitFin.totalFmt;
       const finalInitEntrada = resolvedInitFin.entradaFmt;
       const finalInitRestante = resolvedInitFin.restanteFmt;
-      // 🛡️ Ordem de Prioridade Soberana para a Loja/Unidade da OS:
-      // 1. Loja ativa informada pelo chamador (propSelectedCity / initialCity do PDV)
-      // 2. Unidade registrada na Venda (saleData.UNIDADE / CIDADE / LOJA / selectedCity)
-      // 3. Unidade indicada explicitamente no clientData como loja (selectedCity / UNIDADE / LOJA)
-      // 4. Unidade fixa do Vendedor logado (se configurada)
-      // 5. Fallback na cidade residencial do cliente ou padrão Cajati
-      const saleCityCandidate = propSelectedCity || initialCity ||
-        saleData?.['UNIDADE'] || saleData?.['CIDADE'] || saleData?.['LOJA'] || saleData?.['selectedCity'] || saleData?.cidade ||
-        clientData?.['selectedCity'] || clientData?.['UNIDADE'] || clientData?.['LOJA'];
+      // 🛡️ Ordem de Prioridade Soberana e Normalizada para a Loja/Unidade da OS (Cajati, Registro, Jacupiranga, Venda Externa):
+      const targetCity =
+        normalizeStoreCity(propSelectedCity || initialCity, '') ||
+        normalizeStoreCity(saleData?.['UNIDADE'] || saleData?.['LOJA'] || saleData?.['selectedCity'] || saleData?.['CIDADE'] || saleData?.cidade, '') ||
+        normalizeStoreCity(clientData?.['selectedCity'] || clientData?.['UNIDADE'] || clientData?.['LOJA'], '') ||
+        userCity ||
+        normalizeStoreCity(clientData?.['Cidade'] || clientData?.['CIDADE'], 'Cajati');
 
-      const vCidade = saleCityCandidate || userCity || clientData?.['Cidade'] || clientData?.['CIDADE'] || 'Cajati';
       const initialPayments = parseInitialPayments(clientData, saleData);
       setPayments(initialPayments);
 
@@ -710,34 +696,24 @@ const OSGeneratorModal = ({
         '1'
       );
 
-      const targetCity = vCidade || 'Cajati';
       setSelectedCity(targetCity);
 
-      const existingOS = clientData['OS DA VENDA'] || clientData['OS'] || clientData['numeroOS'] || saleData?.['OS DA VENDA'] || saleData?.['OS'];
-      const nextBase = (existingOS && /\d/.test(String(existingOS))) 
-        ? String(existingOS).replace(/-\d+$/, '').toUpperCase().trim() 
+      const expectedPrefix = getCityPrefix(targetCity);
+      const saleExistingOS = !forceNewOS
+        ? String(saleData?.['OS DA VENDA'] || saleData?.['OS'] || saleData?.numeroOS || '').trim()
+        : '';
+      const existingPrefixMatch = saleExistingOS
+        ? saleExistingOS.match(new RegExp(`^(?:#|OS[-_\\s]*)?${expectedPrefix}[-#_\\s]*(\\d+)`, 'i'))
+        : null;
+      const nextBase = existingPrefixMatch
+        ? `${expectedPrefix}-${String(parseInt(existingPrefixMatch[1], 10)).padStart(3, '0')}`
         : calculateNextBaseOS(targetCity, salesData);
       setBaseOSNumber(nextBase);
 
-      // Sincronizar responsável e titular do boleto ao abrir
-      const respN = String(
-        saleData?.['BOLETO_PAGADOR_NOME'] ||
-        clientData?.['Responsável Nome'] ||
-        clientData?.['Responsável'] ||
-        clientData?.['RESPONSAVEL'] ||
-        saleData?.['RESPONSAVEL_NOME'] ||
-        safeClient['Responsável Nome'] ||
-        safeClient['Responsável'] ||
-        ''
-      ).trim();
-      const respC = String(
-        saleData?.['BOLETO_PAGADOR_CPF'] ||
-        clientData?.['Responsável CPF'] ||
-        clientData?.['RESPONSAVEL_CPF'] ||
-        saleData?.['RESPONSAVEL_CPF'] ||
-        safeClient['Responsável CPF'] ||
-        ''
-      ).trim();
+      // 🛡️ Sincronizar Responsável Legal real (NUNCA confundir BOLETO_PAGADOR_NOME do próprio titular com o Responsável Legal!)
+      const resolvedInitResp = resolveDistinctResponsible(saleData || {}, clientData || {});
+      const respN = resolvedInitResp.respName;
+      const respC = resolvedInitResp.respCpf;
       setCustomRespName(respN);
       setCustomRespCpf(respC);
       const initialTitular = saleData?.['BOLETO_TITULAR_TIPO'] || saleData?.['boletoTitularTipo'] || clientData?.['BOLETO_TITULAR_TIPO'] || clientData?.['boletoTitularTipo'] || 'cliente';
@@ -937,7 +913,7 @@ const OSGeneratorModal = ({
           }
           return [];
         })(),
-        responsavel: clientData['Responsável Nome'] || clientData['Responsável'] || clientData['responsavel'] || '',
+        responsavel: respN,
         rg: clientData['RG'] || clientData['rg'] || '',
         laboratorio: clientData['LABORATORIO'] || clientData['laboratorio'] || '',
         voucher: clientData['voucher'] || clientData['VOUCHER'] || saleData?.['VOUCHER'] || saleData?.voucher || '',
@@ -959,13 +935,41 @@ const OSGeneratorModal = ({
       setVoucherCodeInput('');
       setVoucherError('');
     }
-  }, [clientData, saleData, isOpen, currentUser, userCity, propSelectedCity, initialCity]);
+  }, [clientData, saleData, isOpen, currentUser, userCity, propSelectedCity, initialCity, forceNewOS]);
 
-  // Atualização de prefixo e base quando a cidade muda
-  const handleCityChange = (newCity) => {
+  // 🔄 Sincronização automática contínua do número da OS com a cidade selecionada e base de vendas
+  useEffect(() => {
+    if (!isOpen || isManualOSOverride || !selectedCity) return;
+    const saleExistingOS = !forceNewOS
+      ? String(saleData?.['OS DA VENDA'] || saleData?.['OS'] || saleData?.numeroOS || '').trim()
+      : '';
+    const expectedPrefix = getCityPrefix(selectedCity);
+    const existingPrefixMatch = saleExistingOS
+      ? saleExistingOS.match(new RegExp(`^(?:#|OS[-_\\s]*)?${expectedPrefix}[-#_\\s]*(\\d+)`, 'i'))
+      : null;
+    if (existingPrefixMatch) return; // Mantém a OS já reservada para esta venda específica na mesma cidade
+
+    const computedNext = calculateNextBaseOS(selectedCity, salesData);
+    if (computedNext && computedNext !== baseOSNumber) {
+      setBaseOSNumber(computedNext);
+      setFormData(prev => ({ ...prev, numeroOS: computedNext }));
+      setOsList(prev => prev.map((item, idx) => ({
+        ...item,
+        selectedCity,
+        unidade: selectedCity,
+        numeroOS: prev.length <= 1 ? computedNext : `${computedNext}-${idx + 1}`
+      })));
+    }
+  }, [salesData, selectedCity, isOpen, isManualOSOverride, forceNewOS, saleData, baseOSNumber]);
+
+  // Atualização automática de prefixo e sequência quando a cidade muda
+  const handleCityChange = (rawNewCity) => {
+    const newCity = normalizeStoreCity(rawNewCity, 'Cajati');
+    setIsManualOSOverride(false);
     setSelectedCity(newCity);
     const newBase = calculateNextBaseOS(newCity, salesData);
     setBaseOSNumber(newBase);
+    setFormData(prev => ({ ...prev, numeroOS: newBase }));
     setOsList(prev => prev.map((item, idx) => ({
       ...item,
       selectedCity: newCity,
@@ -1490,30 +1494,16 @@ const OSGeneratorModal = ({
       if (!allow) return;
     }
 
-    const effectiveRespName = String(
-      customRespName ||
-      safeClient['Responsável Nome'] ||
-      safeClient['Responsável Legal'] ||
-      safeClient['RESPONSAVEL_LEGAL'] ||
-      safeClient['RESPONSAVEL_NOME'] ||
-      safeClient['Responsável'] ||
-      safeClient['RESPONSAVEL'] ||
-      safeClient['responsavelNome'] ||
-      saleData?.['RESPONSAVEL_NOME'] ||
-      saleData?.['RESPONSAVEL_LEGAL'] ||
-      saleData?.['Responsável Nome'] ||
-      ''
-    ).trim();
-
-    const effectiveRespCpf = String(
-      customRespCpf ||
-      safeClient['Responsável CPF'] ||
-      safeClient['RESPONSAVEL_CPF'] ||
-      safeClient['responsavelCpf'] ||
-      saleData?.['RESPONSAVEL_CPF'] ||
-      saleData?.['Responsável CPF'] ||
-      ''
-    ).trim();
+    const resolvedSaveResp = resolveDistinctResponsible(
+      {
+        ...(saleData || {}),
+        customRespName,
+        customRespCpf
+      },
+      safeClient
+    );
+    const effectiveRespName = resolvedSaveResp.respName;
+    const effectiveRespCpf = resolvedSaveResp.respCpf;
 
     const isRespTitular = boletoTitularType === 'responsavel' && Boolean(effectiveRespName);
     const titularPagadorName = isRespTitular
@@ -1562,9 +1552,12 @@ const OSGeneratorModal = ({
         CLIENTE_BENEFICIARIO: finalNomePessoa,
         RESPONSAVEL_LEGAL: effectiveRespName,
         RESPONSAVEL_NOME: effectiveRespName,
+        RESPONSAVEL: effectiveRespName,
         'Responsável Nome': effectiveRespName,
         'Responsável Legal': effectiveRespName,
+        'Responsável': effectiveRespName,
         responsavelNome: effectiveRespName,
+        responsavel: effectiveRespName,
         RESPONSAVEL_CPF: effectiveRespCpf,
         'Responsável CPF': effectiveRespCpf,
         responsavelCpf: effectiveRespCpf,
@@ -1652,9 +1645,12 @@ const OSGeneratorModal = ({
         DESCONTO_VOUCHER: formData.descontoVoucher || safeClient['DESCONTO_VOUCHER'] || safeClient['descontoVoucher'] || saleData?.['DESCONTO_VOUCHER'] || saleData?.descontoVoucher || '',
         RESPONSAVEL_LEGAL: effectiveRespName,
         RESPONSAVEL_NOME: effectiveRespName,
+        RESPONSAVEL: effectiveRespName,
         'Responsável Nome': effectiveRespName,
         'Responsável Legal': effectiveRespName,
+        'Responsável': effectiveRespName,
         responsavelNome: effectiveRespName,
+        responsavel: effectiveRespName,
         RESPONSAVEL_CPF: effectiveRespCpf,
         'Responsável CPF': effectiveRespCpf,
         responsavelCpf: effectiveRespCpf,
@@ -1706,9 +1702,12 @@ const OSGeneratorModal = ({
             CLIENTE_BENEFICIARIO: finalBeneficiario,
             RESPONSAVEL_LEGAL: effectiveRespName,
             RESPONSAVEL_NOME: effectiveRespName,
+            RESPONSAVEL: effectiveRespName,
             'Responsável Nome': effectiveRespName,
             'Responsável Legal': effectiveRespName,
+            'Responsável': effectiveRespName,
             responsavelNome: effectiveRespName,
+            responsavel: effectiveRespName,
             RESPONSAVEL_CPF: effectiveRespCpf,
             'Responsável CPF': effectiveRespCpf,
             responsavelCpf: effectiveRespCpf,
@@ -2016,6 +2015,44 @@ const OSGeneratorModal = ({
                 </div>
               </div>
 
+              {/* 🛡️ BLOCO SEMPRE VISÍVEL: RESPONSÁVEL LEGAL NA OS (PAIS / TUTORES / AVALISTAS) */}
+              <div className="p-3.5 bg-gradient-to-r from-amber-950/35 via-slate-900/80 to-amber-950/25 border border-amber-500/35 rounded-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-md">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shrink-0">
+                    <Users size={16} />
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-2 flex-wrap">
+                      <span>Responsável Legal na OS (Pai / Mãe / Tutor)</span>
+                      {customRespName && (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[9px] font-black uppercase">
+                          ✓ Sairá Impresso na OS
+                        </span>
+                      )}
+                    </span>
+                    <p className="text-[10px] text-slate-300">
+                      Puxado automaticamente do cadastro do cliente (ou preencha caso haja responsável legal). Sairá na identificação, contrato e assinatura da OS.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full lg:w-[440px] shrink-0">
+                  <input
+                    type="text"
+                    value={customRespName}
+                    onChange={(e) => setCustomRespName(e.target.value)}
+                    placeholder="Nome do Responsável (se houver)"
+                    className="w-full bg-black/70 border border-amber-400/40 rounded-xl px-3 py-2 text-xs font-bold text-amber-100 placeholder-slate-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/30 shadow-inner"
+                  />
+                  <input
+                    type="text"
+                    value={customRespCpf}
+                    onChange={(e) => setCustomRespCpf(e.target.value)}
+                    placeholder="CPF do Responsável"
+                    className="w-full bg-black/70 border border-amber-400/40 rounded-xl px-3 py-2 text-xs font-mono font-bold text-amber-100 placeholder-slate-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/30 shadow-inner"
+                  />
+                </div>
+              </div>
+
               {/* Grade de Campos da OS: Unidade, Nº da OS, Laboratório, Médico, Data Venda, Data Entrega */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5 pt-1">
                 {/* Unidade */}
@@ -2023,18 +2060,17 @@ const OSGeneratorModal = ({
                   <label className="text-[10px] uppercase text-slate-400 font-black tracking-wider flex items-center gap-1">
                     <MapPin size={11} className="text-pink-400" /> Unidade (Loja)
                   </label>
-                  {userCity ? (
+                  {fixedIndoorCity ? (
                     <div className="w-full bg-black/60 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-emerald-400 font-bold flex items-center justify-between">
                       <span>{selectedCity}</span>
                       <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-black uppercase">Fixa</span>
                     </div>
                   ) : (
                     <select 
-                      value={selectedCity} 
+                      value={selectedCity || 'Cajati'} 
                       onChange={(e) => handleCityChange(e.target.value)} 
                       className="w-full bg-slate-900/90 border border-white/10 rounded-xl px-3 py-2 text-xs text-sky-400 font-bold focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/30"
                     >
-                      <option value="">Selecione...</option>
                       <option value="Cajati">Cajati (CAJ)</option>
                       <option value="Registro">Registro (REG)</option>
                       <option value="Jacupiranga">Jacupiranga (JAC)</option>
@@ -2043,18 +2079,47 @@ const OSGeneratorModal = ({
                   )}
                 </div>
 
-                {/* Nº da OS */}
+                {/* Nº da OS (Automático por Cidade) */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase text-fuchsia-400 font-black tracking-wider flex items-center gap-1">
-                    <Tag size={11} className="text-fuchsia-400" /> Nº desta OS
+                  <label className="text-[10px] uppercase text-fuchsia-400 font-black tracking-wider flex items-center justify-between gap-1">
+                    <span className="flex items-center gap-1"><Tag size={11} className="text-fuchsia-400" /> Nº desta OS</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isManualOSOverride) {
+                          const autoNext = calculateNextBaseOS(selectedCity || 'Cajati', salesData);
+                          setIsManualOSOverride(false);
+                          setBaseOSNumber(autoNext);
+                          setFormData(prev => ({ ...prev, numeroOS: autoNext }));
+                          setOsList(prev => prev.map((item, idx) => ({
+                            ...item,
+                            numeroOS: prev.length <= 1 ? autoNext : `${autoNext}-${idx + 1}`
+                          })));
+                        } else if (!isVendor) {
+                          setIsManualOSOverride(true);
+                        }
+                      }}
+                      className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-black uppercase hover:bg-emerald-500/25 transition-all"
+                      title={isManualOSOverride ? "Voltar para numeração automática da cidade" : "Gerado automaticamente conforme a cidade"}
+                    >
+                      {isManualOSOverride ? '↺ Auto' : '⚡ Auto'}
+                    </button>
                   </label>
                   <input 
                     type="text" 
                     name="numeroOS" 
                     value={currentOS.numeroOS || ''} 
-                    onChange={handleChange} 
-                    placeholder="CAJ-001" 
-                    className="w-full bg-black/70 border border-fuchsia-500/30 rounded-xl px-3 py-2 text-xs text-fuchsia-400 font-black font-mono uppercase focus:outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500/40 shadow-inner" 
+                    readOnly={!isManualOSOverride}
+                    onChange={(e) => {
+                      setIsManualOSOverride(true);
+                      handleChange(e);
+                    }} 
+                    placeholder={`${getCityPrefix(selectedCity)}-001`} 
+                    className={`w-full bg-black/70 border rounded-xl px-3 py-2 text-xs font-black font-mono uppercase focus:outline-none shadow-inner ${
+                      isManualOSOverride
+                        ? 'border-amber-500/50 text-amber-300 focus:border-amber-400'
+                        : 'border-emerald-500/35 text-emerald-300 cursor-default'
+                    }`} 
                   />
                 </div>
 
