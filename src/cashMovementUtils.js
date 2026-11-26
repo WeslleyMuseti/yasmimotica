@@ -380,8 +380,12 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     );
 
     const forma = String(m.formaPagamento || m.forma || m.FORMA_PAGTO || m['FORMA DE PAGAMENTO'] || '').trim();
-    const isPureBoleto = isVenda && rawValor === 0 && (effectiveRestBoleto > 0 || /boleto|carn[eê]/i.test(forma));
-    const displayValor = isPureBoleto ? (effectiveRestBoleto || totalOS) : rawValor;
+    const hasBoletoDebt = effectiveRestBoleto > 0 || /boleto|carn[eê]|carne|crediario|crediário|a prazo/i.test(forma);
+    const isPureBoleto = isVenda && hasBoletoDebt && (entradaSinal === 0 || entradaSinal === null || entradaSinal === undefined) && (
+      effectiveRestBoleto >= totalOS || rawValor === 0 || effectiveRestBoleto === rawValor || (totalOS > 0 && effectiveRestBoleto === 0)
+    );
+    const saleTotalValue = totalOS > 0 ? totalOS : (effectiveRestBoleto > 0 ? (entradaSinal + effectiveRestBoleto) : rawValor);
+    const displayValor = saleTotalValue > 0 ? saleTotalValue : rawValor;
 
     // Doc Nº
     const osRaw = m.osNumero || m.os || m['OS DA VENDA'] || m['Nº DA OS'] || m.OS || (() => {
@@ -466,14 +470,32 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     let saida = '';
 
     if (isVenda) {
-      // 🌟 COLUNA VENDAS: Exibe SEMPRE o VALOR TOTAL DA VENDA (não apenas a entrada)
-      const saleTotal = totalOS > 0 ? totalOS : (isPureBoleto ? (effectiveRestBoleto || displayValor) : (entradaSinal > 0 && effectiveRestBoleto > 0 ? (entradaSinal + effectiveRestBoleto) : displayValor));
+      // 🌟 COLUNA VENDAS: Exibe SEMPRE o VALOR TOTAL DA VENDA (contrato/faturado integral)
+      const saleTotal = totalOS > 0
+        ? totalOS
+        : (effectiveRestBoleto > 0 ? (entradaSinal + effectiveRestBoleto) : (displayValor > 0 ? displayValor : rawValor));
       const vNum = saleTotal > 0 ? saleTotal : displayValor;
       venda = vNum;
       totalVendasCalculadas += vNum;
 
-      // 🌟 COLUNA ENTRADAS: Exibe a ENTRADA / valor recebido no caixa
-      const receivedNow = entradaSinal > 0 ? entradaSinal : (isPureBoleto ? 0 : rawValor);
+      // 🌟 COLUNA ENTRADAS: Exibe APENAS o valor recebido imediatamente no caixa (sinal/entrada ou à vista)
+      let receivedNow = 0;
+      if (hasBoletoDebt) {
+        if (entradaSinal > 0) {
+          receivedNow = entradaSinal;
+        } else if (effectiveRestBoleto > 0 && totalOS > effectiveRestBoleto) {
+          receivedNow = Number((totalOS - effectiveRestBoleto).toFixed(2));
+        } else {
+          // Venda 100% no Boleto a prazo com entrada zero (ex: Valdeci, Sidinei)
+          receivedNow = 0;
+        }
+      } else {
+        // Venda sem boleto (Cartão, Débito, PIX, Dinheiro integral)
+        receivedNow = (entradaSinal > 0 && effectiveRestBoleto > 0)
+          ? entradaSinal
+          : (rawValor > 0 ? rawValor : totalOS);
+      }
+
       if (receivedNow > 0) {
         entrada = receivedNow;
         totalEntradasCalculadas += receivedNow;
@@ -577,29 +599,44 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
         dinheiroEntradasCalculadas += val;
       }
     } else if (tipo === 'VENDA' || tipo.startsWith('VENDA')) {
-      // 1. Entrada / Valor recebido no ato da venda
-      const isPureBoleto = val === 0 && (restBoleto > 0 || /boleto|carn[eê]|a prazo/i.test(fp));
-      const vRec = isPureBoleto ? 0 : (entradaSinal > 0 ? entradaSinal : val);
+      const hasBoleto = restBoleto > 0 || /boleto|carn[eê]|carne|crediario|crediário|a prazo/i.test(fp);
+      let vRec = 0;
+      if (hasBoleto) {
+        if (entradaSinal > 0) {
+          vRec = entradaSinal;
+        } else if (restBoleto > 0 && totalOSVal > restBoleto) {
+          vRec = Number((totalOSVal - restBoleto).toFixed(2));
+        } else {
+          vRec = 0;
+        }
+      } else {
+        vRec = entradaSinal > 0 && restBoleto > 0 ? entradaSinal : (val > 0 ? val : totalOSVal);
+      }
+
+      // Identificar a forma de pagamento da entrada imediata
+      const fpEntrada = String(
+        m.formaEntradaOS || m.formaEntrada ||
+        (m.matchedSale && (m.matchedSale['FORMA ENTRADA'] || m.matchedSale['FORMA_ENTRADA'])) ||
+        fp
+      ).toUpperCase();
 
       if (vRec > 0) {
-        if (fp.includes('PIX') || fp.includes('TRANSFERENCIA') || fp.includes('TRANSFERÊNCIA')) {
+        if (fpEntrada.includes('PIX') || fpEntrada.includes('TRANSFERENCIA') || fpEntrada.includes('TRANSFERÊNCIA')) {
           pixCalculados += vRec;
-        } else if (fp.includes('DEBITO') || fp.includes('DÉBITO')) {
+        } else if (fpEntrada.includes('DEBITO') || fpEntrada.includes('DÉBITO')) {
           debitoCalculados += vRec;
-        } else if (fp.includes('CREDITO') || fp.includes('CRÉDITO') || fp.includes('CARTAO') || fp.includes('CARTÃO')) {
+        } else if (fpEntrada.includes('CREDITO') || fpEntrada.includes('CRÉDITO') || fpEntrada.includes('CARTAO') || fpEntrada.includes('CARTÃO')) {
           creditoCalculados += vRec;
-        } else if (fp.includes('BOLETO') || fp.includes('CARNE') || fp.includes('CARNÊ')) {
-          boletoCalculados += vRec;
         } else {
           dinheiroEntradasCalculadas += vRec;
         }
       }
 
-      // 2. Parcela / Restante a prazo no Boleto / Carnê
+      // Adicionar o restante no Boleto / Carnê (a prazo)
       if (restBoleto > 0) {
         boletoCalculados += restBoleto;
-      } else if (isPureBoleto || (vRec === 0 && (fp.includes('BOLETO') || fp.includes('CARNE') || fp.includes('CARNÊ')))) {
-        boletoCalculados += (totalOSVal > 0 ? totalOSVal : (val > 0 ? val : restBoleto));
+      } else if (hasBoleto && totalOSVal > vRec) {
+        boletoCalculados += Number((totalOSVal - vRec).toFixed(2));
       }
     }
   });

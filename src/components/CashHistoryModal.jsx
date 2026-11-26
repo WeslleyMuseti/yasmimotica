@@ -1345,6 +1345,25 @@ export const CashHistoryContent = ({
 
     // 🛡️ filteredMovements já contém todas as movimentações e vendas unificadas e filtradas pela loja e período selecionados
     let movementsForSheet = [...filteredMovements];
+
+    // Em relatórios de período amplo (Histórico Completo, Mês, 7 Dias, etc.),
+    // deduplicar aberturas para manter apenas a abertura inicial (AB-01) e não poluir a folha com 17 linhas de AB-01
+    const isMultiDayPeriod = selectedPeriod === 'TODOS' || selectedPeriod === 'MES' || selectedPeriod === '7DIAS' || (
+      selectedPeriod === 'PERSONALIZADO' && customStartDate && customEndDate && customStartDate !== customEndDate
+    );
+    if (isMultiDayPeriod) {
+      let seenAbertura = false;
+      movementsForSheet = movementsForSheet.filter(m => {
+        const tipo = String(m?.tipo || m?.TIPO || '').toUpperCase().trim();
+        if (tipo === 'ABERTURA') {
+          if (seenAbertura) return false;
+          seenAbertura = true;
+          return true;
+        }
+        return true;
+      });
+    }
+
     const hasAberturaInFiltered = movementsForSheet.some(m => String(m.tipo || m.TIPO || '').toUpperCase() === 'ABERTURA');
     if (!hasAberturaInFiltered && metrics.fundoInicial > 0) {
       movementsForSheet.unshift({

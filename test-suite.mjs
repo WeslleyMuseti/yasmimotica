@@ -11376,7 +11376,132 @@ async function runTests() {
     console.log('  ✅ Test 122 Passed: Validação de OS, Anti-Duplicação e Não-Duplicação de Responsável aprovada com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 122 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // Test 123: Precisão Contábil do Movimento de Caixa (Ficha A4), Segregação de Boleto a Prazo, Entrada de Sinal e Deduplicação de Abertura
+  {
+    console.log('🧪 Test 123: Precisão Contábil do Movimento de Caixa (Ficha A4), Segregação de Boleto a Prazo, Entrada de Sinal e Deduplicação de Abertura...');
+
+    const { prepareCashMovementRows } = await import('./src/cashMovementUtils.js');
+
+    // 1. Venda 100% no Boleto (a prazo) com R$ 0,00 de entrada (Valdeci CAJ-039)
+    const mValdeci = {
+      tipo: 'VENDA',
+      osNumero: 'CAJ-039',
+      cliente: 'VALDECI PEREIRA REDHETE',
+      valor: 510,
+      valorTotalOS: 510,
+      valorEntradaOS: 0,
+      valorRestanteBoleto: 510,
+      formaPagamento: '📄 Boleto (1x de R$ 510,00): R$ 510,00'
+    };
+
+    // 2. Venda com Entrada em Dinheiro + Restante em Boleto (Gilmar CAJ-028)
+    const mGilmar = {
+      tipo: 'VENDA',
+      osNumero: 'CAJ-028',
+      cliente: 'GILMAR ROBERTO COLATTO',
+      valor: 2224,
+      valorTotalOS: 2224,
+      valorEntradaOS: 650,
+      valorRestanteBoleto: 1574,
+      formaPagamento: 'Dinheiro + Boleto'
+    };
+
+    // 3. Venda em Cartão de Crédito integral (Nilton Cesar CAJ-016)
+    const mNilton = {
+      tipo: 'VENDA',
+      osNumero: 'CAJ-016',
+      cliente: 'NILTON CESAR DE FARIA',
+      valor: 1824,
+      valorTotalOS: 1824,
+      valorEntradaOS: 0,
+      valorRestanteBoleto: 0,
+      formaPagamento: 'Cartão de Crédito 10x'
+    };
+
+    const result = prepareCashMovementRows({ fundoInicial: 100 }, [mValdeci, mGilmar, mNilton]);
+
+    const rowValdeci = result.rows.find(r => r.historico.includes('VALDECI'));
+    const rowGilmar = result.rows.find(r => r.historico.includes('GILMAR'));
+    const rowNilton = result.rows.find(r => r.historico.includes('NILTON'));
+
+    console.assert(rowValdeci !== undefined, 'Linha de Valdeci deve existir');
+    console.assert(rowValdeci.venda === '510,00', `Valdeci venda deve ser 510,00: ${rowValdeci.venda}`);
+    console.assert(rowValdeci.entrada === '', `Valdeci entrada deve ser vazia pois boleto não tem entrada: ${rowValdeci.entrada}`);
+
+    console.assert(rowGilmar !== undefined, 'Linha de Gilmar deve existir');
+    console.assert(rowGilmar.venda === '2.224,00', `Gilmar venda deve ser 2.224,00: ${rowGilmar.venda}`);
+    console.assert(rowGilmar.entrada === '650,00', `Gilmar entrada deve ser 650,00: ${rowGilmar.entrada}`);
+
+    console.assert(rowNilton !== undefined, 'Linha de Nilton deve existir');
+    console.assert(rowNilton.venda === '1.824,00', `Nilton venda deve ser 1.824,00: ${rowNilton.venda}`);
+    console.assert(rowNilton.entrada === '1.824,00', `Nilton entrada deve ser 1.824,00: ${rowNilton.entrada}`);
+
+    // Totais
+    // Vendas: 510 + 2224 + 1824 = 4558
+    console.assert(result.totalVendasFinal === 4558, `Total Vendas deve ser 4558: ${result.totalVendasFinal}`);
+    // Entradas: 0 + 650 + 1824 = 2474
+    console.assert(result.totalEntradasFinal === 2474, `Total Entradas deve ser 2474: ${result.totalEntradasFinal}`);
+    // Segregação nos Detalhes:
+    console.assert(result.totalDinheiroDetalhes === 650, `Dinheiro deve ser 650: ${result.totalDinheiroDetalhes}`);
+    console.assert(result.totalBoletoDetalhes === 2084, `Boleto deve ser 2084 (510 + 1574): ${result.totalBoletoDetalhes}`);
+    console.assert(result.totalCreditoDetalhes === 1824, `Crédito deve ser 1824: ${result.totalCreditoDetalhes}`);
+
+    // 4. Verificação de Deduplicação de Abertura em CashHistoryModal.jsx
+    const cashHistoryCode = fs.readFileSync(path.join(__dirname, 'src/components/CashHistoryModal.jsx'), 'utf-8');
+    console.assert(cashHistoryCode.includes('isMultiDayPeriod'), 'CashHistoryModal deve conter verificação de isMultiDayPeriod para deduplicar aberturas');
+    console.assert(cashHistoryCode.includes('seenAbertura'), 'CashHistoryModal deve conter flag seenAbertura para evitar duplicação de AB-01');
+
+    // 5. AST Audit de variáveis indefinidas nos arquivos modificados
+    const parserModule = await import('@babel/parser');
+    const parser = parserModule.default || parserModule;
+    const traverseModule = await import('@babel/traverse');
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const filesToAudit123 = [
+      'src/cashMovementUtils.js',
+      'src/components/CashHistoryModal.jsx'
+    ];
+
+    const standardGlobals123 = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'Intl', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React', 'getDoc', 'getDocs', 'query', 'where', 'addDoc',
+      'updateDoc', 'doc', 'collection', 'setDoc', 'deleteDoc', 'onSnapshot', 'orderBy', 'limit'
+    ]);
+
+    const undeclared123 = [];
+    filesToAudit123.forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals123.has(name)) return;
+          if (p.scope.hasBinding(name)) return;
+          undeclared123.push({ file: relPath, name, line: p.node.loc?.start?.line });
+        }
+      });
+    });
+
+    console.assert(undeclared123.length === 0, `Nenhum identificador indefinido deve existir nos arquivos modificados no Teste 123: ${JSON.stringify(undeclared123)}`);
+
+    console.log('  ✅ Test 123 Passed: Precisão Contábil do Movimento de Caixa e Segregação de Boleto aprovada com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 123 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 
