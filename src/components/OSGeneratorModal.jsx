@@ -1399,6 +1399,15 @@ const OSGeneratorModal = ({
   };
 
   const handleSaveClick = () => {
+    // 🛡️ Validação rigorosa do Número de OS: impede salvar OS sem dígitos ou sigla isolada (ex: "REG" sem número)
+    for (const osItem of osList) {
+      const numOS = String(osItem.numeroOS || '').trim();
+      if (!numOS || !/\d/.test(numOS)) {
+        alert(`O número da OS "${numOS || '(vazio)'}" é inválido. A numeração de OS deve conter o prefixo da loja e o número sequencial (ex: REG-001, CAJ-001, JAC-001).`);
+        return;
+      }
+    }
+
     // ♾️ Nota: Lentes oftálmicas possuem estoque infinito e armações podem ser lançadas mesmo sem estoque (encomenda / reposição), independente de ser admin ou vendedor.
 
     if (isExternalVendor) {

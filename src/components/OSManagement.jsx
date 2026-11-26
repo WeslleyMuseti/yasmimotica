@@ -1004,10 +1004,16 @@ const OSManagement = ({
       const quemRetirou = sale["QUEM_RETIROU"] || "";
       const obsEntrega = sale["OBS_ENTREGA"] || "";
 
-      // Verifica atraso
+      // Verifica atraso (suporta formato brasileiro DD/MM/YYYY e ISO YYYY-MM-DD)
       let isDelayed = false;
       if (dtEntrega && status !== "Entregue" && status !== "Cancelada") {
-        const deliveryDate = new Date(dtEntrega + "T23:59:59");
+        const s = String(dtEntrega).trim();
+        let dStr = s;
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+          const [d, m, y] = s.split('/');
+          dStr = `${y}-${m}-${d}`;
+        }
+        const deliveryDate = new Date(dStr + "T23:59:59");
         if (!isNaN(deliveryDate.getTime()) && deliveryDate < new Date()) {
           isDelayed = true;
         }
@@ -1120,9 +1126,14 @@ const OSManagement = ({
         (isMultiSuffix && !/-1$/.test(osNumber))
       );
 
-      // 🛡️ Se for OS adicional (Multi-OS #2, #3...) e tiver paciente especificada, adota a paciente como cliente principal da OS na Gestão
-      const hasSpecificPatient = Boolean(pacienteNome && pacienteNome !== '---' && !/^benefici[aá]rio\s+[oó]culos/i.test(pacienteNome));
-      const effectiveClientName = (isAdditionalOS && hasSpecificPatient) ? pacienteNome : rawTitularName;
+      // 🛡️ Se tiver paciente especificada (diferente do titular), adota a paciente como cliente principal da OS na Gestão
+      const hasSpecificPatient = Boolean(
+        pacienteNome && 
+        pacienteNome !== '---' && 
+        !/^benefici[aá]rio\s+[oó]culos/i.test(pacienteNome) &&
+        pacienteNome.trim().toLowerCase() !== rawTitularName.trim().toLowerCase()
+      );
+      const effectiveClientName = hasSpecificPatient ? pacienteNome : rawTitularName;
       const titularClientName = rawTitularName;
 
       list.push({
@@ -1141,7 +1152,7 @@ const OSManagement = ({
         clientName: effectiveClientName,
         titularClientName,
         pacienteNome,
-        isPatientDisplay: Boolean(isAdditionalOS && hasSpecificPatient),
+        isPatientDisplay: Boolean(hasSpecificPatient),
         clientPhone: matchedClient?.["WhatsApp"] || sale["TELEFONE CLIENTE"] || sale["TELEFONE"] || "",
         clientCPF,
         clientCity: matchedClient?.["Cidade"] || unit,
@@ -3303,7 +3314,7 @@ const OSManagement = ({
                             <span>Titular: {order.titularClientName}</span>
                           </span>
                         )}
-                        {order.responsavelNome && order.responsavelNome !== 'S/RESPONSAVEL' && order.responsavelNome.trim() !== '' && (
+                        {order.responsavelNome && order.responsavelNome !== 'S/RESPONSAVEL' && order.responsavelNome.trim() !== '' && order.responsavelNome.trim().toLowerCase() !== order.clientName.trim().toLowerCase() && order.responsavelNome.trim().toLowerCase() !== (order.titularClientName || '').trim().toLowerCase() && (
                           <span 
                             className="text-xs text-amber-300 font-bold bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-lg flex items-center gap-1 shadow-2xs"
                             title={`Responsável Financeiro/Legal: ${order.responsavelNome}${order.responsavelCpf ? ` | CPF: ${order.responsavelCpf}` : ''}`}
@@ -4271,7 +4282,7 @@ const OSManagement = ({
                                   Pac: {order.pacienteNome}
                                 </span>
                               )}
-                              {order.responsavelNome && order.responsavelNome !== 'S/RESPONSAVEL' && order.responsavelNome.trim() !== '' && (
+                              {order.responsavelNome && order.responsavelNome !== 'S/RESPONSAVEL' && order.responsavelNome.trim() !== '' && order.responsavelNome.trim().toLowerCase() !== order.clientName.trim().toLowerCase() && order.responsavelNome.trim().toLowerCase() !== (order.titularClientName || '').trim().toLowerCase() && (
                                 <span 
                                   className="text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold flex items-center gap-1 shadow-2xs"
                                   title={`Responsável Legal: ${order.responsavelNome}${order.responsavelCpf ? ` | CPF: ${order.responsavelCpf}` : ''}`}

@@ -609,7 +609,14 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           if (cCpfDigits === clientCpfDigits || cPagadorCpf === clientCpfDigits || cRespCpf === clientCpfDigits) return true;
         }
         if (clientNameNorm && clientNameNorm.length >= 3) {
-          if (cClientName === clientNameNorm || cPaciente === clientNameNorm || cPagadorName === clientNameNorm || cRespName === clientNameNorm) return true;
+          if (
+            cClientName === clientNameNorm || 
+            cPaciente === clientNameNorm || 
+            cPagadorName === clientNameNorm || 
+            cRespName === clientNameNorm ||
+            (clientNameNorm.length >= 5 && cClientName && (cClientName.includes(clientNameNorm) || clientNameNorm.includes(cClientName))) ||
+            (clientNameNorm.length >= 5 && cPaciente && (cPaciente.includes(clientNameNorm) || clientNameNorm.includes(cPaciente)))
+          ) return true;
         }
         if (respCpfDigits && respCpfDigits.length >= 7) {
           if (cCpfDigits === respCpfDigits || cPagadorCpf === respCpfDigits || cRespCpf === respCpfDigits) return true;

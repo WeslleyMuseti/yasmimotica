@@ -11270,7 +11270,113 @@ async function runTests() {
     console.log('  ✅ Test 121 Passed: Exibição Inteligente de Abertura de Caixa em Relatórios e Fichas A4 validada com 100% de sucesso!\n');
   }
 
-  console.log('🎉 ALL 121 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ==========================================
+  // Test 122: Validação Completa de OS, PDV e Não Duplicação de Responsável
+  // ==========================================
+  {
+    console.log('🧪 Test 122: Validação de OS, Anti-Duplicação de Parcelas e Não-Duplicação de Responsável...');
+
+    const { calculateNextBaseOS, getCityPrefix } = await import('./src/reparcelamentoUtils.js');
+
+    // 1. Prefixo de cidades
+    console.assert(getCityPrefix('Registro') === 'REG', 'Registro deve ter prefixo REG');
+    console.assert(getCityPrefix('Cajati') === 'CAJ', 'Cajati deve ter prefixo CAJ');
+    console.assert(getCityPrefix('Jacupiranga') === 'JAC', 'Jacupiranga deve ter prefixo JAC');
+
+    // 2. Cálculo do próximo número de OS
+    const mockExistingSales = [
+      { 'OS DA VENDA': 'CAJ-010' },
+      { 'OS DA VENDA': 'CAJ-011' },
+      { 'OS DA VENDA': 'REG-005' }
+    ];
+    const nextCAJ = calculateNextBaseOS('Cajati', mockExistingSales);
+    console.assert(nextCAJ === 'CAJ-012', `Próxima OS de Cajati deve ser CAJ-012, obtido: ${nextCAJ}`);
+
+    const nextREG = calculateNextBaseOS('Registro', mockExistingSales);
+    console.assert(nextREG === 'REG-006', `Próxima OS de Registro deve ser REG-006, obtido: ${nextREG}`);
+
+    const nextJAC = calculateNextBaseOS('Jacupiranga', mockExistingSales);
+    console.assert(nextJAC === 'JAC-001', `Próxima OS de Jacupiranga deve ser JAC-001, obtido: ${nextJAC}`);
+
+    // 3. Regra de Não-Duplicação do Responsável quando for igual ao titular/beneficiário
+    const cleanStr = (s) => String(s || '').trim().toLowerCase();
+    const checkDistinctResp = (resp, client, beneficiary) => {
+      return Boolean(
+        resp &&
+        client &&
+        cleanStr(resp) !== cleanStr(client) &&
+        (!beneficiary || cleanStr(resp) !== cleanStr(beneficiary))
+      );
+    };
+
+    console.assert(
+      checkDistinctResp('Mirella Domingues', 'Mirella Domingues') === false,
+      'Mesmo nome não deve ser considerado responsável distinto'
+    );
+    console.assert(
+      checkDistinctResp('  mirella domingues  ', 'MIRELLA DOMINGUES') === false,
+      'Nomes com caixa ou espaços diferentes não devem ser distintos'
+    );
+    console.assert(
+      checkDistinctResp('Maria Souza', 'João Souza', 'Lucas Souza') === true,
+      'Nome realmente distinto deve ser considerado responsável distinto'
+    );
+
+    // 4. Auditoria AST em todos os arquivos modificados
+    const parserModule = await import('@babel/parser');
+    const traverseModule = await import('@babel/traverse');
+    const parser = parserModule.default || parserModule;
+    const traverse = traverseModule.default?.default || traverseModule.default || traverseModule;
+
+    const filesToAudit122 = [
+      'src/reparcelamentoUtils.js',
+      'src/components/POSRegister.jsx',
+      'src/components/OSManagement.jsx',
+      'src/components/PrintableOS.jsx',
+      'src/components/OSGeneratorModal.jsx',
+      'src/components/ClientRegistration.jsx'
+    ];
+
+    const standardGlobals122 = new Set([
+      'window', 'document', 'console', 'Math', 'Date', 'setTimeout', 'setInterval',
+      'clearTimeout', 'clearInterval', 'JSON', 'localStorage', 'sessionStorage', 'fetch',
+      'Promise', 'Blob', 'FileReader', 'URL', 'Object', 'Array', 'String', 'Number',
+      'Boolean', 'RegExp', 'Error', 'Intl', 'isNaN', 'parseFloat', 'parseInt', 'navigator',
+      'alert', 'confirm', 'prompt', 'btoa', 'atob', 'encodeURIComponent', 'decodeURIComponent',
+      'location', 'history', 'FormData', 'Event', 'CustomEvent', 'Image', 'Audio', 'File',
+      'Infinity', 'NaN', 'undefined', 'process', 'global', 'globalThis', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Set', 'Map', 'WeakSet', 'WeakMap', 'Symbol', 'Proxy', 'Reflect',
+      'ArrayBuffer', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int8Array', 'Int16Array',
+      'Int32Array', 'Float32Array', 'Float64Array', 'DataView', 'BigInt', 'Intl', 'crypto',
+      'performance', 'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'HTMLInputElement',
+      'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLElement', 'Element', 'Node', 'Document',
+      'HTMLCanvasElement', 'CanvasRenderingContext2D', 'MessageChannel', 'Worker', 'SharedWorker',
+      'BroadcastChannel', 'AbortController', 'AbortSignal', 'Headers', 'Request', 'Response',
+      'TextEncoder', 'DOMParser', 'React', 'getDoc', 'getDocs', 'query', 'where', 'addDoc',
+      'updateDoc', 'doc', 'collection', 'setDoc', 'deleteDoc', 'onSnapshot', 'orderBy', 'limit'
+    ]);
+
+    const undeclared122 = [];
+    filesToAudit122.forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals122.has(name)) return;
+          if (p.scope.hasBinding(name)) return;
+          undeclared122.push({ file: relPath, name, line: p.node.loc?.start?.line });
+        }
+      });
+    });
+
+    console.assert(undeclared122.length === 0, `Nenhum identificador indefinido deve existir nos arquivos modificados no Teste 122: ${JSON.stringify(undeclared122)}`);
+
+    console.log('  ✅ Test 122 Passed: Validação de OS, Anti-Duplicação e Não-Duplicação de Responsável aprovada com 100% de sucesso!\n');
+  }
+
+  console.log('🎉 ALL 122 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

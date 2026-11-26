@@ -1542,6 +1542,39 @@ export const ensureInstallmentPaidStatus = (inv, helpers = {}) => {
   return inv;
 };
 
+/**
+ * Obtém o prefixo de OS correspondente à cidade/unidade (CAJ, REG, JAC, EXT)
+ */
+export const getCityPrefix = (city) => {
+  if (!city) return 'CAJ';
+  const c = String(city).trim().toLowerCase();
+  if (c.includes('cajati')) return 'CAJ';
+  if (c.includes('registro')) return 'REG';
+  if (c.includes('jacupiranga')) return 'JAC';
+  if (c.includes('externa') || c.includes('ext')) return 'EXT';
+  return 'CAJ';
+};
+
+/**
+ * Calcula o próximo número base sequencial de OS (Ex: CAJ-001, REG-001, JAC-007)
+ */
+export const calculateNextBaseOS = (city, sData = []) => {
+  const prefix = getCityPrefix(city);
+  let maxNum = 0;
+  (sData || []).forEach(sale => {
+    if (!sale || typeof sale !== 'object') return;
+    const os = sale['OS DA VENDA'] || sale['OS'] || sale['VENDA_OS'] || sale.numeroOS || sale.osNumero || sale['Nº DA OS'] || '';
+    if (os && String(os).toUpperCase().startsWith(prefix.toUpperCase())) {
+      const cleanNumPart = String(os).replace(new RegExp(`^${prefix}[-#\\s]?`, 'i'), '');
+      const numPart = parseInt(cleanNumPart, 10);
+      if (!isNaN(numPart) && numPart > maxNum) {
+        maxNum = numPart;
+      }
+    }
+  });
+  return `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
+};
+
 
 
 

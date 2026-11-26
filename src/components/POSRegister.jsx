@@ -18,7 +18,7 @@ import PrintableCashClosingReport from './PrintableCashClosingReport';
 import PrintableCashMovementSheet from './PrintableCashMovementSheet';
 import { PrintableLabelModal } from './PrintableLabel';
 import { decrementStockAtomically, isSameClient } from '../firebaseSync';
-import { resolveOSUnit, resolveOSFinancials } from '../reparcelamentoUtils';
+import { resolveOSUnit, resolveOSFinancials, calculateNextBaseOS } from '../reparcelamentoUtils';
 import { InstagramIcon, WhatsAppIcon } from './SocialMediaButtons';
 
 const cleanVal = (v) => {
@@ -1589,6 +1589,10 @@ const POSRegister = ({
     const lenteTratamento = lenteItem?.tratamento || lenteItem?.rawProduct?.['TRATAMENTO'] || lenteItem?.rawProduct?.['Tratamento'] || '';
     const lenteMaterial = lenteItem?.material || lenteItem?.rawProduct?.['MATERIAL'] || lenteItem?.rawProduct?.['Material'] || '';
 
+    // 🛡️ Pre-geração automática e soberana do próximo número de OS para óculos completos (evita vendas órfãs sem OS)
+    const hasOpticalItems = cart.some(i => i.type === 'lentes' || i.type === 'armacoes' || Boolean(i.rawProduct && (i.rawProduct.MARCA || i.rawProduct.MODELO || i.rawProduct.LENTE)));
+    const preGeneratedOS = hasOpticalItems ? calculateNextBaseOS(city, salesData) : '';
+
     const newSale = {
       id: saleId,
       dataHora: nowIso,
@@ -1596,6 +1600,10 @@ const POSRegister = ({
       DATA_HORA: effectiveSaleDateTimeFmt,
       HORA: effectiveSaleTimeStr,
       hora: effectiveSaleTimeStr,
+      'OS DA VENDA': preGeneratedOS || '',
+      'OS': preGeneratedOS || '',
+      'VENDA_OS': preGeneratedOS || '',
+      'numeroOS': preGeneratedOS || '',
       'CLIENTE_ID': clientId,
       'CLIENTE_CPF': clientCpf,
       'CPF': clientCpf,
@@ -1666,6 +1674,10 @@ const POSRegister = ({
 
     const clientForOS = {
       ...selectedClient,
+      'numeroOS': preGeneratedOS || '',
+      'OS DA VENDA': preGeneratedOS || '',
+      'OS': preGeneratedOS || '',
+      'VENDA_OS': preGeneratedOS || '',
       'VOUCHER': appliedVouchers.map(v => v.sequentialCode || v.CODIGO || v.codigo).join(', '),
       'voucher': appliedVouchers.map(v => v.sequentialCode || v.CODIGO || v.codigo).join(', '),
       'DESCONTO_VOUCHER': voucherDiscount,
@@ -1745,6 +1757,12 @@ const POSRegister = ({
     const finalSaleData = {
       ...newSale,
       itens: [...cart],
+      'numeroOS': preGeneratedOS || '',
+      'OS DA VENDA': preGeneratedOS || '',
+      'OS': preGeneratedOS || '',
+      'VENDA_OS': preGeneratedOS || '',
+      numeroOS: preGeneratedOS || '',
+      osNumero: preGeneratedOS || '',
       BOLETO_TITULAR_TIPO: boletoTitularType,
       boletoTitularTipo: boletoTitularType,
       BOLETO_PAGADOR_NOME: titularPagadorName,
@@ -2386,8 +2404,8 @@ const POSRegister = ({
         }
       }
 
-      // 🛡️ Registrar parcelas geradas de Boleto da OS em CONTAS_RECEBER para que apareçam imediatamente
-      if (singleData.parcelas && singleData.parcelas.length > 0 && (onAddBatch || onAddRow)) {
+      // 🛡️ Registrar ou atualizar parcelas geradas de Boleto da OS em CONTAS_RECEBER para evitar duplicações
+      if (singleData.parcelas && singleData.parcelas.length > 0 && (onAddBatch || onAddRow || onUpdateRow)) {
         const existingReceber = data?.['CONTAS_RECEBER'] || [];
         const normOS = String(singleData.numeroOS || '').replace(/^#/, '').trim();
         const singleBoletoItems = [];
@@ -2395,12 +2413,30 @@ const POSRegister = ({
           const numP = p.numero || 1;
           const totP = p.totalParcelas || singleData.parcelas.length;
           const dueIso = p.vencimento;
-          const alreadyExists = existingReceber.some(r => {
+
+          // Localiza se já existe parcela desta mesma venda/cliente com mesmo número/vencimento
+          const matchingExisting = existingReceber.find(r => {
             const rOS = String(r.VENDA_OS || r.OS || '').replace(/^#/, '').trim();
             const rDoc = String(r.DOCUMENTO || '').toLowerCase();
-            return (normOS && rOS === normOS) && (rDoc.includes(`${numP}/${totP}`) || r.DATA_VENCIMENTO === dueIso);
+            const rCli = String(r.CLIENTE || r.PAGADOR || r['NOME CLIENTE'] || '').trim().toLowerCase();
+            const sameCli = rCli === String(clientName).trim().toLowerCase() || rCli === String(fallbackTitularPagadorName || '').trim().toLowerCase();
+            const sameParcel = rDoc.includes(`${numP}/${totP}`) || r.DATA_VENCIMENTO === dueIso || r.VENCIMENTO === dueIso;
+            return sameCli && sameParcel && (!rOS || rOS === 'PDV' || rOS === normOS || (r.CLIENTE_ID && r.CLIENTE_ID === clientId));
           });
-          if (!alreadyExists) {
+
+          if (matchingExisting) {
+            const currentROS = String(matchingExisting.VENDA_OS || matchingExisting.OS || '').replace(/^#/, '').trim();
+            if (currentROS !== normOS && onUpdateRow) {
+              const updatedExisting = {
+                ...matchingExisting,
+                'VENDA_OS': normOS,
+                'OS': normOS,
+                'DOCUMENTO': `BOLETO ${numP}/${totP} - OS ${normOS || 'PDV'}`,
+                'DESCRICAO': `OS #${normOS || 'PDV'} - Parcela ${numP}/${totP} (${mergedSaleData.PRODUTO || fallbackCartDetails || 'Óculos'})`
+              };
+              await withTimeout(onUpdateRow('CONTAS_RECEBER', matchingExisting, updatedExisting), 2000).catch(() => {});
+            }
+          } else {
             singleBoletoItems.push({
               'CLIENTE_ID': clientId,
               'CLIENTE_CPF': clientCpf,
@@ -2853,9 +2889,9 @@ const POSRegister = ({
       }
     }
 
-    // 🛡️ Registrar parcelas geradas de Boleto do Multi-OS em CONTAS_RECEBER
+    // 🛡️ Registrar ou atualizar parcelas geradas de Boleto do Multi-OS em CONTAS_RECEBER evitando duplicações
     const multiParcelas = (primaryOS.parcelas && primaryOS.parcelas.length > 0) ? primaryOS.parcelas : (osGeneratedData.parcelas || []);
-    if (multiParcelas.length > 0 && (onAddBatch || onAddRow)) {
+    if (multiParcelas.length > 0 && (onAddBatch || onAddRow || onUpdateRow)) {
       const existingReceber = data?.['CONTAS_RECEBER'] || [];
       const primaryOSNum = String(primaryOS.numeroOS || '').replace(/^#/, '').trim();
       const multiBoletoItems = [];
@@ -2863,12 +2899,30 @@ const POSRegister = ({
         const numP = p.numero || 1;
         const totP = p.totalParcelas || multiParcelas.length;
         const dueIso = p.vencimento;
-        const alreadyExists = existingReceber.some(r => {
+
+        // Localiza se já existe parcela desta mesma venda/cliente com mesmo número/vencimento
+        const matchingExisting = existingReceber.find(r => {
           const rOS = String(r.VENDA_OS || r.OS || '').replace(/^#/, '').trim();
           const rDoc = String(r.DOCUMENTO || '').toLowerCase();
-          return (primaryOSNum && rOS === primaryOSNum) && (rDoc.includes(`${numP}/${totP}`) || r.DATA_VENCIMENTO === dueIso);
+          const rCli = String(r.CLIENTE || r.PAGADOR || r['NOME CLIENTE'] || '').trim().toLowerCase();
+          const sameCli = rCli === String(clientName).trim().toLowerCase() || rCli === String(fallbackTitularPagadorName || '').trim().toLowerCase();
+          const sameParcel = rDoc.includes(`${numP}/${totP}`) || r.DATA_VENCIMENTO === dueIso || r.VENCIMENTO === dueIso;
+          return sameCli && sameParcel && (!rOS || rOS === 'PDV' || rOS === primaryOSNum || (r.CLIENTE_ID && r.CLIENTE_ID === clientId));
         });
-        if (!alreadyExists) {
+
+        if (matchingExisting) {
+          const currentROS = String(matchingExisting.VENDA_OS || matchingExisting.OS || '').replace(/^#/, '').trim();
+          if (currentROS !== primaryOSNum && onUpdateRow) {
+            const updatedExisting = {
+              ...matchingExisting,
+              'VENDA_OS': primaryOSNum,
+              'OS': primaryOSNum,
+              'DOCUMENTO': `BOLETO ${numP}/${totP} - OS ${primaryOSNum || 'PDV'}`,
+              'DESCRICAO': `OS #${primaryOSNum || 'PDV'} - Parcela ${numP}/${totP} (${mergedPrimarySaleData.PRODUTO || 'Óculos 1'})`
+            };
+            await withTimeout(onUpdateRow('CONTAS_RECEBER', matchingExisting, updatedExisting), 2000).catch(() => {});
+          }
+        } else {
           multiBoletoItems.push({
             'CLIENTE_ID': clientId,
             'CLIENTE_CPF': clientCpf,

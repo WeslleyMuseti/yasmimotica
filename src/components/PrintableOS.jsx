@@ -134,6 +134,14 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
   const respNasc = respNascRaw ? formatDatePrint(respNascRaw) : '';
   const respZap = safeClient['Responsável WhatsApp'] || safeClient['RESPONSAVEL_WHATSAPP'] || safeClient['RESPONSAVEL_TELEFONE'] || safeClient['WhatsApp Responsável'] || safeClient['Telefone Responsável'] || safeClient['responsavelWhatsApp'] || '';
 
+  // 🛡️ Impede duplicação visual e contratual quando o responsável é a própria pessoa / beneficiário
+  const hasDistinctResp = Boolean(
+    respName && 
+    clientName && 
+    respName.trim().toLowerCase() !== clientName.trim().toLowerCase() &&
+    (!beneficiaryName || respName.trim().toLowerCase() !== beneficiaryName.trim().toLowerCase())
+  );
+
   const respRua = safeClient['Responsável Rua'] || safeClient['RESPONSAVEL_RUA'] || '';
   const respNum = safeClient['Responsável Número'] || safeClient['RESPONSAVEL_NUMERO'] || '';
   const respBairro = safeClient['Responsável Bairro'] || safeClient['RESPONSAVEL_BAIRRO'] || '';
@@ -547,7 +555,7 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
         <div className="mb-1.5 border border-slate-300 rounded p-1.5 bg-slate-50/50">
           <div className="flex items-center justify-between border-b border-slate-200 pb-0.5 mb-1">
             <h3 className="text-[8.5px] font-black uppercase tracking-wider text-slate-900 flex items-center gap-1">
-              1. Identificação do Cliente {respName ? '& Responsável Legal' : ''}
+              1. Identificação do Cliente {hasDistinctResp ? '& Responsável Legal' : ''}
             </h3>
             <span className="text-[7.5px] font-bold text-slate-500 uppercase">Cadastro Oficial Yasmin Ótica</span>
           </div>
@@ -598,8 +606,8 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
             )}
           </div>
 
-          {/* Dados Completos do Responsável Legal (se houver) */}
-          {respName && (
+          {/* Dados Completos do Responsável Legal (se houver e for distinto) */}
+          {hasDistinctResp && (
             <div className="mt-1 pt-1 border-t border-slate-200 bg-amber-50/60 p-1 rounded border border-amber-200/80">
               <div className="flex items-center justify-between pb-0.5 mb-0.5 border-b border-amber-200/50">
                 <span className="text-[8px] font-black uppercase text-amber-950 tracking-wider">
@@ -992,7 +1000,7 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
         </div>
 
         {/* ─── 8. ASSINATURAS LADO A LADO ────────────────────────────── */}
-        <div className={`pt-1 flex ${respName ? 'justify-between' : 'justify-around'} px-3 text-center`}>
+        <div className={`pt-1 flex ${hasDistinctResp ? 'justify-between' : 'justify-around'} px-3 text-center`}>
           <div className="w-[30%]">
             <div className="border-t-2 border-slate-900 pt-1 uppercase text-[8.5px] font-black text-slate-900">
               Assinatura do Solicitante
@@ -1000,7 +1008,7 @@ const SingleOSSheet = ({ osData, clientData, isMulti = false, index = 1, total =
             <p className="text-[7.5px] font-bold text-slate-600 truncate mt-0.5">{clientName}</p>
           </div>
           
-          {respName && (
+          {hasDistinctResp && (
             <div className="w-[30%]">
               <div className="border-t-2 border-slate-900 pt-1 uppercase text-[8.5px] font-black text-slate-900">
                 Assinatura do Responsável
