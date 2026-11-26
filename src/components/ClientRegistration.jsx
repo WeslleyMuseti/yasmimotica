@@ -638,13 +638,44 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
       const resolvedRestante = client['restante'] || client['RESTANTE'] || latestSaleWithOS?.['RESTANTE'] || '';
       const resolvedFormasPagamento = client['formasPagamento'] || client['FORMAS_PAGAMENTO'] || latestSaleWithOS?.['FORMAS_PAGAMENTO'] || latestSaleWithOS?.['FORMA_PAGTO'] || '';
 
-      if (clientInvoices.length > 0) {
+      // Reconciliação com parcelas de boletos programadas em vendas/OSs ainda não confirmadas em CONTAS_RECEBER
+      const pendingSalesInvoices = [];
+      clientSales.forEach(sale => {
+        let parcs = [];
+        try {
+          if (Array.isArray(sale.parcelas)) parcs = sale.parcelas;
+          else if (sale['PARCELAS_JSON']) parcs = typeof sale['PARCELAS_JSON'] === 'string' ? JSON.parse(sale['PARCELAS_JSON']) : sale['PARCELAS_JSON'];
+        } catch (_) { parcs = []; }
+
+        if (Array.isArray(parcs) && parcs.length > 0) {
+          parcs.forEach((p, idx) => {
+            const numP = p.numero || (idx + 1);
+            const totP = p.totalParcelas || parcs.length;
+            const dueIso = p.vencimento || p.dataVencimento || '';
+            const alreadyExists = clientInvoices.some(inv => {
+              const invDoc = String(inv.DOCUMENTO || inv.DESCRICAO || '').toLowerCase();
+              return invDoc.includes(`${numP}/${totP}`);
+            });
+            if (!alreadyExists && p.status !== 'Recebido' && p.status !== 'Pago' && !p.pago) {
+              pendingSalesInvoices.push({
+                STATUS: p.status || 'Pendente',
+                VALOR: p.valor,
+                DATA_VENCIMENTO: dueIso,
+                VENCIMENTO: dueIso
+              });
+            }
+          });
+        }
+      });
+      const allClientInvoices = [...clientInvoices, ...pendingSalesInvoices];
+
+      if (allClientInvoices.length > 0) {
         let totalPendente = 0;
         let totalVencido = 0;
         let totalRecebido = 0;
         let proximoVencimento = null;
 
-        clientInvoices.forEach(inv => {
+        allClientInvoices.forEach(inv => {
           const st = String(inv.STATUS || inv.status || 'Pendente').trim();
           const val = parseCurrency(inv.VALOR || inv.valor);
           const venc = inv.DATA_VENCIMENTO || inv['DATA VENCIMENTO'] || inv.VENCIMENTO;
@@ -687,7 +718,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
           _totalRecebidoERP: totalRecebido,
           _totalPendenteERP: totalPendente,
           _totalVencidoERP: totalVencido,
-          _qtdBoletos: clientInvoices.length
+          _qtdBoletos: allClientInvoices.length
         };
       }
 
