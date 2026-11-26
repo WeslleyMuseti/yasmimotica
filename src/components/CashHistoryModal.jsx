@@ -1269,6 +1269,25 @@ export const CashHistoryContent = ({
     setLocalPrintData(null);
 
     let movementsForPdf = [...filteredMovements];
+
+    // Em relatórios de período amplo (Histórico Completo, Mês, 7 Dias, etc.),
+    // deduplicar aberturas para manter apenas a abertura inicial (AB-01) e não poluir a folha com múltiplas linhas de AB-01
+    const isMultiDayPeriod = selectedPeriod === 'TODOS' || selectedPeriod === 'MES' || selectedPeriod === '7DIAS' || (
+      selectedPeriod === 'PERSONALIZADO' && customStartDate && customEndDate && customStartDate !== customEndDate
+    );
+    if (isMultiDayPeriod) {
+      let seenAbertura = false;
+      movementsForPdf = movementsForPdf.filter(m => {
+        const tipo = String(m?.tipo || m?.TIPO || '').toUpperCase().trim();
+        if (tipo === 'ABERTURA') {
+          if (seenAbertura) return false;
+          seenAbertura = true;
+          return true;
+        }
+        return true;
+      });
+    }
+
     const hasAberturaInFilteredPdf = movementsForPdf.some(m => String(m.tipo || m.TIPO || '').toUpperCase() === 'ABERTURA');
     if (!hasAberturaInFilteredPdf && metrics.fundoInicial > 0) {
       movementsForPdf.unshift({

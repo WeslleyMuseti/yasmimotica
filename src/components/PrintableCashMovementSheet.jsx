@@ -77,6 +77,9 @@ export const PrintableCashMovementSheet = ({
     totalGeralDetalhes
   } = prepareCashMovementRows(closingData, movements, targetRows);
 
+  const isCompactSinglePage = allDisplayRows.length <= 22;
+  const sheetMaxHeight = isCompactSinglePage ? '262mm' : 'none';
+
   const content = (
     <div
       id={containerId}
@@ -104,8 +107,9 @@ export const PrintableCashMovementSheet = ({
             margin: 0 !important;
             padding: 0 !important;
             width: 100% !important;
-            height: 100% !important;
-            overflow: hidden !important;
+            height: auto !important;
+            min-height: 100% !important;
+            overflow: visible !important;
           }
           body * {
             visibility: hidden !important;
@@ -121,15 +125,11 @@ export const PrintableCashMovementSheet = ({
             top: 0 !important;
             width: 100% !important;
             max-width: 100% !important;
-            max-height: 262mm !important;
             margin: 0 !important;
             padding: 0 !important;
             display: block !important;
             z-index: 9999999 !important;
-            page-break-after: avoid !important;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            overflow: hidden !important;
+            overflow: visible !important;
           }
           .avoid-break {
             page-break-inside: avoid !important;
@@ -140,18 +140,18 @@ export const PrintableCashMovementSheet = ({
 
       {/* ─── MOLDURA EXTERNA DO FORMULÁRIO CONTÁBIL ─── */}
       <div
-        className="avoid-break"
+        className={isCompactSinglePage ? "avoid-break" : ""}
         style={{
           border: '1.5px solid #000000',
           width: '100%',
-          maxHeight: '262mm',
-          overflow: 'hidden',
+          maxHeight: sheetMaxHeight,
+          overflow: 'visible',
           boxSizing: 'border-box',
           backgroundColor: '#ffffff',
-          pageBreakInside: 'avoid',
-          breakInside: 'avoid',
-          pageBreakAfter: 'avoid',
-          breakAfter: 'avoid'
+          pageBreakInside: isCompactSinglePage ? 'avoid' : 'auto',
+          breakInside: isCompactSinglePage ? 'avoid' : 'auto',
+          pageBreakAfter: isCompactSinglePage ? 'avoid' : 'auto',
+          breakAfter: isCompactSinglePage ? 'avoid' : 'auto'
         }}
       >
         {/* ─── 1. CABEÇALHO SUPERIOR ─── */}

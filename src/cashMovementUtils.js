@@ -313,6 +313,19 @@ export const prepareCashMovementRows = (closingData = {}, movements = [], totalR
     return da - db;
   });
 
+  // 🛡️ Deduplica aberturas repetidas para exibir apenas o Fundo de Troco Inicial (AB-01) no topo da folha
+  // evitando que múltiplos turnos ou histórico consolidado gerem dezenas de linhas de abertura que ocultem as vendas
+  let seenAbertura = false;
+  effectiveMovements = effectiveMovements.filter(m => {
+    const tipo = String(m?.tipo || m?.TIPO || '').toUpperCase().trim();
+    if (tipo === 'ABERTURA') {
+      if (seenAbertura) return false;
+      seenAbertura = true;
+      return true;
+    }
+    return true;
+  });
+
   let totalVendasCalculadas = 0;
   let totalEntradasCalculadas = 0;
   let totalSaidasCalculadas = 0;

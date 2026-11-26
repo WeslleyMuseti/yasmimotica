@@ -378,7 +378,6 @@ section {
   #print-client-profile > div,
   #print-cash-closing-report .avoid-break,
   #print-cash-movement-sheet .avoid-break,
-  #print-cash-movement-sheet,
   #printable-reparcelamento-receipt {
     page-break-inside: avoid !important;
     break-inside: avoid !important;

@@ -11917,7 +11917,136 @@ async function runTests() {
     console.log('  ✅ Test 126 Passed: Vendas R$ 0,00 (Cortesia/Garantia) blindadas contra inflação de valores!\n');
   }
 
-  console.log('🎉 ALL 126 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // ==========================================
+  // TEST 127: Blindagem do Rodapé de Resumo & Totais no Movimento do Caixa (Nunca Ocultar ou Cortar com Overflow)
+  // ==========================================
+  console.log('▶ Test 127: Blindagem do Rodapé de Resumo & Totais no Movimento do Caixa');
+  {
+    const { prepareCashMovementRows, formatMovementMoney } = await import('./src/cashMovementUtils.js');
+    const sheetSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'PrintableCashMovementSheet.jsx'), 'utf-8');
+    const cashHistSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'CashHistoryModal.jsx'), 'utf-8');
+    const indexCssSrc = fs.readFileSync(path.join(__dirname, 'src', 'index.css'), 'utf-8');
+
+    // 1. Verificações de Layout e Estilos CSS para Impressão
+    console.assert(sheetSrc.includes('overflow: \'visible\''), 'PrintableCashMovementSheet deve usar overflow: visible para NUNCA cortar os totais do rodapé');
+    console.assert(sheetSrc.includes('isCompactSinglePage'), 'PrintableCashMovementSheet deve diferenciar folha compacta de multi-página dinamicamente');
+    console.assert(sheetSrc.includes('maxHeight'), 'PrintableCashMovementSheet deve manter suporte a maxHeight');
+    console.assert(sheetSrc.includes('DETALHES DO SALDO'), 'PrintableCashMovementSheet deve conter o bloco DETALHES DO SALDO');
+    console.assert(sheetSrc.includes('A TRANSPORTAR'), 'PrintableCashMovementSheet deve conter o bloco A TRANSPORTAR / TOTAL DO DIA');
+    console.assert(sheetSrc.includes('SALDO ATUAL (GAVETA)'), 'PrintableCashMovementSheet deve conter SALDO ATUAL (GAVETA)');
+    console.assert(sheetSrc.includes('CAIXA'), 'PrintableCashMovementSheet deve conter assinatura do Caixa');
+    console.assert(sheetSrc.includes('VISTO'), 'PrintableCashMovementSheet deve conter visto da gerência');
+
+    // 2. Verificação de index.css: avoid-break protegido sem bloquear paginação global
+    console.assert(indexCssSrc.includes('#print-cash-movement-sheet .avoid-break'), 'index.css deve proteger blocos .avoid-break');
+
+    // 3. Teste Computacional: Simular histórico com 35 registros (múltiplas aberturas + 25 vendas reais)
+    const mockClosingData = {
+      unidade: 'Cajati',
+      operador: 'Carla',
+      fundoInicial: 100,
+      totalVendas: 5000,
+      vendasDinheiro: 1000,
+      vendasPix: 2000,
+      vendasDebito: 500,
+      vendasCredito: 1000,
+      vendasBoleto: 500
+    };
+
+    const mockMovements = [];
+    // 5 aberturas duplicadas que ocorrem em histórico amplo
+    for (let i = 1; i <= 5; i++) {
+      mockMovements.push({
+        id: `ab_${i}`,
+        tipo: 'ABERTURA',
+        docNo: 'AB-01',
+        valor: 100,
+        motivo: `Abertura de Caixa - Dia ${i}`,
+        dataHora: `2024-11-${String(i + 10).padStart(2, '0')} 09:00:00`
+      });
+    }
+
+    // 25 vendas reais com métodos variados
+    for (let i = 1; i <= 25; i++) {
+      mockMovements.push({
+        id: `v_${i}`,
+        tipo: 'VENDA',
+        docNo: `OS-CAJ-${String(i).padStart(3, '0')}`,
+        osNumero: `CAJ-${String(i).padStart(3, '0')}`,
+        valor: 200,
+        valorTotalOS: 200,
+        formaPagamento: i % 2 === 0 ? 'PIX' : 'Dinheiro',
+        cliente: `Cliente ${i}`,
+        dataHora: `2024-11-20 1${i % 8}:00:00`
+      });
+    }
+
+    const result = prepareCashMovementRows(mockClosingData, mockMovements, 20);
+
+    // Deve desduplicar aberturas mantendo apenas 1 AB-01 inicial + 25 vendas = 26 linhas
+    console.assert(result.rows.length === 26, `Deveria conter exatamente 26 linhas após deduplicar aberturas repetidas, obteve: ${result.rows.length}`);
+    console.assert(result.rows[0].docNo === 'AB-01', 'Primeira linha deve ser a Abertura de Caixa oficial');
+    console.assert(result.rows[1].docNo.startsWith('OS-CAJ-'), 'Segunda linha em diante devem ser as vendas');
+
+    // Totais e Cálculos do Rodapé
+    console.assert(result.totalVendasFinal >= 5000, `Total de vendas final deve ser >= 5000, obteve: ${result.totalVendasFinal}`);
+    console.assert(result.totalEntradasFinal > 0, `Total de entradas deve ser positivo, obteve: ${result.totalEntradasFinal}`);
+    console.assert(result.saldoAnterior === 100, `Saldo anterior deve ser 100, obteve: ${result.saldoAnterior}`);
+    console.assert(result.saldoAtual > 0, `Saldo atual deve ser positivo, obteve: ${result.saldoAtual}`);
+    console.assert(result.totalGeralDetalhes > 0, `Total geral de detalhes deve ser positivo, obteve: ${result.totalGeralDetalhes}`);
+    console.assert(!isNaN(result.totalVendasFinal) && !isNaN(result.saldoAtual), 'Nenhum total deve ser NaN');
+
+    // 4. Verificação de Escopo Estático e TDZ
+    const parserModule127 = await import('@babel/parser');
+    const parser127 = parserModule127.default || parserModule127;
+    const traverseModule127 = await import('@babel/traverse');
+    const traverse127 = traverseModule127.default?.default || traverseModule127.default || traverseModule127;
+
+    const standardGlobals127 = new Set([
+      'window', 'document', 'console', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+      'fetch', 'alert', 'confirm', 'prompt', 'localStorage', 'sessionStorage',
+      'Math', 'Date', 'Array', 'Object', 'String', 'Number', 'Boolean', 'RegExp',
+      'JSON', 'Promise', 'Set', 'Map', 'Error', 'parseInt', 'parseFloat', 'isNaN',
+      'encodeURIComponent', 'decodeURIComponent', 'navigator', 'Intl', 'URL', 'Blob',
+      'Image', 'Audio', 'FileReader', 'FormData', 'MutationObserver', 'IntersectionObserver',
+      'performance', 'crypto', 'screen', 'history', 'location', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Event', 'CustomEvent', 'getComputedStyle', 'React', 'undefined'
+    ]);
+
+    const undeclared127 = [];
+    const tdzIssues127 = [];
+
+    ['src/components/PrintableCashMovementSheet.jsx', 'src/cashMovementUtils.js', 'src/components/CashHistoryModal.jsx'].forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser127.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse127(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals127.has(name)) return;
+          const binding = p.scope.getBinding(name);
+          if (!binding) {
+            undeclared127.push({ file: relPath, name, line: p.node.loc?.start?.line });
+            return;
+          }
+          if ((binding.kind === 'const' || binding.kind === 'let') && binding.scope === p.scope) {
+            const declStart = binding.path.node.start;
+            const refStart = p.node.start;
+            if (typeof declStart === 'number' && typeof refStart === 'number' && refStart < declStart) {
+              tdzIssues127.push({ file: relPath, name, refLine: p.node.loc?.start?.line, declLine: binding.path.node.loc?.start?.line });
+            }
+          }
+        }
+      });
+    });
+
+    console.assert(undeclared127.length === 0, `Nenhum identificador indefinido no Teste 127: ${JSON.stringify(undeclared127)}`);
+    console.assert(tdzIssues127.length === 0, `Nenhum problema TDZ no Teste 127: ${JSON.stringify(tdzIssues127)}`);
+
+    console.log('  ✅ Test 127 Passed: Rodapé de Resumo, Totais e Cálculos Contábeis blindados contra corte por overflow!\n');
+  }
+
+  console.log('🎉 ALL 127 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 
