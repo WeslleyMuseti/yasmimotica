@@ -1307,12 +1307,25 @@ export const resolveOSUnit = (osData = {}, clientData = {}) => {
   if (explicitUnitRaw) {
     if (/registro/i.test(explicitUnitRaw)) return 'Registro';
     if (/jacupiranga/i.test(explicitUnitRaw)) return 'Jacupiranga';
+    if (/eldorado/i.test(explicitUnitRaw)) return 'Eldorado';
+    if (/pariquera/i.test(explicitUnitRaw)) return 'Pariquera-Açu';
+    if (/sete barras/i.test(explicitUnitRaw)) return 'Sete Barras';
+    if (/iguape/i.test(explicitUnitRaw)) return 'Iguape';
+    if (/cananeia/i.test(explicitUnitRaw)) return 'Cananéia';
+    if (/ilha comprida/i.test(explicitUnitRaw)) return 'Ilha Comprida';
+    if (/cajati/i.test(explicitUnitRaw)) return 'Cajati';
   }
 
-  // 2. Prefixo explícito no número da OS (EXT-, REG-, JAC-, CAJ-)
+  // 2. Prefixo explícito no número da OS (EXT-, REG-, JAC-, CAJ-, ELD-, PAR-, SET-, etc.)
   if (osNum.startsWith('EXT-') || osNum.startsWith('EXT')) return 'Venda Externa';
   if (osNum.startsWith('REG-') || osNum.startsWith('REG')) return 'Registro';
   if (osNum.startsWith('JAC-') || osNum.startsWith('JAC')) return 'Jacupiranga';
+  if (osNum.startsWith('ELD-') || osNum.startsWith('ELD')) return 'Eldorado';
+  if (osNum.startsWith('PAR-') || osNum.startsWith('PAR')) return 'Pariquera-Açu';
+  if (osNum.startsWith('SET-') || osNum.startsWith('SET')) return 'Sete Barras';
+  if (osNum.startsWith('IGU-') || osNum.startsWith('IGU')) return 'Iguape';
+  if (osNum.startsWith('CAN-') || osNum.startsWith('CAN')) return 'Cananéia';
+  if (osNum.startsWith('ILH-') || osNum.startsWith('ILH')) return 'Ilha Comprida';
   if (osNum.startsWith('CAJ-') || osNum.startsWith('CAJ')) {
     // Se o cliente/venda está marcado explicitamente como Venda Externa e sem loja física explícita, protege Venda Externa
     const clientExplicitUnit = String(clientData?.['selectedCity'] || clientData?.['UNIDADE'] || clientData?.['LOJA'] || '').trim();
@@ -1327,6 +1340,12 @@ export const resolveOSUnit = (osData = {}, clientData = {}) => {
     if (/registro/i.test(uClean)) return 'Registro';
     if (/jacupiranga/i.test(uClean)) return 'Jacupiranga';
     if (/extern/i.test(uClean)) return 'Venda Externa';
+    if (/eldorado/i.test(uClean)) return 'Eldorado';
+    if (/pariquera/i.test(uClean)) return 'Pariquera-Açu';
+    if (/sete barras/i.test(uClean)) return 'Sete Barras';
+    if (/iguape/i.test(uClean)) return 'Iguape';
+    if (/cananeia/i.test(uClean)) return 'Cananéia';
+    if (/ilha comprida/i.test(uClean)) return 'Ilha Comprida';
     if (/cajati/i.test(uClean)) return 'Cajati';
     return uClean;
   }
@@ -1338,6 +1357,12 @@ export const resolveOSUnit = (osData = {}, clientData = {}) => {
     if (/registro/i.test(uClean)) return 'Registro';
     if (/jacupiranga/i.test(uClean)) return 'Jacupiranga';
     if (/extern/i.test(uClean)) return 'Venda Externa';
+    if (/eldorado/i.test(uClean)) return 'Eldorado';
+    if (/pariquera/i.test(uClean)) return 'Pariquera-Açu';
+    if (/sete barras/i.test(uClean)) return 'Sete Barras';
+    if (/iguape/i.test(uClean)) return 'Iguape';
+    if (/cananeia/i.test(uClean)) return 'Cananéia';
+    if (/ilha comprida/i.test(uClean)) return 'Ilha Comprida';
     if (/cajati/i.test(uClean)) return 'Cajati';
     return uClean;
   }
@@ -1347,6 +1372,12 @@ export const resolveOSUnit = (osData = {}, clientData = {}) => {
   if (/registro/i.test(fallbackCity)) return 'Registro';
   if (/jacupiranga/i.test(fallbackCity)) return 'Jacupiranga';
   if (/extern/i.test(fallbackCity)) return 'Venda Externa';
+  if (/eldorado/i.test(fallbackCity)) return 'Eldorado';
+  if (/pariquera/i.test(fallbackCity)) return 'Pariquera-Açu';
+  if (/sete barras/i.test(fallbackCity)) return 'Sete Barras';
+  if (/iguape/i.test(fallbackCity)) return 'Iguape';
+  if (/cananeia/i.test(fallbackCity)) return 'Cananéia';
+  if (/ilha comprida/i.test(fallbackCity)) return 'Ilha Comprida';
   return 'Cajati';
 };
 
@@ -1566,8 +1597,8 @@ export const ensureInstallmentPaidStatus = (inv, helpers = {}) => {
 };
 
 /**
- * Normaliza o nome oficial da cidade/unidade da loja (Cajati, Registro, Jacupiranga, Venda Externa).
- * Caso receba uma cidade residencial fora das filiais (ex: Sete Barras, Eldorado) ou string vazia, retorna o fallback.
+ * Normaliza o nome oficial da cidade/unidade da loja (Cajati, Registro, Jacupiranga, Venda Externa, Eldorado, etc.).
+ * Suporta todas as cidades da rede de óticas sem forçar Cajati indevidamente.
  */
 export const normalizeStoreCity = (city, fallback = 'Cajati') => {
   if (!city) return fallback;
@@ -1581,17 +1612,39 @@ export const normalizeStoreCity = (city, fallback = 'Cajati') => {
   if (c.includes('jacupiranga') || c === 'jac' || c.startsWith('jac-')) return 'Jacupiranga';
   if (c.includes('extern') || c === 'ext' || c.startsWith('ext-')) return 'Venda Externa';
   if (c.includes('cajati') || c === 'caj' || c.startsWith('caj-')) return 'Cajati';
+  if (c.includes('eldorado') || c === 'eld' || c.startsWith('eld-')) return 'Eldorado';
+  if (c.includes('pariquera') || c === 'par' || c.startsWith('par-')) return 'Pariquera-Açu';
+  if (c.includes('sete barras') || c === 'set' || c.startsWith('set-')) return 'Sete Barras';
+  if (c.includes('iguape') || c === 'igu' || c.startsWith('igu-')) return 'Iguape';
+  if (c.includes('cananeia') || c === 'can' || c.startsWith('can-')) return 'Cananéia';
+  if (c.includes('ilha comprida') || c === 'ilh' || c.startsWith('ilh-')) return 'Ilha Comprida';
+  if (c.includes('juquia') || c === 'juq' || c.startsWith('juq-')) return 'Juquiá';
+  if (c.includes('miracatu') || c === 'mir' || c.startsWith('mir-')) return 'Miracatu';
+  if (c.includes('barra do turvo') || c === 'bdt' || c.startsWith('bdt-')) return 'Barra do Turvo';
+  if (c.includes('itariri') || c === 'ita' || c.startsWith('ita-')) return 'Itariri';
+  if (c.includes('pedro de toledo') || c === 'pdt' || c.startsWith('pdt-')) return 'Pedro de Toledo';
   return fallback;
 };
 
 /**
- * Obtém o prefixo de OS correspondente à cidade/unidade (CAJ, REG, JAC, EXT)
+ * Obtém o prefixo de OS correspondente à cidade/unidade (CAJ, REG, JAC, EXT, ELD, PAR, etc.)
  */
 export const getCityPrefix = (city) => {
   const normalized = normalizeStoreCity(city, 'Cajati');
   if (normalized === 'Registro') return 'REG';
   if (normalized === 'Jacupiranga') return 'JAC';
   if (normalized === 'Venda Externa') return 'EXT';
+  if (normalized === 'Eldorado') return 'ELD';
+  if (normalized === 'Pariquera-Açu') return 'PAR';
+  if (normalized === 'Sete Barras') return 'SET';
+  if (normalized === 'Iguape') return 'IGU';
+  if (normalized === 'Cananéia') return 'CAN';
+  if (normalized === 'Ilha Comprida') return 'ILH';
+  if (normalized === 'Juquiá') return 'JUQ';
+  if (normalized === 'Miracatu') return 'MIR';
+  if (normalized === 'Barra do Turvo') return 'BDT';
+  if (normalized === 'Itariri') return 'ITA';
+  if (normalized === 'Pedro de Toledo') return 'PDT';
   return 'CAJ';
 };
 

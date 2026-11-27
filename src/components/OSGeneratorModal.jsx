@@ -316,15 +316,15 @@ const OSGeneratorModal = ({
       }
     }
 
-    const isInadimplente = hasOverdue || totalVencido > 0 || (totalAberto > 0 && respInvoices.length > 0);
+    const isInadimplente = hasOverdue && totalVencido > 0;
 
     return {
       respName: respName || 'Responsável Legal',
       respCpf: respCpf ? respCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '',
       totalAberto,
-      totalVencido: totalVencido > 0 ? totalVencido : totalAberto,
+      totalVencido: totalVencido,
       hasOverdue,
-      isInadimplente: isInadimplente || totalAberto > 0,
+      isInadimplente,
       countInvoices: respInvoices.length
     };
   }, [clientData, receberData, clientsData]);
@@ -680,14 +680,14 @@ const OSGeneratorModal = ({
         clientData?.['Cidade'] || clientData?.['CIDADE'],
         ''
       );
+      const propCity = normalizeStoreCity(propSelectedCity || initialCity, '');
       const targetCity =
-        userCity ||
         (hasExternalCartItem ? 'Venda Externa' : '') ||
+        propCity ||
         saleExplicitCity ||
         ((clientExplicitStore === 'Venda Externa' || clientCityStore === 'Venda Externa') ? 'Venda Externa' : '') ||
-        normalizeStoreCity(propSelectedCity || initialCity, '') ||
+        userCity ||
         clientExplicitStore ||
-        clientCityStore ||
         'Cajati';
 
       const initialPayments = parseInitialPayments(clientData, saleData);

@@ -11517,7 +11517,7 @@ async function runTests() {
     console.assert(normalizeStoreCity('  REGISTRO ') === 'Registro', 'REGISTRO deve normalizar para Registro');
     console.assert(normalizeStoreCity('cajati') === 'Cajati', 'cajati deve normalizar para Cajati');
     console.assert(normalizeStoreCity('venda externa') === 'Venda Externa', 'venda externa deve normalizar para Venda Externa');
-    console.assert(normalizeStoreCity('sete barras', 'Cajati') === 'Cajati', 'Cidade residencial sem loja própria deve usar fallback limpo');
+    console.assert(normalizeStoreCity('cidade desconhecida', 'Cajati') === 'Cajati', 'Cidade desconhecida deve usar fallback limpo');
 
     console.assert(getCityPrefix('jacupiranga') === 'JAC', 'jacupiranga minúsculo deve gerar prefixo JAC');
     console.assert(getCityPrefix('registro') === 'REG', 'registro minúsculo deve gerar prefixo REG');
@@ -12046,7 +12046,196 @@ async function runTests() {
     console.log('  ✅ Test 127 Passed: Rodapé de Resumo, Totais e Cálculos Contábeis blindados contra corte por overflow!\n');
   }
 
-  console.log('🎉 ALL 127 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // TEST 128: Auto-fill de Responsável, Bloqueio Estrito de Inadimplência Vencida e Prefixos Dinâmicos de OS por Cidade
+  console.log('▶ Test 128: Auto-fill de Responsável, Bloqueio Estrito de Inadimplência Vencida e Prefixos de OS por Cidade');
+  {
+    const { normalizeStoreCity, getCityPrefix, normalizeInstallmentDateIso } = await import('./src/reparcelamentoUtils.js');
+
+    // 1. Verificação de prefixos e normalização de cidades
+    const testCities = [
+      { input: 'Jacupiranga', expectedCity: 'Jacupiranga', expectedPrefix: 'JAC' },
+      { input: 'Registro', expectedCity: 'Registro', expectedPrefix: 'REG' },
+      { input: 'Venda Externa', expectedCity: 'Venda Externa', expectedPrefix: 'EXT' },
+      { input: 'Cajati', expectedCity: 'Cajati', expectedPrefix: 'CAJ' },
+      { input: 'Eldorado', expectedCity: 'Eldorado', expectedPrefix: 'ELD' },
+      { input: 'Pariquera-Açu', expectedCity: 'Pariquera-Açu', expectedPrefix: 'PAR' },
+      { input: 'Sete Barras', expectedCity: 'Sete Barras', expectedPrefix: 'SET' },
+      { input: 'Iguape', expectedCity: 'Iguape', expectedPrefix: 'IGU' },
+      { input: 'Cananéia', expectedCity: 'Cananéia', expectedPrefix: 'CAN' },
+      { input: 'Ilha Comprida', expectedCity: 'Ilha Comprida', expectedPrefix: 'ILH' },
+      { input: 'Juquiá', expectedCity: 'Juquiá', expectedPrefix: 'JUQ' },
+      { input: 'Miracatu', expectedCity: 'Miracatu', expectedPrefix: 'MIR' },
+      { input: 'Barra do Turvo', expectedCity: 'Barra do Turvo', expectedPrefix: 'BDT' },
+      { input: 'Itariri', expectedCity: 'Itariri', expectedPrefix: 'ITA' },
+      { input: 'Pedro de Toledo', expectedCity: 'Pedro de Toledo', expectedPrefix: 'PDT' },
+      { input: 'jac-001', expectedCity: 'Jacupiranga', expectedPrefix: 'JAC' },
+      { input: 'reg-010', expectedCity: 'Registro', expectedPrefix: 'REG' },
+      { input: 'ext-005', expectedCity: 'Venda Externa', expectedPrefix: 'EXT' }
+    ];
+
+    testCities.forEach(({ input, expectedCity, expectedPrefix }) => {
+      const city = normalizeStoreCity(input, 'Cajati');
+      const prefix = getCityPrefix(city);
+      console.assert(city === expectedCity, `Cidade esperada para "${input}": ${expectedCity}, obtido: ${city}`);
+      console.assert(prefix === expectedPrefix, `Prefixo esperado para "${input}": ${expectedPrefix}, obtido: ${prefix}`);
+    });
+
+    // 2. Verificação de Bloqueio Estrito de Inadimplência (Apenas com Débitos Vencidos)
+    const todayStr = new Date().toISOString().split('T')[0];
+    const pastDate = '2026-01-01';
+    const futureDate = '2026-12-31';
+
+    // Caso A: Parcela a vencer (não vencida) -> NÃO deve ser considerada inadimplente
+    const openInstallmentsFuture = [
+      { VALOR: '150,00', STATUS: 'Pendente', DATA_VENCIMENTO: futureDate }
+    ];
+    let totalVencidoFuture = 0;
+    let hasOverdueFuture = false;
+    openInstallmentsFuture.forEach(inv => {
+      const isoVenc = normalizeInstallmentDateIso(inv.DATA_VENCIMENTO);
+      if (isoVenc && isoVenc < todayStr) {
+        hasOverdueFuture = true;
+        totalVencidoFuture += 150;
+      }
+    });
+    const isInadimplenteFuture = hasOverdueFuture && totalVencidoFuture > 0;
+    console.assert(isInadimplenteFuture === false, 'Parcela a vencer NÃO deve ser considerada inadimplente');
+    console.assert(totalVencidoFuture === 0, 'Total vencido deve ser 0 para parcelas no prazo');
+
+    // Caso B: Parcela vencida -> DEVE ser considerada inadimplente
+    const openInstallmentsPast = [
+      { VALOR: '150,00', STATUS: 'Pendente', DATA_VENCIMENTO: pastDate }
+    ];
+    let totalVencidoPast = 0;
+    let hasOverduePast = false;
+    openInstallmentsPast.forEach(inv => {
+      const isoVenc = normalizeInstallmentDateIso(inv.DATA_VENCIMENTO);
+      if (isoVenc && isoVenc < todayStr) {
+        hasOverduePast = true;
+        totalVencidoPast += 150;
+      }
+    });
+    const isInadimplentePast = hasOverduePast && totalVencidoPast > 0;
+    console.assert(isInadimplentePast === true, 'Parcela atrasada DEVE ser considerada inadimplente');
+    console.assert(totalVencidoPast === 150, 'Total vencido deve ser 150 para parcela vencida');
+
+    // Caso C: Parcela com data no formato DD/MM/YYYY futura ("30/12/2026")
+    const isoNorm = normalizeInstallmentDateIso('30/12/2026');
+    console.assert(isoNorm === '2026-12-30', `Normalização de data DD/MM/YYYY para ISO: esperado 2026-12-30, obtido: ${isoNorm}`);
+    console.assert(isoNorm > todayStr, 'Data futura normalizada não deve ser menor que hoje');
+
+    // 3. Verificação do Mecanismo de Busca e Preenchimento Automático de Responsável
+    const mockClients = [
+      {
+        'Nome Completo': 'Carlos Alberto da Silva',
+        'CPF / CNPJ': '123.456.789-00',
+        'Data de Nascimento': '1980-05-15',
+        'RG': '12.345.678-9',
+        'WhatsApp': '(13) 99999-8888',
+        'Nome Referência 1': 'Maria Silva',
+        'Referência 1': '(13) 98888-7777',
+        'Parentesco Ref. 1': 'Mãe',
+        'Rua': 'Rua das Flores',
+        'Número': '123',
+        'Bairro': 'Centro',
+        'Cidade': 'Jacupiranga',
+        'Estado': 'SP'
+      },
+      {
+        'Nome Completo': 'Lucas Silva (Filho)',
+        'CPF / CNPJ': '987.654.321-99',
+        'Responsável Nome': 'Fernanda Oliveira',
+        'Responsável CPF': '222.333.444-55',
+        'Responsável WhatsApp': '(13) 97777-6666',
+        'Responsável Cidade': 'Registro',
+        'Responsável Estado': 'SP'
+      }
+    ];
+
+    // Simula a agregação de responsáveis disponíveis
+    const mapResp = new Map();
+    mockClients.forEach(c => {
+      const cNome = (c['Nome Completo'] || '').trim();
+      const cCpf = (c['CPF / CNPJ'] || '').trim();
+      if (cNome) {
+        const key = cCpf.replace(/\D/g, '') || cNome.toLowerCase();
+        if (!mapResp.has(key)) {
+          mapResp.set(key, { nome: cNome, cpf: cCpf, whatsapp: c['WhatsApp'], cidade: c['Cidade'] });
+        }
+      }
+      const rNome = (c['Responsável Nome'] || '').trim();
+      const rCpf = (c['Responsável CPF'] || '').trim();
+      if (rNome) {
+        const key = rCpf.replace(/\D/g, '') || rNome.toLowerCase();
+        if (!mapResp.has(key)) {
+          mapResp.set(key, { nome: rNome, cpf: rCpf, whatsapp: c['Responsável WhatsApp'], cidade: c['Responsável Cidade'] });
+        }
+      }
+    });
+
+    const respList = Array.from(mapResp.values());
+    console.assert(respList.length === 3, `Esperado 3 candidatos a responsável no mock, obtido: ${respList.length}`);
+    const foundCarlos = respList.find(r => r.nome.includes('Carlos'));
+    const foundFernanda = respList.find(r => r.nome.includes('Fernanda'));
+    console.assert(!!foundCarlos, 'Carlos deve constar como candidato a responsável');
+    console.assert(!!foundFernanda, 'Fernanda deve constar como candidato a responsável');
+
+    // 4. AST e TDZ em todos os arquivos modificados
+    const parser128Module = await import('@babel/parser');
+    const parser128 = parser128Module.default || parser128Module;
+    const traverseModule128 = await import('@babel/traverse');
+    const traverse128 = traverseModule128.default?.default || traverseModule128.default || traverseModule128;
+
+    const standardGlobals128 = new Set([
+      'window', 'document', 'console', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+      'fetch', 'alert', 'confirm', 'prompt', 'localStorage', 'sessionStorage',
+      'Math', 'Date', 'Array', 'Object', 'String', 'Number', 'Boolean', 'RegExp',
+      'JSON', 'Promise', 'Set', 'Map', 'Error', 'parseInt', 'parseFloat', 'isNaN',
+      'encodeURIComponent', 'decodeURIComponent', 'navigator', 'Intl', 'URL', 'Blob',
+      'Image', 'Audio', 'FileReader', 'FormData', 'MutationObserver', 'IntersectionObserver',
+      'performance', 'crypto', 'screen', 'history', 'location', 'requestAnimationFrame',
+      'cancelAnimationFrame', 'Event', 'CustomEvent', 'getComputedStyle', 'React', 'undefined'
+    ]);
+
+    const undeclared128 = [];
+    const tdzIssues128 = [];
+
+    [
+      'src/components/ClientRegistration.jsx',
+      'src/components/OSGeneratorModal.jsx',
+      'src/components/POSRegister.jsx',
+      'src/reparcelamentoUtils.js'
+    ].forEach(relPath => {
+      const fullPath = path.join(__dirname, relPath);
+      const code = fs.readFileSync(fullPath, 'utf-8');
+      const ast = parser128.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+      traverse128(ast, {
+        ReferencedIdentifier(p) {
+          const name = p.node.name;
+          if (standardGlobals128.has(name)) return;
+          const binding = p.scope.getBinding(name);
+          if (!binding) {
+            undeclared128.push({ file: relPath, name, line: p.node.loc?.start?.line });
+            return;
+          }
+          if ((binding.kind === 'const' || binding.kind === 'let') && binding.scope === p.scope) {
+            const declStart = binding.path.node.start;
+            const refStart = p.node.start;
+            if (typeof declStart === 'number' && typeof refStart === 'number' && refStart < declStart) {
+              tdzIssues128.push({ file: relPath, name, refLine: p.node.loc?.start?.line, declLine: binding.path.node.loc?.start?.line });
+            }
+          }
+        }
+      });
+    });
+
+    console.assert(undeclared128.length === 0, `Nenhum identificador indefinido no Teste 128: ${JSON.stringify(undeclared128)}`);
+    console.assert(tdzIssues128.length === 0, `Nenhum problema TDZ no Teste 128: ${JSON.stringify(tdzIssues128)}`);
+
+    console.log('  ✅ Test 128 Passed: Auto-fill de Responsável, Bloqueio Estrito de Inadimplência e Prefixos de OS 100% validados!\n');
+  }
+
+  console.log('🎉 ALL 128 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

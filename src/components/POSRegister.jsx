@@ -24,7 +24,8 @@ import {
   calculateNextBaseOS,
   normalizeStoreCity,
   enforceCityOSPrefix,
-  resolveDistinctResponsible
+  resolveDistinctResponsible,
+  normalizeInstallmentDateIso
 } from '../reparcelamentoUtils';
 import { InstagramIcon, WhatsAppIcon } from './SocialMediaButtons';
 
@@ -597,13 +598,14 @@ const POSRegister = ({
 
     clientInvoices.forEach(inv => {
       const val = cleanVal(inv.VALOR || inv.valor || 0);
-      const st = String(inv.STATUS || inv.status || 'Pendente').trim();
-      const isPaid = st === 'Recebido' || st === 'Pago';
+      const st = String(inv.STATUS || inv.status || 'Pendente').trim().toLowerCase();
+      const isPaid = st === 'recebido' || st === 'pago';
       const dtVenc = String(inv.DATA_VENCIMENTO || inv['DATA VENCIMENTO'] || inv.VENCIMENTO || '');
+      const isoVenc = normalizeInstallmentDateIso(dtVenc);
 
       if (!isPaid) {
         totalAberto += val;
-        if (dtVenc && dtVenc < todayStr) {
+        if (isoVenc && isoVenc < todayStr) {
           hasOverdue = true;
           totalVencido += val;
         }
@@ -611,14 +613,15 @@ const POSRegister = ({
     });
 
     if (clientInvoices.length === 0) {
-      totalAberto = cleanVal(selectedClient['Valor Devido'] || selectedClient['VALOR DEVIDO'] || 0);
-      if (String(selectedClient['Status de Pagamento'] || '').toLowerCase() === 'inadimplente') {
+      const dev = cleanVal(selectedClient['Valor Devido'] || selectedClient['VALOR DEVIDO'] || 0);
+      totalAberto = dev;
+      if (dev > 0 && String(selectedClient['Status de Pagamento'] || '').toLowerCase() === 'inadimplente') {
         hasOverdue = true;
         totalVencido = totalAberto;
       }
     }
 
-    const isInadimplente = hasOverdue || String(selectedClient['Status de Pagamento'] || '').toLowerCase() === 'inadimplente';
+    const isInadimplente = hasOverdue && totalVencido > 0;
 
     // Auditoria de Inadimplência do Responsável Legal (se houver)
     let respFinancials = null;
@@ -643,13 +646,14 @@ const POSRegister = ({
 
       respInvoices.forEach(inv => {
         const val = cleanVal(inv.VALOR || inv.valor || 0);
-        const st = String(inv.STATUS || inv.status || 'Pendente').trim();
-        const isPaid = st === 'Recebido' || st === 'Pago';
+        const st = String(inv.STATUS || inv.status || 'Pendente').trim().toLowerCase();
+        const isPaid = st === 'recebido' || st === 'pago';
         const dtVenc = String(inv.DATA_VENCIMENTO || inv['DATA VENCIMENTO'] || inv.VENCIMENTO || '');
+        const isoVenc = normalizeInstallmentDateIso(dtVenc);
 
         if (!isPaid) {
           respAberto += val;
-          if (dtVenc && dtVenc < todayStr) {
+          if (isoVenc && isoVenc < todayStr) {
             respHasOverdue = true;
             respVencido += val;
           }
@@ -666,7 +670,7 @@ const POSRegister = ({
         });
         if (respClient) {
           const dev = cleanVal(respClient['Valor Devido'] || respClient['VALOR DEVIDO'] || 0);
-          if (dev > 0 || String(respClient['Status de Pagamento'] || '').toLowerCase().includes('inadimplente')) {
+          if (dev > 0 && String(respClient['Status de Pagamento'] || '').toLowerCase().includes('inadimplente')) {
             respAberto = dev;
             respVencido = dev;
             respHasOverdue = true;
@@ -674,13 +678,16 @@ const POSRegister = ({
         }
       }
 
-      if (respAberto > 0 || respHasOverdue) {
+      const respIsInadimplente = respHasOverdue && respVencido > 0;
+
+      if (respAberto > 0 || respIsInadimplente) {
         respFinancials = {
           respName: respName || 'Responsável Legal',
           respCpf: respCpf ? respCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '',
           totalAberto: respAberto,
-          totalVencido: respVencido > 0 ? respVencido : respAberto,
-          isInadimplente: true,
+          totalVencido: respVencido,
+          isInadimplente: respIsInadimplente,
+          hasOverdue: respHasOverdue,
           countInvoices: respInvoices.length
         };
       }
@@ -688,7 +695,7 @@ const POSRegister = ({
 
     return {
       totalAberto,
-      totalVencido: totalVencido > 0 ? totalVencido : (isInadimplente ? totalAberto : 0),
+      totalVencido: totalVencido,
       isInadimplente,
       countInvoices: clientInvoices.length,
       respFinancials
@@ -1395,18 +1402,18 @@ const POSRegister = ({
       return;
     }
 
-    if (currentMethod === 'carne' && selectedClientFinancials?.isInadimplente) {
+    if (currentMethod === 'carne' && selectedClientFinancials?.isInadimplente && (selectedClientFinancials?.totalVencido || 0) > 0) {
       const clientName = selectedClient?.['Nome Completo'] || selectedClient?.['NOME'] || 'o cliente';
-      const vencido = fmtMoeda(selectedClientFinancials.totalVencido || selectedClientFinancials.totalAberto);
+      const vencido = fmtMoeda(selectedClientFinancials.totalVencido);
       const allow = window.confirm(
         `⚠️ ALERTA DE RISCO DE CRÉDITO:\n\n${clientName} possui parcelas vencidas em aberto no valor de ${vencido}.\n\nDeseja realmente autorizar a emissão de NOVO BOLETO para este cliente?`
       );
       if (!allow) return;
     }
 
-    if (currentMethod === 'carne' && selectedClientFinancials?.respFinancials?.isInadimplente) {
+    if (currentMethod === 'carne' && selectedClientFinancials?.respFinancials?.isInadimplente && (selectedClientFinancials?.respFinancials?.totalVencido || 0) > 0) {
       const respName = selectedClientFinancials.respFinancials.respName;
-      const vencido = fmtMoeda(selectedClientFinancials.respFinancials.totalVencido || selectedClientFinancials.respFinancials.totalAberto);
+      const vencido = fmtMoeda(selectedClientFinancials.respFinancials.totalVencido);
       const allow = window.confirm(
         `⚠️ ALERTA DE RISCO DE CRÉDITO DO RESPONSÁVEL LEGAL:\n\nO Responsável Legal deste cliente (${respName}) possui parcelas vencidas em aberto no valor de ${vencido}.\n\nDeseja realmente autorizar a emissão de NOVO BOLETO para este cliente?`
       );
@@ -1482,20 +1489,20 @@ const POSRegister = ({
       effectivePayments = [autoPay];
     }
 
-    // Alerta de risco financeiro caso haja boleto para cliente inadimplente
+    // Alerta de risco financeiro caso haja boleto para cliente inadimplente com débito já vencido
     const hasCarne = effectivePayments.some(p => p.metodo === 'carne' || p.metodo === 'boleto');
-    if (hasCarne && selectedClientFinancials?.isInadimplente) {
+    if (hasCarne && selectedClientFinancials?.isInadimplente && (selectedClientFinancials?.totalVencido || 0) > 0) {
       const clientName = selectedClient['Nome Completo'] || selectedClient['NOME'] || 'o cliente';
-      const vencido = fmtMoeda(selectedClientFinancials.totalVencido || selectedClientFinancials.totalAberto);
+      const vencido = fmtMoeda(selectedClientFinancials.totalVencido);
       const allow = window.confirm(
         `⚠️ ALERTA DE RISCO DE CRÉDITO:\n\n${clientName} possui parcelas vencidas no valor de ${vencido}.\n\nDeseja realmente autorizar e FINALIZAR a venda com emissão de novo boleto?`
       );
       if (!allow) return;
     }
 
-    if (hasCarne && selectedClientFinancials?.respFinancials?.isInadimplente) {
+    if (hasCarne && selectedClientFinancials?.respFinancials?.isInadimplente && (selectedClientFinancials?.respFinancials?.totalVencido || 0) > 0) {
       const respName = selectedClientFinancials.respFinancials.respName;
-      const vencido = fmtMoeda(selectedClientFinancials.respFinancials.totalVencido || selectedClientFinancials.respFinancials.totalAberto);
+      const vencido = fmtMoeda(selectedClientFinancials.respFinancials.totalVencido);
       const allow = window.confirm(
         `⚠️ ALERTA DE RISCO DE CRÉDITO DO RESPONSÁVEL LEGAL:\n\nO Responsável Legal deste cliente (${respName}) possui parcelas vencidas em aberto no valor de ${vencido}.\n\nDeseja realmente autorizar e FINALIZAR a venda com emissão de novo boleto?`
       );
@@ -1509,11 +1516,9 @@ const POSRegister = ({
     const clientName = selectedClient['Nome Completo'] || selectedClient['NOME'] || 'Cliente';
     const hasVendaExternaItem = cart.some(i => isProductFromVendaExterna(i?.rawProduct || i));
     const city = normalizeStoreCity(
-      userFixedCity ||
-      (isExternalVendor || hasVendaExternaItem || selectedCityStock === 'Venda Externa' ? 'Venda Externa' : selectedPOSCity) ||
-      currentUser?.city ||
-      selectedClient?.['UNIDADE'] ||
-      selectedClient?.['Cidade'],
+      (isExternalVendor || hasVendaExternaItem || selectedCityStock === 'Venda Externa' || selectedPOSCity === 'Venda Externa')
+        ? 'Venda Externa'
+        : (selectedPOSCity || userFixedCity || currentUser?.city),
       'Cajati'
     );
 
@@ -2192,11 +2197,8 @@ const POSRegister = ({
           completedSale?.selectedCity ||
           completedSale?.UNIDADE ||
           completedSale?.LOJA ||
-          completedSale?.CIDADE ||
-          savedClientForOS?.selectedCity ||
-          savedClientForOS?.UNIDADE ||
-          userFixedCity ||
-          selectedPOSCity,
+          selectedPOSCity ||
+          userFixedCity,
           'Cajati'
         );
         const safeSingleOS = enforceCityOSPrefix(rawSingleData.numeroOS, resolvedSingleUnit, salesData);
@@ -2583,11 +2585,8 @@ const POSRegister = ({
       completedSale?.selectedCity ||
       completedSale?.UNIDADE ||
       completedSale?.LOJA ||
-      completedSale?.CIDADE ||
-      savedClientForOS?.selectedCity ||
-      savedClientForOS?.UNIDADE ||
-      userFixedCity ||
-      selectedPOSCity,
+      selectedPOSCity ||
+      userFixedCity,
       'Cajati'
     );
     const enforcedMultiList = osList.map((o, idx) => {
@@ -5314,20 +5313,16 @@ const POSRegister = ({
             completedSale?.selectedCity ||
             completedSale?.UNIDADE ||
             completedSale?.LOJA ||
-            completedSale?.CIDADE ||
-            savedClientForOS?.selectedCity ||
-            savedClientForOS?.UNIDADE ||
-            selectedPOSCity,
+            selectedPOSCity ||
+            userFixedCity,
             'Cajati'
           )}
           initialCity={normalizeStoreCity(
             completedSale?.selectedCity ||
             completedSale?.UNIDADE ||
             completedSale?.LOJA ||
-            completedSale?.CIDADE ||
-            savedClientForOS?.selectedCity ||
-            savedClientForOS?.UNIDADE ||
-            selectedPOSCity,
+            selectedPOSCity ||
+            userFixedCity,
             'Cajati'
           )}
           onSaveAndPrint={handleSaveOSFromModal}

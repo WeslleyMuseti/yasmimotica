@@ -4,7 +4,8 @@ import {
   User, Phone, PhoneCall, Mail, MapPin, Map, Home, Building2, Hash, Compass, 
   CreditCard, CheckCircle, CheckCircle2, ArrowLeft, AtSign, PlusCircle, Users, 
   UserCheck, Download, Eye, Glasses, Tag, AlertTriangle, DollarSign, Calendar, 
-  Activity, Sparkles, Layers, ShieldCheck, FileText, Clock, Edit2, Trash2, Save, Check
+  Activity, Sparkles, Layers, ShieldCheck, FileText, Clock, Edit2, Trash2, Save, Check,
+  Search, X
 } from 'lucide-react';
 import DataTable from './DataTable';
 import OSGeneratorModal from './OSGeneratorModal';
@@ -259,6 +260,173 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
   const [success, setSuccess] = useState(false);
   const [cpfError, setCpfError] = useState('');
   const [responsavelCpfError, setResponsavelCpfError] = useState('');
+  const [respSearchQuery, setRespSearchQuery] = useState('');
+  const [isRespSearchOpen, setIsRespSearchOpen] = useState(false);
+  const [linkedRespInfo, setLinkedRespInfo] = useState(null);
+
+  // Lista consolidada de potenciais responsáveis a partir de clientes ou responsáveis já existentes
+  const availableResponsibles = useMemo(() => {
+    if (!Array.isArray(clientsData)) return [];
+    const map = new Map();
+
+    clientsData.forEach(c => {
+      if (!c) return;
+      // 1. O próprio cliente já cadastrado
+      const cNome = (c['Nome Completo'] || c['NOME'] || c['Nome'] || c['CLIENTE'] || c['NOME DO CLIENTE'] || '').trim();
+      const cCpf = (c['CPF / CNPJ'] || c['CPF'] || c['CPF/CNPJ'] || '').trim();
+      const cTel = (c['WhatsApp'] || c['TELEFONE'] || c['TELEFONE CLIENTE'] || c['Celular'] || c['TEL'] || '').trim();
+
+      if (cNome && cNome.length >= 3) {
+        const cpfDigits = cCpf.replace(/\D/g, '');
+        const key = cpfDigits || cNome.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, {
+            origem: 'Cliente',
+            nome: cNome,
+            cpf: cCpf,
+            rg: c['RG'] || c['RG / IE'] || c['rg'] || '',
+            nascimento: c['Data de Nascimento'] || c['DATA NASCIMENTO'] || c['DATA_NASCIMENTO'] || c['Dt. Nasc.'] || '',
+            whatsapp: cTel,
+            refNome1: c['Nome Referência 1'] || c['Nome Ref. 1'] || c['NOME_REF_1'] || '',
+            ref1: c['Referência 1'] || c['REFERENCIA 1'] || c['Ref. 1'] || '',
+            parentesco1: c['Parentesco Ref. 1'] || c['PARENTESCO REF. 1'] || '',
+            refNome2: c['Nome Referência 2'] || c['Nome Ref. 2'] || c['NOME_REF_2'] || '',
+            ref2: c['Referência 2'] || c['REFERENCIA 2'] || c['Ref. 2'] || '',
+            parentesco2: c['Parentesco Ref. 2'] || c['PARENTESCO REF. 2'] || '',
+            instagram: c['Instagram'] || '',
+            facebook: c['Facebook'] || '',
+            tiktok: c['TikTok'] || '',
+            cep: c['CEP'] || '',
+            rua: c['Rua'] || c['RUA'] || c['ENDEREÇO'] || c['Endereco'] || '',
+            numero: c['Número'] || c['NUMERO'] || c['Nº'] || '',
+            bairro: c['Bairro'] || c['BAIRRO'] || '',
+            cidade: c['Cidade'] || c['CIDADE'] || '',
+            estado: c['Estado'] || c['ESTADO'] || c['UF'] || '',
+            fotoDoc: c['Foto Documento Cliente'] || c['fotoDocumentoCliente'] || c['FOTO_DOCUMENTO_CLIENTE'] || '',
+            fotoComp: c['Foto Comprovante Residência Cliente'] || c['fotoComprovanteResidenciaCliente'] || c['FOTO_COMPROVANTE_CLIENTE'] || ''
+          });
+        }
+      }
+
+      // 2. Responsável já cadastrado em outro cliente
+      const rNome = (c['Responsável Nome'] || c['Responsável'] || c['RESPONSAVEL'] || c['NOME RESPONSAVEL'] || '').trim();
+      const rCpf = (c['Responsável CPF'] || c['RESPONSAVEL_CPF'] || '').trim();
+      const rTel = (c['Responsável WhatsApp'] || c['RESPONSAVEL_WHATSAPP'] || c['RESPONSAVEL_TELEFONE'] || '').trim();
+
+      if (rNome && rNome.length >= 3) {
+        const cpfDigits = rCpf.replace(/\D/g, '');
+        const key = cpfDigits || rNome.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, {
+            origem: 'Responsável Cadastrado',
+            nome: rNome,
+            cpf: rCpf,
+            rg: c['Responsável RG'] || c['RESPONSAVEL_RG'] || '',
+            nascimento: c['Responsável Data de Nascimento'] || c['RESPONSAVEL_DATA_NASCIMENTO'] || '',
+            whatsapp: rTel,
+            refNome1: c['Responsável Nome Referência 1'] || c['Responsável Nome Ref. 1'] || c['RESPONSAVEL_NOME_REF_1'] || '',
+            ref1: c['Responsável Referência 1'] || c['RESPONSAVEL_REF_1'] || '',
+            parentesco1: c['Responsável Parentesco Ref. 1'] || c['RESPONSAVEL_PARENTESCO_1'] || '',
+            refNome2: c['Responsável Nome Referência 2'] || c['Responsável Nome Ref. 2'] || c['RESPONSAVEL_NOME_REF_2'] || '',
+            ref2: c['Responsável Referência 2'] || c['RESPONSAVEL_REF_2'] || '',
+            parentesco2: c['Responsável Parentesco Ref. 2'] || c['RESPONSAVEL_PARENTESCO_2'] || '',
+            instagram: c['Responsável Instagram'] || c['RESPONSAVEL_INSTAGRAM'] || '',
+            facebook: c['Responsável Facebook'] || c['RESPONSAVEL_FACEBOOK'] || '',
+            tiktok: c['Responsável TikTok'] || c['RESPONSAVEL_TIKTOK'] || '',
+            cep: c['Responsável CEP'] || c['RESPONSAVEL_CEP'] || '',
+            rua: c['Responsável Rua'] || c['RESPONSAVEL_RUA'] || c['RESPONSAVEL_ENDERECO'] || '',
+            numero: c['Responsável Número'] || c['RESPONSAVEL_NUMERO'] || '',
+            bairro: c['Responsável Bairro'] || c['RESPONSAVEL_BAIRRO'] || '',
+            cidade: c['Responsável Cidade'] || c['RESPONSAVEL_CIDADE'] || '',
+            estado: c['Responsável Estado'] || c['RESPONSAVEL_ESTADO'] || '',
+            fotoDoc: c['Foto Documento Responsável'] || c['fotoDocumentoResponsavel'] || c['FOTO_DOCUMENTO_RESPONSAVEL'] || '',
+            fotoComp: c['Foto Comprovante Residência Responsável'] || c['fotoComprovanteResidenciaResponsavel'] || c['FOTO_COMPROVANTE_RESPONSAVEL'] || ''
+          });
+        }
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [clientsData]);
+
+  // Filtro de responsáveis pela busca do usuário (nome, CPF ou telefone)
+  const filteredResponsibles = useMemo(() => {
+    const q = (respSearchQuery || '').trim().toLowerCase();
+    if (!q || q.length < 2) return [];
+    const qDigits = q.replace(/\D/g, '');
+
+    return availableResponsibles.filter(r => {
+      const matchNome = r.nome.toLowerCase().includes(q);
+      const matchCpf = qDigits.length >= 3 && r.cpf.replace(/\D/g, '').includes(qDigits);
+      const matchTel = qDigits.length >= 3 && r.whatsapp.replace(/\D/g, '').includes(qDigits);
+      return matchNome || matchCpf || matchTel;
+    }).slice(0, 10);
+  }, [availableResponsibles, respSearchQuery]);
+
+  // Ação de preencher automaticamente os dados do responsável selecionado
+  const handleSelectResponsible = (resp) => {
+    if (!resp) return;
+    setFormData(prev => ({
+      ...prev,
+      'Responsável Nome': resp.nome || prev['Responsável Nome'],
+      'Responsável Data de Nascimento': resp.nascimento || prev['Responsável Data de Nascimento'],
+      'Responsável CPF': resp.cpf || prev['Responsável CPF'],
+      'Responsável RG': resp.rg || prev['Responsável RG'],
+      'Responsável WhatsApp': resp.whatsapp || prev['Responsável WhatsApp'],
+      'Responsável Nome Referência 1': resp.refNome1 || prev['Responsável Nome Referência 1'],
+      'Responsável Referência 1': resp.ref1 || prev['Responsável Referência 1'],
+      'Responsável Parentesco Ref. 1': resp.parentesco1 || prev['Responsável Parentesco Ref. 1'],
+      'Responsável Nome Referência 2': resp.refNome2 || prev['Responsável Nome Referência 2'],
+      'Responsável Referência 2': resp.ref2 || prev['Responsável Referência 2'],
+      'Responsável Parentesco Ref. 2': resp.parentesco2 || prev['Responsável Parentesco Ref. 2'],
+      'Responsável Instagram': resp.instagram || prev['Responsável Instagram'],
+      'Responsável Facebook': resp.facebook || prev['Responsável Facebook'],
+      'Responsável TikTok': resp.tiktok || prev['Responsável TikTok'],
+      'Responsável CEP': resp.cep || prev['Responsável CEP'],
+      'Responsável Rua': resp.rua || prev['Responsável Rua'],
+      'Responsável Número': resp.numero || prev['Responsável Número'],
+      'Responsável Bairro': resp.bairro || prev['Responsável Bairro'],
+      'Responsável Cidade': resp.cidade || prev['Responsável Cidade'],
+      'Responsável Estado': resp.estado || prev['Responsável Estado'],
+      'Foto Documento Responsável': resp.fotoDoc || prev['Foto Documento Responsável'],
+      'Foto Comprovante Residência Responsável': resp.fotoComp || prev['Foto Comprovante Residência Responsável']
+    }));
+    setResponsavelCpfError('');
+    setLinkedRespInfo(resp.nome);
+    setRespSearchQuery('');
+    setIsRespSearchOpen(false);
+  };
+
+  // Limpar dados do responsável
+  const handleClearResponsible = () => {
+    setFormData(prev => ({
+      ...prev,
+      'Responsável Nome': '',
+      'Responsável Data de Nascimento': '',
+      'Responsável CPF': '',
+      'Responsável RG': '',
+      'Responsável WhatsApp': '',
+      'Responsável Nome Referência 1': '',
+      'Responsável Referência 1': '',
+      'Responsável Parentesco Ref. 1': '',
+      'Responsável Nome Referência 2': '',
+      'Responsável Referência 2': '',
+      'Responsável Parentesco Ref. 2': '',
+      'Responsável Instagram': '',
+      'Responsável Facebook': '',
+      'Responsável TikTok': '',
+      'Responsável CEP': '',
+      'Responsável Rua': '',
+      'Responsável Número': '',
+      'Responsável Bairro': '',
+      'Responsável Cidade': '',
+      'Responsável Estado': '',
+      'Foto Documento Responsável': '',
+      'Foto Comprovante Residência Responsável': ''
+    }));
+    setResponsavelCpfError('');
+    setLinkedRespInfo(null);
+  };
 
   const handleStartEditClient = (client) => {
     if (!client) return;
@@ -2097,6 +2265,101 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
                       </span>
                     </div>
 
+                    {/* Barra de Busca e Auto-Preenchimento de Responsável */}
+                    <div className="relative bg-slate-900/90 border border-sky-500/30 rounded-2xl p-3.5 shadow-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-black uppercase tracking-wider text-sky-300 flex items-center gap-1.5">
+                          <Search size={13} className="text-sky-400" />
+                          Buscar e Vincular Responsável já Cadastrado
+                        </label>
+                        {formData['Responsável Nome'] && (
+                          <button
+                            type="button"
+                            onClick={handleClearResponsible}
+                            className="text-[11px] font-bold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1 rounded-lg border border-red-500/20 transition-all flex items-center gap-1"
+                            title="Limpar todos os dados do responsável"
+                          >
+                            <X size={12} /> Limpar Dados do Responsável
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="relative">
+                        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sky-400/70" />
+                        <input
+                          type="text"
+                          value={respSearchQuery}
+                          onChange={(e) => {
+                            setRespSearchQuery(e.target.value);
+                            setIsRespSearchOpen(true);
+                          }}
+                          onFocus={() => setIsRespSearchOpen(true)}
+                          placeholder="Digite nome, CPF ou WhatsApp de um cliente ou responsável cadastrado..."
+                          className="w-full bg-black/60 border border-sky-500/30 hover:border-sky-500/50 rounded-xl pl-10 pr-9 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all"
+                        />
+                        {respSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRespSearchQuery('');
+                              setIsRespSearchOpen(false);
+                            }}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Dropdown de Resultados da Busca */}
+                      {isRespSearchOpen && respSearchQuery.trim().length >= 2 && (
+                        <div className="absolute z-50 left-3.5 right-3.5 top-full mt-1 max-h-64 overflow-y-auto bg-slate-950 border border-sky-500/40 rounded-xl shadow-2xl divide-y divide-white/5">
+                          {filteredResponsibles.length > 0 ? (
+                            filteredResponsibles.map((resp, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => handleSelectResponsible(resp)}
+                                className="w-full text-left p-3 hover:bg-sky-500/15 flex items-center justify-between gap-3 transition-colors group"
+                              >
+                                <div className="space-y-0.5">
+                                  <div className="text-xs font-bold text-white group-hover:text-sky-300 flex items-center gap-1.5">
+                                    <UserCheck size={13} className="text-sky-400 shrink-0" />
+                                    <span>{resp.nome}</span>
+                                    <span className="text-[9px] font-medium text-slate-400 bg-white/5 px-1.5 py-0.2 rounded border border-white/5">
+                                      {resp.origem}
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                                    {resp.cpf && <span>CPF: <strong className="text-slate-300">{resp.cpf}</strong></span>}
+                                    {resp.whatsapp && <span>Tel: <strong className="text-slate-300">{resp.whatsapp}</strong></span>}
+                                    {resp.cidade && <span>({resp.cidade})</span>}
+                                  </div>
+                                </div>
+                                <span className="text-[10px] font-bold text-sky-400 bg-sky-500/20 group-hover:bg-sky-500 group-hover:text-white px-2.5 py-1 rounded-lg border border-sky-500/30 transition-all shrink-0">
+                                  Preencher Dados
+                                </span>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="p-3 text-center text-xs text-slate-400">
+                              Nenhum cliente ou responsável encontrado para "{respSearchQuery}".
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Notificação de Responsável Vinculado */}
+                      {linkedRespInfo && formData['Responsável Nome'] && (
+                        <div className="flex items-center gap-2 text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg">
+                          <CheckCircle2 size={13} className="shrink-0" />
+                          <span>
+                            Dados vinculados com sucesso de: <strong>{formData['Responsável Nome']}</strong>. Todos os dados, endereços e referências foram preenchidos automaticamente.
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                       {/* Nome do Responsável */}
                       <div className="space-y-2 md:col-span-2">
@@ -2437,8 +2700,8 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         clientData={osClientData || {}} 
         saleData={osSaleData}
         forceNewOS={forceNewOSInModal}
-        selectedCity={normalizeStoreCity(osSaleData?.['CIDADE'] || osSaleData?.['UNIDADE'] || osSaleData?.['selectedCity'] || userCity || osClientData?.['Cidade'] || osClientData?.['CIDADE'], '')}
-        initialCity={normalizeStoreCity(osSaleData?.['CIDADE'] || osSaleData?.['UNIDADE'] || osSaleData?.['selectedCity'] || userCity || osClientData?.['Cidade'] || osClientData?.['CIDADE'], '')}
+        selectedCity={normalizeStoreCity(osSaleData?.['selectedCity'] || osSaleData?.['UNIDADE'] || osSaleData?.['LOJA'] || userCity || osSaleData?.['CIDADE'] || osClientData?.['Cidade'] || osClientData?.['CIDADE'], '')}
+        initialCity={normalizeStoreCity(osSaleData?.['selectedCity'] || osSaleData?.['UNIDADE'] || osSaleData?.['LOJA'] || userCity || osSaleData?.['CIDADE'] || osClientData?.['Cidade'] || osClientData?.['CIDADE'], '')}
         lentesData={filteredLentes}
         armacoesData={filteredArmacoes}
         salesData={salesData}
