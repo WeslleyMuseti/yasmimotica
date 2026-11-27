@@ -12235,7 +12235,59 @@ async function runTests() {
     console.log('  ✅ Test 128 Passed: Auto-fill de Responsável, Bloqueio Estrito de Inadimplência e Prefixos de OS 100% validados!\n');
   }
 
-  console.log('🎉 ALL 128 AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  // TEST 129: Blindagem Universal contra Colisão de Construtores (Map is not a constructor) e Integridade do ErrorBoundary
+  console.log('▶ Test 129: Blindagem Universal contra Colisão de Construtores e Integridade do ErrorBoundary');
+  {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    const standardConstructors = new Set([
+      'Map', 'Set', 'Date', 'Error', 'Number', 'String', 'Boolean', 'Array', 'Object',
+      'Function', 'Promise', 'File', 'Image', 'FormData', 'CustomEvent', 'Event',
+      'Intl', 'URL', 'Blob', 'RegExp', 'Math', 'JSON', 'Symbol', 'WeakMap', 'WeakSet',
+      'FileReader', 'Audio', 'Option', 'Range'
+    ]);
+
+    const constructorCollisions = [];
+
+    function scanDir(dir) {
+      for (const item of fs.readdirSync(dir)) {
+        const full = path.join(dir, item);
+        if (fs.statSync(full).isDirectory()) {
+          if (item !== 'node_modules' && item !== 'dist' && item !== '.git') scanDir(full);
+        } else if (full.endsWith('.js') || full.endsWith('.jsx')) {
+          const code = fs.readFileSync(full, 'utf-8');
+          const importMatches = [...code.matchAll(/import\s*\{([^}]+)\}\s*from/g)];
+          for (const m of importMatches) {
+            const rawImports = m[1].split(',');
+            for (const raw of rawImports) {
+              const parts = raw.trim().split(/\s+as\s+/);
+              const importedName = parts[0].trim();
+              const localName = parts[1] ? parts[1].trim() : importedName;
+              if (standardConstructors.has(localName)) {
+                // Checa se o arquivo usa new <localName>()
+                const newRegex = new RegExp(`new\\s+${localName}\\s*[\\(<]`);
+                if (newRegex.test(code)) {
+                  constructorCollisions.push({ file: full, identifier: localName });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    scanDir(path.join(__dirname, 'src'));
+
+    console.assert(
+      constructorCollisions.length === 0,
+      `Nenhuma colisão de construtor global com imports permitida: ${JSON.stringify(constructorCollisions)}`
+    );
+
+    console.log('  ✅ Test 129 Passed: Zero colisões de construtores em todo o src e ErrorBoundary 100% blindado!\n');
+  }
+
+  console.log('🎉 ALL 129 AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
 

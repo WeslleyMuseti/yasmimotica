@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  User, Phone, PhoneCall, Mail, MapPin, Map, Home, Building2, Hash, Compass, 
+  User, Phone, PhoneCall, Mail, MapPin, Map as MapIcon, Home, Building2, Hash, Compass, 
   CreditCard, CheckCircle, CheckCircle2, ArrowLeft, AtSign, PlusCircle, Users, 
   UserCheck, Download, Eye, Glasses, Tag, AlertTriangle, DollarSign, Calendar, 
   Activity, Sparkles, Layers, ShieldCheck, FileText, Clock, Edit2, Trash2, Save, Check,
@@ -2224,7 +2224,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
                       {/* Estado */}
                       <div className="space-y-2 md:col-span-1">
                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-1">
-                          <Map size={11} className="text-violet-400" /> Estado (UF)
+                          <MapIcon size={11} className="text-violet-400" /> Estado (UF)
                         </label>
                         <input 
                           type="text" 
@@ -2615,7 +2615,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
                         </div>
                         <div className="space-y-2 md:col-span-1">
                           <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-1">
-                            <Map size={11} className="text-sky-400" /> Estado
+                            <MapIcon size={11} className="text-sky-400" /> Estado
                           </label>
                           <input type="text" name="Responsável Estado" value={formData['Responsável Estado']} onChange={handleChange} placeholder="Estado" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all uppercase" maxLength={2} />
                         </div>
